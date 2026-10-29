@@ -81,9 +81,7 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: t1b + `--directive: reopen` landing (Default implements the runner
-  machinery per Research's ratified spec; Build reviews). M6 — transactions — ordered
-  after. M5 (query planner) accepted 2026-10-30.**
+- **Current milestone: M6 — transactions (t1b landed; ordered). Build's round.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -110,6 +108,16 @@ query history; hot-path rewrite in a faster language
     range predicate → full with `no-eligible-index`. `last_plan` carries reason,
     estimated_rows and per-candidate estimates — the choice is auditable post-hoc.
     142 unit tests OK, syntax 46/46, durability PASS.**
+  - **`SCORE t1.5+ (t1b landing, re-baselined #3): 50/52 (96.2%) [Δ +9 cases, +9 passes,
+    machinery added]`** — old score on old corpus: 41/43 (95.3%) at 1c24177; new score on
+    new corpus: **50/52 (96.2%) at d6d0ac6**. Cases added: 9 (five index-outcome — M4/M5
+    territory, all pass first run; four reopen — persistence now SCORED for the first
+    time: rows visible after reopen, append-after-reopen persists, catalog survives,
+    constraints survive post-reopen via error agreement). **Research's pre-registered
+    prediction (50/52, 96.2%, posted before the run) confirmed exactly.** The four
+    previously-inert reopen cases are now the mechanism's own proof of work: under the
+    old loader they passed without testing anything; under the new one they execute the
+    reopen cycle and can fail (negative controls prove it).
     - `SCORE t1.4 (M4): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe index
       choice]` — plan-level evidence instead: `tools/plan_check.py` (Default re-ran from
       cold clone: full-scan 2000 examined before, index access 1 examined after, index
@@ -123,7 +131,7 @@ query history; hot-path rewrite in a faster language
       probe). 133 unit tests, durability PASS, syntax 46/46.**
   The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
   honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
-- Tier-1 budget: **18 rounds after Steven's +6 top-up. Used: 12.** Budget rule changed by
+- Tier-1 budget: **18 rounds after Steven's +6 top-up. Used: 14.** Budget rule changed by
   Steven's standing directive ("finish up all of the milestones"): the stop-and-ask cap is
   **suspended for the rest of the project** — round counts are still logged here for
   transparency, and Default still flags anything impossible or too slow per the charter's
@@ -139,14 +147,13 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Default + Research + Build] t1b landing (next round): Default implements the runner
-   machinery per the ratified spec — `--directive: <name>` marker, error on unknown
-   directive-shaped lines, `reopen` with temp-file lifecycle, **negative-control harness
-   test included**; Research's converted t1b draft moves to `tests/corpus/t1b.txt` in the
-   same commit; one re-baseline entry (43 → 52 cases) with before/after scores; Build
-   reviews the runner diff.
-2. [Build] M6 — transactions, after t1b lands with numbers.
+1. [Build] M6 — transactions (ordered, next). Acceptance: BEGIN/COMMIT/ROLLBACK
+   observable per SQLite semantics on the corpus differential; durability tool extended
+   if rollback changes what survives; corpus re-run raw; syntax unregressed. **This is
+   the milestone engineer flagged as the storage layer's first real stress test.**
+2. [Build] M7 — write-ahead log and crash recovery, after M6.
 3. [Research] t1c (joins/aggregates/subqueries) after M8; t1d after M7; t1e after M9.
+   Tier-2 suite drafting starts BEFORE the M10+ fixes, as ratified.
 
 ## Known failures
 
@@ -259,6 +266,23 @@ query history; hot-path rewrite in a faster language
   UNIQUE-named-zzz vs regular-named-aaa), non-selective fallback (bucket == table →
   scan), range/OR exclusion. Planner rule documented in docs/planner.md — "the planner
   picked it" is no longer an unexplained answer.
+- 2026-10-30 (t1b landing — re-baseline event #3, executed by Default per the standing
+  directive): runner machinery implemented — `--directive: reopen` is POSITIONAL
+  (phases split at markers; multi-reopen cases supported; SQLite side = one CLI
+  invocation per phase on a temp file, MiniDB side = Database(path)/close/reopen),
+  `--directive: sort` implemented case-level (sort by JSON repr — no inert members in
+  the known set), loader errors on unknown marker values and near-miss keys
+  (edit distance ≤ 1: `--reopn:`), **prose `-- reopen: ...` lines stay comments** (the
+  marker is the only directive syntax; corpus prose predates it — reconciled reading of
+  the error-on-unknown rule, which cannot mean failing on the draft's own case
+  descriptions). Negative control: 12 new harness tests, including breaking reopen on
+  EACH side independently and asserting the constraints-survive case FAILS.
+  Default's own landing bug found and fixed before commit: the first test asserted
+  surviving rows via a case whose honest outcome is ERROR AGREEMENT (the violating
+  insert aborts the phase before any SELECT) — the runner was right, the test's
+  expectation was wrong; fixed by testing both shapes (rows-visible and
+  error-agreement). Corpus: t1b 9/9 first run, 50/52 (96.2%), research's prediction
+  exact. Build reviews the full runner diff next round.
 - 2026-10-30 (t1b draft verification): Default ran Research's parked `docs/t1b-draft.txt`
   (9 cases, outside the runner glob — parking confirmed: main run still 41/43) through the
   CURRENT runner: **4/9**. The five index cases fail correctly per decision 2
