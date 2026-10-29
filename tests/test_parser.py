@@ -54,10 +54,19 @@ class TestCreateTable(unittest.TestCase):
             parse("CREATE TABLE t (id WIDGET)")
         self.assertIn("unknown type", ctx.exception.detail)
 
-    def test_only_create_table_is_accepted(self):
+    def test_create_index_is_accepted(self):
+        stmt = parse("CREATE INDEX i ON t (id)")
+        self.assertEqual((stmt.name, stmt.table, stmt.columns, stmt.unique), ("i", "t", ["id"], False))
+
+    def test_create_unique_index_is_accepted(self):
+        stmt = parse("CREATE UNIQUE INDEX i ON t (a, b)")
+        self.assertTrue(stmt.unique)
+        self.assertEqual(stmt.columns, ["a", "b"])
+
+    def test_other_create_forms_are_rejected(self):
         with self.assertRaises(ParseError) as ctx:
-            parse("CREATE INDEX i ON t (id)")
-        self.assertIn("CREATE TABLE", ctx.exception.detail)
+            parse("CREATE VIEW v AS SELECT * FROM t")
+        self.assertIn("CREATE TABLE and CREATE INDEX", ctx.exception.detail)
 
 
 class TestInsert(unittest.TestCase):

@@ -101,6 +101,44 @@ class Column:
                 self.check_text = constraint.text
 
 
+class Index:
+    """Hash index over one or more columns (milestone 4).
+
+    Keys are the column values in index order. NULLs never conflict under SQLite's uniqueness
+    rules, so rows containing a NULL key are indexed but exempt from the unique check.
+    """
+
+    __slots__ = ("name", "table", "columns", "column_names", "unique", "map")
+
+    def __init__(self, name, table, columns, column_names, unique):
+        self.name = name
+        self.table = table
+        self.columns = columns              # positional indices into the row
+        self.column_names = column_names
+        self.unique = unique
+        self.map = {}                       # key tuple -> set of rowids
+
+    def key_for(self, values):
+        return tuple(values[i] for i in self.columns)
+
+    def _conflict_message(self):
+        # SQLite names every column of the index: "UNIQUE constraint failed: t.a, t.b"
+        return ", ".join(f"{self.table}.{name}" for name in self.column_names)
+
+    def check_unique(self, values):
+        """Raise exactly as SQLite does; NULLs never conflict."""
+        key = self.key_for(values)
+        if self.unique and not any(v is None for v in key) and self.map.get(key):
+            raise ExecError(f"UNIQUE constraint failed: {self._conflict_message()}")
+
+    def add(self, rowid, values):
+        self.check_unique(values)
+        self.map.setdefault(self.key_for(values), set()).add(rowid)
+
+    def lookup(self, key):
+        return self.map.get(key, set())
+
+
 class Table:
     def __init__(self, name, columns, entry=None):
         self.name = name
@@ -108,6 +146,8 @@ class Table:
         self.rows = []                          # in-memory rows; unused when `entry` is set
         self.entry = entry                      # catalog entry when backed by disk
         self.index_of = {c.name.lower(): i for i, c in enumerate(columns)}
+        self.indexes = {}                       # lower(index name) -> Index
+        self.next_rowid = 1                     # in-memory rowids; disk keeps its own counter
 
     @property
     def on_disk(self):
@@ -130,6 +170,7 @@ class Database:
         self.storage = DiskStorage(path) if path else None
         self.tables = {}
         self._sql = None
+        self.last_plan = None
         if self.storage is not None:
             self._load_schema()
 
@@ -138,7 +179,9 @@ class Database:
         for entry in self.storage.catalog.values():
             statement = parse(entry["sql"])
             columns = [Column(c) for c in statement.columns]
-            self.tables[entry["name"].lower()] = Table(entry["name"], columns, entry)
+            table = Table(entry["name"], columns, entry)
+            self.tables[entry["name"].lower()] = table
+            self._rebuild_indexes(table)
 
     def close(self):
         if self.storage is not None:
@@ -159,6 +202,8 @@ class Database:
             return self._create(statement)
         if isinstance(statement, ast.Insert):
             return self._insert(statement)
+        if isinstance(statement, ast.CreateIndex):
+            return self._create_index(statement)
         if isinstance(statement, ast.Select):
             return self._select(statement)
         raise ExecError(f"unsupported statement {type(statement).__name__}")
@@ -194,6 +239,57 @@ class Database:
             return self.tables[name.lower()]
         except KeyError:
             raise ExecError(f"no such table: {name}") from None
+
+    def _create_index(self, node: ast.CreateIndex):
+        table = self.table(node.table)
+        key = node.name.lower()
+        if key in table.indexes:
+            if node.if_not_exists:
+                return None
+            raise ExecError(f"index {node.name} already exists")
+
+        positions = []
+        names = []
+        for column in node.columns:
+            position = table.index_of.get(column.lower())
+            if position is None:
+                raise ExecError(f"no such column: {column}")
+            positions.append(position)
+            names.append(column)
+
+        index = Index(node.name, table.name, positions, names, node.unique)
+        # Build against existing rows first: a UNIQUE index over duplicate data must fail, and a
+        # failed CREATE must leave no half-built index behind.
+        for rowid, values in self._rows_with_ids(table):
+            index.add(rowid, values)
+        table.indexes[key] = index
+        if self.storage is not None:
+            self._persist_indexes(table)
+        return None
+
+    def _persist_indexes(self, table):
+        if self.storage is None:
+            return
+        table.entry["indexes"] = [
+            {"name": index.name, "columns": [table.columns[i].name for i in index.columns],
+             "unique": index.unique}
+            for index in table.indexes.values()
+        ]
+        self.storage.save_catalog_entry(table.entry)
+
+    def _rebuild_indexes(self, table):
+        for definition in table.entry.get("indexes", []):
+            names = definition["columns"]
+            positions = [table.index_of[c.lower()] for c in names]
+            index = Index(definition["name"], table.name, positions, names, definition["unique"])
+            for rowid, values in self._rows_with_ids(table):
+                index.add(rowid, values)
+            table.indexes[definition["name"].lower()] = index
+
+    def _rows_with_ids(self, table):
+        if table.on_disk:
+            return list(self.storage.iter_rows_with_ids(table.entry))
+        return list(enumerate(table.rows, start=1))
 
     # -- INSERT --------------------------------------------------------------
     def _insert(self, node: ast.Insert):
@@ -235,16 +331,60 @@ class Database:
                     for existing in self._rows(table):
                         if existing[i] == values[i]:
                             raise ExecError(f"UNIQUE constraint failed: {table.name}.{column.name}")
+            # Unique indexes are checked before the row lands, so a rejected insert leaves
+            # neither a row nor a dangling index entry.
+            for index in table.indexes.values():
+                index.check_unique(values)
             if table.on_disk:
                 try:
-                    self.storage.insert_row(table.entry, values)
+                    rowid = self.storage.insert_row(table.entry, values)
                 except StorageError as exc:
                     raise ExecError(str(exc)) from None
             else:
                 table.rows.append(tuple(values))
+                rowid = table.next_rowid
+                table.next_rowid += 1
+            for index in table.indexes.values():
+                index.add(rowid, values)
         return len(node.rows)
 
     # -- SELECT --------------------------------------------------------------
+    def _row_by_id(self, table, rowid):
+        if table.on_disk:
+            return self.storage.search_row(table.entry, rowid)
+        return table.rows[rowid - 1]
+
+    def _pick_index(self, table, where):
+        """Only conjunctions of column = literal are index-eligible.
+
+        That is a deliberate floor for M4: OR, ranges and expressions stay full scans until the
+        cost-based planner in M21 can reason about them.
+        """
+        equalities = {}
+
+        def collect(node):
+            if isinstance(node, ast.BinaryOp) and node.op == "AND":
+                collect(node.left)
+                collect(node.right)
+            elif isinstance(node, ast.BinaryOp) and node.op == "=":
+                left, right = node.left, node.right
+                if isinstance(right, ast.ColumnRef) and isinstance(left, ast.Literal):
+                    left, right = right, left
+                if isinstance(left, ast.ColumnRef) and isinstance(right, ast.Literal):
+                    position = table.index_of.get(left.name.lower())
+                    if position is not None:
+                        equalities[position] = right.value
+
+        collect(where)
+        best = None
+        for index in table.indexes.values():
+            if all(position in equalities for position in index.columns):
+                if best is None or len(index.columns) > len(best.columns):
+                    best = index
+        if best is None:
+            return None, None
+        return best, tuple(equalities[position] for position in best.columns)
+
     def _select(self, node: ast.Select):
         table = self.table(node.table)
         # Column headings are a property of the statement, not of the rows: an empty result
@@ -256,8 +396,21 @@ class Database:
             else:
                 items.append(item.alias or _describe(item.expr))
 
+        index, key = (None, None)
+        if node.where is not None:
+            index, key = self._pick_index(table, node.where)
+
+        if index is not None:
+            candidates = [(rowid, self._row_by_id(table, rowid)) for rowid in sorted(index.lookup(key))]
+            access, examined, index_name = "index", len(candidates), index.name
+        else:
+            candidates = list(self._rows_with_ids(table))
+            access, examined, index_name = "full", len(candidates), None
+
         rows = []
-        for row in self._rows(table):
+        for _, row in candidates:
+            if row is None:
+                continue
             env = dict(zip((c.name.lower() for c in table.columns), row))
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 continue
@@ -268,6 +421,9 @@ class Database:
                 else:
                     projected.append(self._eval(item.expr, table, env))
             rows.append(tuple(projected))
+
+        self.last_plan = {"table": table.name, "access": access, "index": index_name,
+                          "rows_examined": examined, "rows_matched": len(rows)}
 
         if node.distinct:
             seen, unique = set(), []

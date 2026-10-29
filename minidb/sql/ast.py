@@ -78,6 +78,16 @@ class CreateTable(Node):
 
 
 @dataclass
+class CreateIndex(Node):
+    name: str
+    table: str
+    columns: list            # list[str]
+    unique: bool = False
+    if_not_exists: bool = False
+    sql: "str | None" = None
+
+
+@dataclass
 class Insert(Node):
     table: str
     columns: list          # list[str] or None

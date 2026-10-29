@@ -29,12 +29,17 @@ class DiskStorage:
             entry["key"] = key
             self.catalog[entry["name"].lower()] = entry
 
+    def save_catalog_entry(self, entry):
+        """Public alias: the engine persists index definitions through this."""
+        self._save_catalog_entry(entry)
+
     def _save_catalog_entry(self, entry):
         payload = json.dumps({
             "name": entry["name"],
             "sql": entry["sql"],
             "root": entry["root"],
             "next_rowid": entry["next_rowid"],
+            "indexes": entry.get("indexes", []),
         }).encode("utf-8")
         new_root = self.tree.insert(self.pager.catalog_root, entry["key"], payload)
         if new_root != self.pager.catalog_root:
@@ -50,7 +55,7 @@ class DiskStorage:
             raise StorageError(f"table {name} already exists")
         root = self.tree.create()
         entry = {"name": name, "sql": sql, "root": root,
-                 "next_rowid": 1, "key": self._next_catalog_key()}
+                 "next_rowid": 1, "key": self._next_catalog_key(), "indexes": []}
         self.catalog[name.lower()] = entry
         self._save_catalog_entry(entry)
         return entry
@@ -73,6 +78,14 @@ class DiskStorage:
     def iter_rows(self, entry):
         for _, payload in self.tree.scan(entry["root"]):
             yield record.decode(payload)
+
+    def iter_rows_with_ids(self, entry):
+        for rowid, payload in self.tree.scan(entry["root"]):
+            yield rowid, record.decode(payload)
+
+    def search_row(self, entry, rowid):
+        payload = self.tree.search(entry["root"], rowid)
+        return None if payload is None else record.decode(payload)
 
     # -- lifecycle ----------------------------------------------------------
     def close(self):

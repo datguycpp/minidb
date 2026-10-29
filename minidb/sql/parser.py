@@ -141,10 +141,18 @@ class Parser:
     # -- CREATE TABLE ----------------------------------------------------------
     def parse_create(self):
         start = self.expect_keyword("CREATE")
-        if self.at_keyword("TABLE"):
-            pass
-        else:
-            raise ParseError("only CREATE TABLE is supported", self.tok)
+        unique = False
+        if self.accept_keyword("UNIQUE"):
+            unique = True
+            if not self.at_keyword("INDEX"):
+                raise ParseError("expected INDEX after UNIQUE", self.tok)
+        if self.at_keyword("INDEX"):
+            self.advance()
+            return self.parse_create_index(unique)
+        if unique:
+            raise ParseError("expected INDEX after UNIQUE", self.tok)
+        if not self.at_keyword("TABLE"):
+            raise ParseError("only CREATE TABLE and CREATE INDEX are supported", self.tok)
         self.advance()
 
         if_not_exists = False
@@ -167,6 +175,27 @@ class Parser:
         self.expect_punct(")")
         statement = ast.CreateTable(name=name, columns=columns, if_not_exists=if_not_exists)
         # The catalog keeps the CREATE statement verbatim so reopening needs no AST serialiser.
+        statement.sql = self.source.strip() if self.source else None
+        return statement
+
+    def parse_create_index(self, unique):
+        if_not_exists = False
+        if self.accept_keyword("IF"):
+            self.expect_keyword("NOT")
+            self.expect_keyword("EXISTS")
+            if_not_exists = True
+        name = self.parse_identifier("index name")
+        self.expect_keyword("ON")
+        table = self.parse_identifier("table name")
+        self.expect_punct("(")
+        columns = [self.parse_identifier("column name")]
+        self.accept_keyword("ASC") or self.accept_keyword("DESC")
+        while self.accept_punct(","):
+            columns.append(self.parse_identifier("column name"))
+            self.accept_keyword("ASC") or self.accept_keyword("DESC")
+        self.expect_punct(")")
+        statement = ast.CreateIndex(name=name, table=table, columns=columns,
+                                    unique=unique, if_not_exists=if_not_exists)
         statement.sql = self.source.strip() if self.source else None
         return statement
 
