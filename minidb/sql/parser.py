@@ -13,6 +13,7 @@ RESERVED_STARTERS = {"CREATE", "INSERT", "SELECT"}
 # Words that cannot be bare identifiers in this subset. SQLite needs them quoted too, so
 # accepting `FROM where` would parse a statement no real engine accepts.
 RESERVED_IDENTIFIERS = RESERVED_STARTERS | {
+    "BEGIN", "COMMIT", "ROLLBACK", "END", "TRANSACTION", "DEFERRED", "IMMEDIATE", "EXCLUSIVE",
     "FROM", "WHERE", "INTO", "VALUES", "TABLE", "AND", "OR", "NOT", "IS", "NULL",
     "PRIMARY", "KEY", "UNIQUE", "DEFAULT", "CHECK", "AS", "DISTINCT", "TRUE", "FALSE",
 }
@@ -128,6 +129,12 @@ class Parser:
             stmt = self.parse_create()
         elif self.at_keyword("INSERT"):
             stmt = self.parse_insert()
+        elif self.at_keyword("BEGIN"):
+            stmt = self.parse_begin()
+        elif self.at_keyword("COMMIT", "END"):
+            stmt = self.parse_commit()
+        elif self.at_keyword("ROLLBACK"):
+            stmt = self.parse_rollback()
         elif self.at_keyword("SELECT"):
             stmt = self.parse_select()
         else:
@@ -137,6 +144,25 @@ class Parser:
         if self.tok.kind != "EOF":
             raise ParseError(f"unexpected trailing input {self.describe(self.tok)}", self.tok)
         return stmt
+
+    # -- transactions ----------------------------------------------------------
+    def parse_begin(self):
+        self.expect_keyword("BEGIN")
+        mode = None
+        if self.at_keyword("DEFERRED", "IMMEDIATE", "EXCLUSIVE"):
+            mode = self.advance().upper
+        self.accept_keyword("TRANSACTION")
+        return ast.Begin(mode=mode)
+
+    def parse_commit(self):
+        self.advance()                      # COMMIT or END
+        self.accept_keyword("TRANSACTION")
+        return ast.Commit()
+
+    def parse_rollback(self):
+        self.expect_keyword("ROLLBACK")
+        self.accept_keyword("TRANSACTION")
+        return ast.Rollback()
 
     # -- CREATE TABLE ----------------------------------------------------------
     def parse_create(self):

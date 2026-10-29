@@ -78,6 +78,21 @@ class CreateTable(Node):
 
 
 @dataclass
+class Begin(Node):
+    mode: "str | None" = None      # DEFERRED | IMMEDIATE | EXCLUSIVE (parsed, not yet meaningful)
+
+
+@dataclass
+class Commit(Node):
+    pass
+
+
+@dataclass
+class Rollback(Node):
+    pass
+
+
+@dataclass
 class CreateIndex(Node):
     name: str
     table: str

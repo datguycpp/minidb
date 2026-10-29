@@ -87,6 +87,28 @@ class DiskStorage:
         payload = self.tree.search(entry["root"], rowid)
         return None if payload is None else record.decode(payload)
 
+    # -- transactions -------------------------------------------------------
+    def snapshot(self):
+        """Whole-file image. Crude, but honest: M6 promises atomicity, not cheap rollback.
+
+        Copying the file also captures the header, so restoring cannot leave page_count or
+        catalog_root describing a file that no longer exists in that shape.
+        """
+        fh = self.pager.fh
+        fh.flush()
+        fh.seek(0)
+        return {"bytes": fh.read()}
+
+    def restore(self, snapshot):
+        fh = self.pager.fh
+        fh.seek(0)
+        fh.truncate()
+        fh.write(snapshot["bytes"])
+        fh.flush()
+        self.pager._read_header()
+        self.catalog = {}
+        self._load_catalog()
+
     # -- lifecycle ----------------------------------------------------------
     def close(self):
         self.pager.close()

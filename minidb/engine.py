@@ -9,6 +9,8 @@ Error text is part of the contract: SQLite's messages are what the conformance h
 compares, so they are produced here rather than reworded by a caller.
 """
 
+import copy
+
 from .sql import ast
 from .storage.disk import DiskStorage
 from .storage.pager import StorageError
@@ -171,6 +173,7 @@ class Database:
         self.tables = {}
         self._sql = None
         self.last_plan = None
+        self.tx_snapshot = None
         if self.storage is not None:
             self._load_schema()
 
@@ -183,7 +186,36 @@ class Database:
             self.tables[entry["name"].lower()] = table
             self._rebuild_indexes(table)
 
+    # -- transactions --------------------------------------------------------
+    def _begin(self):
+        if self.tx_snapshot is not None:
+            raise ExecError("cannot start a transaction within a transaction")
+        self.tx_snapshot = (self.storage.snapshot() if self.storage is not None
+                            else copy.deepcopy(self.tables))
+        return None
+
+    def _commit(self):
+        if self.tx_snapshot is None:
+            raise ExecError("cannot commit - no transaction is active")
+        self.tx_snapshot = None
+        return None
+
+    def _rollback(self):
+        if self.tx_snapshot is None:
+            raise ExecError("cannot rollback - no transaction is active")
+        if self.storage is not None:
+            self.storage.restore(self.tx_snapshot)
+            self.tables = {}
+            self._load_schema()
+        else:
+            self.tables = self.tx_snapshot
+        self.tx_snapshot = None
+        return None
+
     def close(self):
+        # SQLite rolls back an open transaction when the connection closes; match it.
+        if self.tx_snapshot is not None:
+            self._rollback()
         if self.storage is not None:
             self.storage.close()
 
@@ -202,6 +234,12 @@ class Database:
             return self._create(statement)
         if isinstance(statement, ast.Insert):
             return self._insert(statement)
+        if isinstance(statement, ast.Begin):
+            return self._begin()
+        if isinstance(statement, ast.Commit):
+            return self._commit()
+        if isinstance(statement, ast.Rollback):
+            return self._rollback()
         if isinstance(statement, ast.CreateIndex):
             return self._create_index(statement)
         if isinstance(statement, ast.Select):
