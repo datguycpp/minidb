@@ -1,0 +1,115 @@
+-- t1a: DDL/DML/SELECT-WHERE basics. Owner: Research. Spec: docs/conformance-spec.md
+-- src: authored   tier: t1 (milestones 1-2 scope + in-scope deferred failures)
+-- Expected results are computed at run time against the pinned sqlite3 CLI.
+-- Cases deliberately include not-yet-implemented features: they fail (decision 2).
+
+-- Rejection agreement: SQLite's error text vs ours, byte-identical after framing strip.
+
+CREAT TABLE t (a INT);
+
+SELECT * FRM t;
+
+SELECT FROM t;
+
+-- In-scope known failure (flagged at M1): SELECT without FROM is valid SQLite.
+
+SELECT 1;
+
+SELECT 1, 2;
+
+-- Parser quirk, ground truth (decision 3): double-quoted token with no matching
+-- column resolves to a string literal, not an error.
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'apple');
+SELECT * FROM t WHERE name = "apple";
+
+-- Comparison operators: <, <=, <>, != (the behaviour corpus covers >, >=, =).
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, 'b');
+INSERT INTO t VALUES (3, 'c');
+SELECT * FROM t WHERE id < 3;
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT * FROM t WHERE id <= 2;
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT * FROM t WHERE id <> 2;
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT * FROM t WHERE id != 1;
+
+-- NOT in a WHERE predicate.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT * FROM t WHERE NOT id = 2;
+
+-- Negative literals in predicates.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (-5);
+INSERT INTO t VALUES (3);
+SELECT * FROM t WHERE id > -1;
+
+-- REAL column: float round-trip through JSON on both sides (normalization rule).
+
+CREATE TABLE f (x REAL);
+INSERT INTO f VALUES (1.5);
+INSERT INTO f VALUES (2);
+SELECT x FROM f WHERE x = 1.5;
+
+-- Escaped single quote inside a string literal.
+
+CREATE TABLE t (name TEXT);
+INSERT INTO t VALUES ('it''s');
+SELECT * FROM t WHERE name = 'it''s';
+
+-- Three-predicate AND, and string ordering comparison.
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'apple');
+INSERT INTO t VALUES (2, 'banana');
+INSERT INTO t VALUES (3, 'cherry');
+SELECT * FROM t WHERE id >= 1 AND id <= 3 AND name IS NOT NULL;
+
+CREATE TABLE t (name TEXT);
+INSERT INTO t VALUES ('apple');
+INSERT INTO t VALUES ('banana');
+SELECT * FROM t WHERE name > 'a';
+
+-- No match: empty result set, not an error.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+SELECT * FROM t WHERE id > 99;
+
+-- Projection column order is part of the result.
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'a');
+SELECT name, id FROM t;
+
+-- Partial-column insert succeeds: omitted nullable columns become NULL
+-- (the complement to the NOT NULL / arity / unknown-column error cases).
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t (id) VALUES (1);
+SELECT * FROM t;
+
+-- Semantic rejection agreement: creating twice.
+
+CREATE TABLE t (id INTEGER);
+CREATE TABLE t (id INTEGER);
+SELECT * FROM t;
