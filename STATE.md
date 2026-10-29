@@ -88,12 +88,17 @@ query history; hot-path rewrite in a faster language
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
   - `SCORE t1.2 (re-baselined): 35/41 (85.4%) [Δ −6 vs pre-corpus 21/21 behaviour; +20
     cases]` — corpus `behavior.txt (21) + t1a.txt (20)`, corpus revision f12cee8
-  - **`SCORE t1.2.5: 39/41 (95.1%) [Δ +4 vs re-baselined 35/41]`** — syntax unregressed
+  - `SCORE t1.2.5: 39/41 (95.1%) [Δ +4 vs re-baselined 35/41]` — syntax unregressed
     (46/46), 94 unit tests OK, corpus revision f12cee8, reference SQLite 3.54.0.
+  - **`SCORE t1.2.5 (re-baselined #2): 41/43 (95.3%) [Δ +2 cases, engine unchanged]`** —
+    old score on old corpus: 39/41 (95.1%) at corpus revision f12cee8; new score on new
+    corpus: 41/43 (95.3%) at 1c24177. Cases added: 2 (bracket/backtick quote-style).
+    **Engine unchanged, no code diff — the +0.2pp is pure corpus growth, not progress.**
   The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
   honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
-- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 7. **Warn at 9.**
-  Checkpoint reviews don't count against the budget.
+- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 8. **Warn at 9.**
+  Checkpoint reviews don't count against the budget. **M3 capped at 2 rounds by Default;
+  if page-format decisions would cost more, Default flags before spending.**
 - Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
   gate as planned (hot-path rewrite is M38).
 - Reference caveat: box Python `sqlite3` module is 3.53.1; the harness deliberately shells
@@ -162,6 +167,13 @@ query history; hot-path rewrite in a faster language
   5e62a3c commit message was correct — the diff carried spec + runner only, not t1a
   (Build's f12cee8 already had it); logged as a message-accuracy lesson, not corrected
   retroactively.
+- 2026-10-30 (re-baseline event #2): t1a grew 20 → 22 cases (quote-style identifiers).
+  Old score 39/41 (95.1%) at corpus f12cee8; new 41/43 (95.3%) at 1c24177. **Cases added,
+  engine unchanged** — a score rise with zero code diff is corpus growth, recorded here
+  so no reader mistakes it for progress. Both new cases pass on first run (Build had
+  implemented the quote-style distinction at M2.5); the `-dirty` corpus-revision suffix
+  was observed live on the uncommitted edit before commit — mechanism validated in the
+  field, not just in tests.
 - 2026-10-30 (CHECKPOINT 1): three milestones complete (M1 parser, M2 in-memory tables,
   M2.5 error wording). Score trajectory 35/41 → 39/41 (95.1%) behaviour, 46/46 syntax.
   Remaining known failures: 2 corpus cases (SELECT-without-FROM, M10) + features not yet
