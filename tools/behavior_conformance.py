@@ -175,7 +175,7 @@ def load_cases(path):
     """
     cases = []
     phases, case_directives = [[]], set()
-    saw_marker_line = False
+    saw_directive_marker = False
 
     def flush(lineno):
         nonlocal phases, case_directives
@@ -197,9 +197,9 @@ def load_cases(path):
                 flush(lineno)
                 continue
             if stripped.startswith("--"):
-                saw_marker_line = True
                 m = DIRECTIVE_RE.match(stripped)
                 if m:
+                    saw_directive_marker = True
                     name = m.group(1)
                     if name not in KNOWN_DIRECTIVES:
                         raise SystemExit(
@@ -227,7 +227,7 @@ def load_cases(path):
                                 f"directive — use `--directive: {near[0]}`")
                 continue  # plain comment (provenance headers, case descriptions)
             phases[-1].append(stripped.rstrip(";").strip())
-    if not saw_marker_line and not any(phases):
+    if not saw_directive_marker and not any(phases):
         raise SystemExit(f"{path}: no cases found (file is empty or comment-only)")
     flush(lineno + 1)
     return cases
