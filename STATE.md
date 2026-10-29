@@ -81,9 +81,8 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M4 — indexes (M3 accepted 2026-10-30). Acceptance rider: any
-  "index works" claim needs a plan-level artifact; the score alone cannot prove index
-  choice (spec: what the corpus cannot observe).**
+- **Current milestone: TIER-1 LADDER PAUSED at the budget cap (12/12) after M4's
+  acceptance — M5 (query planner) ordered but NOT started; resumes on Steven's top-up.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -101,12 +100,23 @@ query history; hot-path rewrite in a faster language
     append-after-reopen persisted; plus Default's own probe — CHECK constraint enforced
     identically after reopen). Syntax 46/46, 114 unit tests OK, corpus revision 1c24177
     (engine-only commits, correctly unchanged).
+    - `SCORE t1.4 (M4): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe index
+      choice]` — plan-level evidence instead: `tools/plan_check.py` (Default re-ran from
+      cold clone: full-scan 2000 examined before, index access 1 examined after, index
+      chosen for equality). **Default's additional plan probes via `last_plan`
+      introspection: prefix-only on a composite index → full (no partial-index results),
+      both columns constrained → index, OR predicate → full, single-column equality →
+      index. Message conformance against the pinned binary: composite violation =
+      `UNIQUE constraint failed: t.a, t.b` (exact), create-unique-over-duplicates =
+      `UNIQUE constraint failed: t.id` (exact), two NULLs coexist under UNIQUE (exact),
+      failed create leaves no index registered (dup insert succeeds afterwards — Default
+      probe). 133 unit tests, durability PASS, syntax 46/46.**
   The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
   honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
-- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 11. **WARN —
-  one round left; top-up ask issued with the t1b verification.** Counting rule (Default,
-  ruled at M3): a milestone is one round regardless of commit count; checkpoint reviews
-  exempt. M4 build = round 12; M4 review and everything after need Steven's top-up.
+- Tier-1 budget: **12 team rounds. Used: 12 — CAP REACHED.** Ladder paused after M4's
+  acceptance; **top-up ask re-issued to Steven (Default recommends +6: M4 review exempt,
+  M5 build+review, t1b/`--reopen` landing, M6 build).** Counting rule (Default, ruled at
+  M3): a milestone is one round regardless of commit count; checkpoint reviews exempt.
 - Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
   gate as planned (hot-path rewrite is M38).
 - Reference caveat: box Python `sqlite3` module is 3.53.1; the harness deliberately shells
@@ -116,12 +126,16 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M4 — indexes (ordered). Acceptance: corpus re-run raw output, syntax
-   unregressed, uniqueness checks no longer full-scan (M3 limit), and the plan-level
-   artifact rider.
-2. [Build] M5 — query planner (index vs full scan), after M4 lands with numbers.
-3. [Research] t1b tranche + `--reopen` directive implementation, lands after M5 —
-   as its own reviewed runner change, not bolted onto M4.
+1. [Build] M5 — query planner (index vs full scan). Ordered; **NOT started — ladder
+   paused at the budget cap.** Plan machinery exists (`last_plan`) from M4; M5 turns
+   eligibility into a real choice layer.
+2. [Research] t1b tranche + `--reopen` implementation after M5 — **landing requirements
+   now two:** (a) the negative-control harness test (break reopen, assert the
+   constraints-survive case fails); (b) directive syntax must be a distinct marker (e.g.
+   `--directive: reopen`) and the loader must ERROR on anything directive-shaped that
+   isn't in the known set — silently ignoring directive-looking lines is a ratified bug,
+   not a feature (Build's amendment, Default-ratified; spec wording Research's).
+3. [Build] M6 — transactions, after M5 lands with numbers.
 
 ## Known failures
 
@@ -137,7 +151,6 @@ query history; hot-path rewrite in a faster language
   quirks, flagged rather than assumed correct.
 - No crash safety: writes are write-through, fsync only on clean close — M7 (WAL) owns.
 - Rows larger than a page raise `row too large` — M20 (overflow pages) owns.
-- Uniqueness checks scan the whole table — M4 (indexes) owns closing this.
 
 ## Known divergences
 
@@ -207,6 +220,18 @@ query history; hot-path rewrite in a faster language
   ratified: page-0 header, B+tree with leftmost-pointer interior nodes, deliberately-
   absent table maps every gap to its owning milestone. M3 counted as ONE round per the
   new counting rule (milestone = one round regardless of commit count).
+- 2026-10-30 (M4): M4 **accepted** — cold-clone reproduction (133 tests OK, syntax 46/46,
+  behaviour 41/43, durability PASS). Every message claim probed against the pinned
+  binary (composite UNIQUE wording, NULL exemption, create-over-dup error text — all
+  exact) and the failed-create-leaves-no-index behavior probed on the engine (dup insert
+  succeeds after the failed create). Plan eligibility claims verified via `last_plan`:
+  prefix fallback, full-composite use, OR fallback, single-column use — all as stated.
+  Index definitions persist / structures rebuild ratified (a second structure that can
+  disagree with data pre-WAL is worse than a slow scan — documented in the format doc).
+  M4 closes the M3 uniqueness-scan limit. **Directive-syntax amendment ratified for the
+  t1b landing: distinct marker + error on unknown directive-shaped lines** (Build's
+  amendment to Research's negative-control requirement). Round 12 consumed; ladder
+  paused pending top-up.
 - 2026-10-30 (t1b draft verification): Default ran Research's parked `docs/t1b-draft.txt`
   (9 cases, outside the runner glob — parking confirmed: main run still 41/43) through the
   CURRENT runner: **4/9**. The five index cases fail correctly per decision 2
