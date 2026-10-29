@@ -103,12 +103,10 @@ query history; hot-path rewrite in a faster language
     (engine-only commits, correctly unchanged).
   The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
   honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
-- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 10. **WARN —
-  cap forecast at M4's review.** Counting rule (Default, ruled at M3): a milestone is one
-  round regardless of commit count; checkpoint reviews exempt. M4 build = round 11,
-  M4 review = round 12 → Default stops and asks Steven to top up before that review.
-  M3 capped at 2 rounds by Default; if page-format decisions would cost more, Default
-  flags before spending.
+- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 11. **WARN —
+  one round left; top-up ask issued with the t1b verification.** Counting rule (Default,
+  ruled at M3): a milestone is one round regardless of commit count; checkpoint reviews
+  exempt. M4 build = round 12; M4 review and everything after need Steven's top-up.
 - Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
   gate as planned (hot-path rewrite is M38).
 - Reference caveat: box Python `sqlite3` module is 3.53.1; the harness deliberately shells
@@ -209,3 +207,16 @@ query history; hot-path rewrite in a faster language
   ratified: page-0 header, B+tree with leftmost-pointer interior nodes, deliberately-
   absent table maps every gap to its owning milestone. M3 counted as ONE round per the
   new counting rule (milestone = one round regardless of commit count).
+- 2026-10-30 (t1b draft verification): Default ran Research's parked `docs/t1b-draft.txt`
+  (9 cases, outside the runner glob — parking confirmed: main run still 41/43) through the
+  CURRENT runner: **4/9**. The five index cases fail correctly per decision 2
+  (`near "UNIQUE": syntax error` etc. — no CREATE INDEX until M4). **The four `--reopen`
+  cases PASS silently** — the current loader treats `--` lines as comments, so the
+  directive is inert and the cases run as plain sequential statements against in-memory
+  engines. Research's parking rationale ("would fail for the wrong reason") is therefore
+  **empirically backwards: accidental early inclusion would inflate the score with fake
+  passes, not fail loudly** — the parking is right, but for the opposite reason.
+  **Ratified requirement for the `--reopen` implementation (M5+, Research-owned spec
+  wording): the directive must ship with a negative control — a harness test that breaks
+  the reopen step and asserts the constraints-survive case FAILS — or four corpus cases
+  can silently no-op forever.**
