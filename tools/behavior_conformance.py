@@ -11,6 +11,7 @@ already gives typed values, so the only rewrite is stripping the CLI's error fra
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -24,7 +25,13 @@ sys.path.insert(0, ROOT)
 from minidb.engine import Database, ExecError  # noqa: E402
 from minidb.sql.parser import ParseError, parse  # noqa: E402
 
-CORPUS = os.path.join(ROOT, "tests", "corpus", "behavior.txt")
+CORPUS_DIR = os.path.join(ROOT, "tests", "corpus")
+# The tier-1 suite is everything that uses the blank-line case format. `syntax.txt` deliberately
+# does NOT match this: it is one-statement-per-line with `#!` reject markers, consumed by
+# tools/syntax_conformance.py, and feeding it to this runner would produce nonsense.
+DEFAULT_CORPORA = ["behavior.txt"] + sorted(
+    os.path.basename(p) for p in glob.glob(os.path.join(CORPUS_DIR, "t1*.txt"))
+)
 PINNED = "3.54.0"
 
 # The CLI frames errors differently per class: "Error: near line 1: ...", "Parse error: ...",
@@ -110,6 +117,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--corpus", action="append", metavar="PATH",
+                    help="corpus file or glob; repeatable. Default: behavior.txt + t1*.txt")
     args = ap.parse_args()
 
     if shutil.which("sqlite3") is None:
@@ -117,13 +126,30 @@ def main():
         return 2
 
     version = sqlite_version()
-    cases = load_cases(CORPUS)
+
+    paths = []
+    for pattern in (args.corpus or DEFAULT_CORPORA):
+        pattern = pattern if os.path.isabs(pattern) or os.sep in pattern else os.path.join(CORPUS_DIR, pattern)
+        matched = sorted(glob.glob(pattern))
+        if not matched:
+            print(f"no corpus files matched {pattern!r}", file=sys.stderr)
+            return 2
+        paths.extend(matched)
+
     results = []
-    for index, statements in enumerate(cases, 1):
-        expected = run_sqlite(statements)
-        actual = run_minidb(statements)
-        ok, detail = compare(expected, actual)
-        results.append({"case": index, "statements": statements, "pass": ok, "detail": detail})
+    per_corpus = {}
+    for path in paths:
+        name = os.path.relpath(path, ROOT)
+        cases = load_cases(path)
+        corpus_passed = 0
+        for index, statements in enumerate(cases, 1):
+            expected = run_sqlite(statements)
+            actual = run_minidb(statements)
+            ok, detail = compare(expected, actual)
+            corpus_passed += 1 if ok else 0
+            results.append({"corpus": name, "case": index, "statements": statements,
+                            "pass": ok, "detail": detail})
+        per_corpus[name] = (corpus_passed, len(cases))
 
     passed = sum(1 for r in results if r["pass"])
     total = len(results)
@@ -136,10 +162,13 @@ def main():
     for r in results:
         if args.verbose or not r["pass"]:
             tag = "ok  " if r["pass"] else "FAIL"
-            print(f"{tag} case {r['case']}: {r['statements'][-1]}")
+            print(f"{tag} {r['corpus']} case {r['case']}: {r['statements'][-1]}")
             if not r["pass"]:
                 print(f"     {r['detail']}")
 
+    print()
+    for name, (ok, count) in per_corpus.items():
+        print(f"  {name}: {ok}/{count}")
     print(f"\nBEHAVIOUR CONFORMANCE: {passed}/{total} ({pct:.1f}%)")
     print(f"reference: SQLite {version}" + ("" if version == PINNED else f"  *** PINNED IS {PINNED} ***"))
     return 0 if passed == total else 1
