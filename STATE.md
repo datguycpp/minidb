@@ -81,16 +81,17 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: re-baseline wiring (Build, immediate), then M3 — disk storage with
-  B-tree. Status: M2 accepted 2026-10-30; re-baseline ordered before M3 starts.**
-- Scores:
+- **Current milestone: M2.5 — parser error-message conformance (Build; ordered before M3,
+  it unblocks 4 of the 6 corpus failures). M3 — disk storage with B-tree — follows.**
+- Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
-  - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1 — new behavioural harness]`,
-    `SCORE t1.2: syntax 46/46 (100.0%) [Δ +0 — no regressions]`
-  Both reproduced by Default from a cold public clone (88 tests OK). **Narrow reading:
-  Build's own corpora, M1–M2 scope. The real denominator is Research's conformance set —
-  the combined run will drop the headline and that is the honest baseline.**
-- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 3. **Warn at 9.**
+  - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
+  - **`SCORE t1.2 (re-baselined): 35/41 (85.4%) [Δ −6 vs pre-corpus 21/21 behaviour; +20
+    cases]`** — corpus `behavior.txt (21) + t1a.txt (20)`, corpus revision f12cee8,
+    reference SQLite 3.54.0. Syntax suite unchanged at 46/46.
+  The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; 85.4%
+  is the honest baseline everything from here is measured against.
+- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 5. **Warn at 9.**
   Checkpoint reviews don't count against the budget.
 - Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
   gate as planned (hot-path rewrite is M38).
@@ -101,21 +102,21 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] Wire the combined corpus: harness globs `tests/corpus/*.txt` (behavior.txt +
-   t1a.txt = tier-1 suite) + `--corpus` override; commit Research's
-   `docs/conformance-spec.md` + `tests/corpus/t1a.txt` (currently untracked); run from a
-   cold clone; **post raw output verbatim including FAIL lines.** Score dropping from
-   21/21 is the expected, honest outcome.
-2. [Default] Re-baseline entry in this file once numbers land: old score, new score, +22
-   cases, note that the pre-corpus 100% measured a corpus that hadn't asked the hard
-   questions yet (spec: re-baseline event #1).
-3. [Build] M3 — disk storage with a B-tree, ordered, starts only after the re-baseline
-   entry lands.
+1. [Build] M2.5 — parser error-message conformance: ParseError text matches SQLite's
+   byte-for-byte after framing strip (t1a cases 1–3, 6). Acceptance: corpus run 39/41+
+   with raw output; no syntax-suite regressions.
+2. [Build] M3 — disk storage with a B-tree, ordered, starts after M2.5 lands with numbers.
+3. [Research] t1b tranche (storage/index observable behaviour) per spec lands after M5;
+   no immediate deliverable until then.
 
 ## Known failures
 
-- `SELECT 1` (no FROM) is valid SQLite; our parser rejects it — in Research's t1a corpus;
-  **expected to fail** until implemented.
+- **Parser error messages differ from SQLite's** — 4 t1a cases fail on message text alone
+  (cases 1–3 rejection text; case 6 loses SQLite's `no such column: "apple" - should this
+  be a string literal in single-quotes?` wording; behavior matches in all four). **M2.5
+  owns closing this.**
+- `SELECT 1` (no FROM) is valid SQLite; our parser rejects it — in Research's t1a corpus
+  (cases 4–5); **expected to fail** until implemented. M10.
 - No type affinity — `'5'` into an INTEGER column stores text. M17.
 - Arithmetic in expressions (`a + 1 > 2`, `id + 1`) unparsed. M10.
 - No ORDER BY / LIMIT / OFFSET / DISTINCT / GROUP BY / HAVING. M12.
@@ -145,3 +146,10 @@ query history; hot-path rewrite in a faster language
   by Research (untracked); corpus wiring + combined run ordered as the re-baseline step.
   Case format: Build's differential design adopted as the single format per Research's
   spec; Research owns the spec file, Build never edits normalization rules (decision 3).
+- 2026-10-30 (re-baseline event #1): corpus grew 21 → 41 cases (Research's t1a, +20).
+  Old score: behaviour 21/21 (100.0%), syntax 46/46. New: **35/41 (85.4%) behaviour**,
+  syntax 46/46 unchanged. Six failures: 4 parser-message-text (M2.5), 2 SELECT-without-FROM
+  (M10). Wiring executed by Default under delegated judgment (Build's harness commits
+  f12cee8/f189d1d already carried the glob and as-is file commits; Default added the
+  spec-required corpus-revision output and ran the cold-clone verification). Build reviews
+  the Default-written runner addition next round.
