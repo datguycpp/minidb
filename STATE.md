@@ -81,13 +81,16 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: 2 — in-memory tables. Owner: Build. Status: ordered (M1 accepted
-  2026-10-30).**
-- Score: `SCORE t1.1: 46/46 (100.0%) [Δ baseline — first measurement]` — M1 syntax corpus
-  (`tests/corpus/syntax.txt`, 46 cases, M1 subset only; Build's stopgap, not the conformance
-  set). Independently reproduced by Default from a cold public clone. **Narrow reading: this
-  scores parse-agreement inside the M1 subset, not overall conformance.**
-- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 2. **Warn at 9.**
+- **Current milestone: re-baseline wiring (Build, immediate), then M3 — disk storage with
+  B-tree. Status: M2 accepted 2026-10-30; re-baseline ordered before M3 starts.**
+- Scores:
+  - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
+  - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1 — new behavioural harness]`,
+    `SCORE t1.2: syntax 46/46 (100.0%) [Δ +0 — no regressions]`
+  Both reproduced by Default from a cold public clone (88 tests OK). **Narrow reading:
+  Build's own corpora, M1–M2 scope. The real denominator is Research's conformance set —
+  the combined run will drop the headline and that is the honest baseline.**
+- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 3. **Warn at 9.**
   Checkpoint reviews don't count against the budget.
 - Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
   gate as planned (hot-path rewrite is M38).
@@ -98,21 +101,28 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M2 — in-memory tables: execute CREATE/INSERT/SELECT over schema'd tables; close
-   the M1 identity-error gap; re-run the syntax corpus (no regressions) and report raw
-   output + score line.
-2. [Research] Pinned conformance corpus subset + runner spec + normalization rules — still
-   the score's real denominator; due before the next checkpoint.
-3. [Build] M3 — disk storage with B-tree, after M2 lands with numbers.
+1. [Build] Wire the combined corpus: harness globs `tests/corpus/*.txt` (behavior.txt +
+   t1a.txt = tier-1 suite) + `--corpus` override; commit Research's
+   `docs/conformance-spec.md` + `tests/corpus/t1a.txt` (currently untracked); run from a
+   cold clone; **post raw output verbatim including FAIL lines.** Score dropping from
+   21/21 is the expected, honest outcome.
+2. [Default] Re-baseline entry in this file once numbers land: old score, new score, +22
+   cases, note that the pre-corpus 100% measured a corpus that hadn't asked the hard
+   questions yet (spec: re-baseline event #1).
+3. [Build] M3 — disk storage with a B-tree, ordered, starts only after the re-baseline
+   entry lands.
 
 ## Known failures
 
-- `SELECT 1` (no FROM) is valid SQLite; our parser rejects it — counts against conformance
-  once the real corpus includes SELECT-without-FROM.
-- Table-level `CHECK` rejected — milestone 16 owns constraints.
-- Arithmetic in expressions (`a + 1 > 2`) unparsed — milestone 10 owns the expression engine.
-- Row/column identity errors (INSERT arity, unknown column) undetected — needs schema +
-  execution; **milestone 2 owns closing this**.
+- `SELECT 1` (no FROM) is valid SQLite; our parser rejects it — in Research's t1a corpus;
+  **expected to fail** until implemented.
+- No type affinity — `'5'` into an INTEGER column stores text. M17.
+- Arithmetic in expressions (`a + 1 > 2`, `id + 1`) unparsed. M10.
+- No ORDER BY / LIMIT / OFFSET / DISTINCT / GROUP BY / HAVING. M12.
+- No DELETE / UPDATE / DROP; table-level `CHECK` rejected. M16.
+- No joins or aggregates. M8.
+- Column DEFAULTs enforced but evaluated without SQLite's constant-expression rules —
+  untested against quirks, flagged rather than assumed correct.
 
 ## Known divergences
 
@@ -129,3 +139,9 @@ query history; hot-path rewrite in a faster language
   speed multiple will be set from first measurement against what is honestly achievable
   for a Python engine — if the honest number makes the gate theatre, Default raises it
   with Steven instead of quietly loosening it.
+- 2026-10-30 (M2): M2 **accepted** — cold-clone reproduction (88 OK, syntax 46/46,
+  behaviour 21/21); CHECK-error wording divergence independently confirmed against the
+  pinned binary (`CHECK constraint failed: n > 0`). Conformance-spec + t1a corpus delivered
+  by Research (untracked); corpus wiring + combined run ordered as the re-baseline step.
+  Case format: Build's differential design adopted as the single format per Research's
+  spec; Research owns the spec file, Build never edits normalization rules (decision 3).
