@@ -81,27 +81,38 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: 1 — SQL subset parser (CREATE, INSERT, SELECT, WHERE). Owner:
-  Build. Status: not started.**
-- Score: `SCORE t1: corpus not pinned yet (0 runs) — baseline pending Research's corpus
-  deliverable`
-- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 0. **Warn at 9.**
+- **Current milestone: 2 — in-memory tables. Owner: Build. Status: ordered (M1 accepted
+  2026-10-30).**
+- Score: `SCORE t1.1: 46/46 (100.0%) [Δ baseline — first measurement]` — M1 syntax corpus
+  (`tests/corpus/syntax.txt`, 46 cases, M1 subset only; Build's stopgap, not the conformance
+  set). Independently reproduced by Default from a cold public clone. **Narrow reading: this
+  scores parse-agreement inside the M1 subset, not overall conformance.**
+- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 2. **Warn at 9.**
   Checkpoint reviews don't count against the budget.
-- Language call (Default, revisitable at the Tier-3 gate): **Python, stdlib-first**, for
-  tiers 1–2 — fastest conformance iteration, and the hot-path rewrite is milestone 38 by
-  design. Build confirms at M1 kickoff or says why not.
+- Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
+  gate as planned (hot-path rewrite is M38).
+- Reference caveat: box Python `sqlite3` module is 3.53.1; the harness deliberately shells
+  out to the `sqlite3` CLI (3.54.0 = pinned). The pin lives in `tools/syntax_conformance.py`
+  (`PINNED = "3.54.0"`) **and** here — change both together; the tool prints `*** PINNED IS
+  ***` when the CLI drifts from the pin.
 
 ## Next three tasks
 
-1. [Build] M1 parser — CREATE TABLE / INSERT / SELECT with WHERE; conformance numbers from
-   the pinned corpus subset as soon as Research delivers it.
-2. [Research] Deliver the pinned corpus subset + runner spec + normalization rules (first
-   harness files; the score's denominator).
-3. [Build] M2 in-memory tables, once M1 lands with numbers.
+1. [Build] M2 — in-memory tables: execute CREATE/INSERT/SELECT over schema'd tables; close
+   the M1 identity-error gap; re-run the syntax corpus (no regressions) and report raw
+   output + score line.
+2. [Research] Pinned conformance corpus subset + runner spec + normalization rules — still
+   the score's real denominator; due before the next checkpoint.
+3. [Build] M3 — disk storage with B-tree, after M2 lands with numbers.
 
 ## Known failures
 
-- none yet
+- `SELECT 1` (no FROM) is valid SQLite; our parser rejects it — counts against conformance
+  once the real corpus includes SELECT-without-FROM.
+- Table-level `CHECK` rejected — milestone 16 owns constraints.
+- Arithmetic in expressions (`a + 1 > 2`) unparsed — milestone 10 owns the expression engine.
+- Row/column identity errors (INSERT arity, unknown column) undetected — needs schema +
+  execution; **milestone 2 owns closing this**.
 
 ## Known divergences
 
@@ -112,3 +123,9 @@ query history; hot-path rewrite in a faster language
 - 2026-10-30: Project chartered by Steven. Decisions 1–4 ratified by Default (with the
   normalization-delta amendment in #3). Tier-1 budget: 12 rounds. Reference pinned to
   SQLite 3.54.0. Milestone 1 ordered.
+- 2026-10-30 (later): M1 **accepted** after Default's independent cold-clone review (57
+  tests OK, score line reproduced, version guard and error-classification logic read and
+  confirmed sound). Python stdlib-first confirmed by Build. Tier-3 gate principle: the
+  speed multiple will be set from first measurement against what is honestly achievable
+  for a Python engine — if the honest number makes the gate theatre, Default raises it
+  with Steven instead of quietly loosening it.
