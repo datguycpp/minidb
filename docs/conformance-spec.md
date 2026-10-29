@@ -105,6 +105,9 @@ failures.
 
 - `run_corpus` globs `tests/corpus/t*.txt`, runs every case, prints per-case
   failures with raw expected/actual, then the score line above.
+- The score line output also prints the **corpus revision** (short git commit
+  of the corpus files) and the **SQLite pin**, so any posted number can be
+  reproduced without trusting the person who posted it.
 - Exit code non-zero on any failure.
 - Raw output goes in the milestone report verbatim. "All good" is not a
   report.

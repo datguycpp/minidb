@@ -44,6 +44,27 @@ def sqlite_version():
     return out.stdout.split()[0]
 
 
+def corpus_revision():
+    """Short git commit of tests/corpus/ (+ -dirty when there are uncommitted edits).
+
+    Spec requirement (docs/conformance-spec.md, runner interface): every posted score
+    names its corpus revision so the number is reproducible without trusting the poster.
+    """
+    try:
+        log = subprocess.run(
+            ["git", "log", "-1", "--format=%h", "--", "tests/corpus"],
+            cwd=ROOT, capture_output=True, text=True, check=True)
+        revision = log.stdout.strip() or "unknown"
+        status = subprocess.run(
+            ["git", "status", "--porcelain", "--", "tests/corpus"],
+            cwd=ROOT, capture_output=True, text=True, check=True)
+        if status.stdout.strip():
+            revision += "-dirty"
+        return revision
+    except Exception:
+        return "unknown"
+
+
 def clean_error(text):
     """Strip the CLI's line-number framing; keep SQLite's actual complaint."""
     for line in (text or "").splitlines():
@@ -156,7 +177,8 @@ def main():
     pct = 100.0 * passed / total if total else 0.0
 
     if args.json:
-        print(json.dumps({"passed": passed, "total": total, "reference": version, "results": results}, indent=2))
+        print(json.dumps({"passed": passed, "total": total, "reference": version,
+                          "corpus_revision": corpus_revision(), "results": results}, indent=2))
         return 0 if passed == total else 1
 
     for r in results:
@@ -169,7 +191,9 @@ def main():
     print()
     for name, (ok, count) in per_corpus.items():
         print(f"  {name}: {ok}/{count}")
-    print(f"\nBEHAVIOUR CONFORMANCE: {passed}/{total} ({pct:.1f}%)")
+    print(f"BEHAVIOUR CONFORMANCE: {passed}/{total} ({pct:.1f}%)")
+    print(f"corpus: {' + '.join(sorted(per_corpus))}")
+    print(f"corpus revision: {corpus_revision()}")
     print(f"reference: SQLite {version}" + ("" if version == PINNED else f"  *** PINNED IS {PINNED} ***"))
     return 0 if passed == total else 1
 
