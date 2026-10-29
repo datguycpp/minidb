@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Plan-level evidence for indexes (milestone 4).
+"""Plan-level evidence for the M4/M5 planner.
 
-The conformance corpus compares *results*, so it cannot tell whether an index was used — an
-index that is created and then ignored scores exactly the same. EXPLAIN output is milestone 32,
-so until then this script is the artifact: it prints the access path actually taken and the
-number of rows examined, plus wall-clock timings, with and without an index.
+The conformance corpus compares *results*; an index that is created and ignored scores the same
+as one that is used, and two candidate indexes produce identical rows whichever one wins. So the
+planner's decisions are evidenced here: access path, reason, estimates for every candidate, rows
+examined, and wall clock.
 
 Run: python3 tools/plan_check.py [--rows N]
 """
@@ -21,20 +21,20 @@ sys.path.insert(0, ROOT)
 from minidb.engine import Database  # noqa: E402
 
 
-def timed(db, sql):
+def run_case(db, label, sql):
     start = time.perf_counter()
-    columns, rows = db.run(sql)
+    _, rows = db.run(sql)
     elapsed = (time.perf_counter() - start) * 1000
     plan = db.last_plan or {}
-    return columns, rows, elapsed, plan
-
-
-def show(label, sql, columns, rows, elapsed, plan):
-    access = plan.get("access", "?")
-    index = plan.get("index") or "-"
-    print(f"{label:<26} access={access:<6} index={index:<8} examined={plan.get('rows_examined', '?'):<6} "
-          f"returned={len(rows):<3} {elapsed:7.2f} ms   {sql}")
-    print(f"{'':26} columns={columns} rows={rows[:3]}{'...' if len(rows) > 3 else ''}")
+    candidates = ", ".join(f"{c['name']}={c['estimated_rows']}" for c in plan.get("candidates", []))
+    print(f"{label:<28} access={plan.get('access'):<6} index={str(plan.get('index')):<10} "
+          f"reason={plan.get('reason'):<20} examined={plan.get('rows_examined'):<6} "
+          f"est={plan.get('estimated_rows'):<6} {elapsed:7.2f} ms")
+    if candidates:
+        print(f"{'':28} candidates: {candidates}")
+    print(f"{'':28} sql: {sql}")
+    print(f"{'':28} rows: {rows[:2]}{'...' if len(rows) > 2 else ''}")
+    return plan, rows
 
 
 def main():
@@ -44,33 +44,49 @@ def main():
 
     tmp = tempfile.TemporaryDirectory()
     db = Database(os.path.join(tmp.name, "plans.db"))
-    db.run("CREATE TABLE sales (id INTEGER, region TEXT, amount INTEGER)")
+    db.run("CREATE TABLE sales (id INTEGER, region TEXT, amount INTEGER, active INTEGER)")
 
     start = time.perf_counter()
     for i in range(1, args.rows + 1):
         region = ["north", "south", "east", "west"][i % 4]
-        db.run(f"INSERT INTO sales VALUES ({i}, '{region}', {i * 3})")
-    print(f"loaded {args.rows} rows in {(time.perf_counter() - start):.2f}s\n")
+        db.run(f"INSERT INTO sales VALUES ({i}, '{region}', {i * 3}, 1)")
+    print(f"loaded {args.rows} rows in {(time.perf_counter() - start):.2f}s "
+          f"(four regions, so region is deliberately unselective)\n")
 
     query = "SELECT amount FROM sales WHERE id = 137"
+    full_plan, full_rows = run_case(db, "1. no index yet", query)
 
-    show("before index", query, *timed(db, query))
     db.run("CREATE INDEX idx_id ON sales (id)")
-    show("after CREATE INDEX", query, *timed(db, query))
+    index_plan, index_rows = run_case(db, "2. after CREATE INDEX", query)
 
-    unindexed = "SELECT amount FROM sales WHERE amount = 411"
-    show("no index for column", unindexed, *timed(db, unindexed))
+    db.run("CREATE INDEX idx_region ON sales (region)")
+    db.run("CREATE INDEX idx_amount ON sales (amount)")
+    multi_plan, _ = run_case(db, "3. two candidates",
+                             "SELECT id FROM sales WHERE region = 'north' AND amount = 408")
+
+    db.run("CREATE INDEX idx_active ON sales (active)")
+    run_case(db, "4. unselective index", "SELECT id FROM sales WHERE active = 1")
+
+    run_case(db, "5. no eligible index", "SELECT id FROM sales WHERE id > 0")
 
     print()
-    before = timed(db, query)
-    after = timed(db, query)
-    print(f"rows examined with index: {after[3]['rows_examined']} (full scan would be {args.rows})")
-    print(f"index actually chosen:    {'PASS' if after[3].get('access') == 'index' else 'FAIL'}")
-    print(f"result identical:         {'PASS' if before[1] == after[1] else 'FAIL'}")
+    estimates = {c["name"]: c["estimated_rows"] for c in multi_plan.get("candidates", [])}
+    checks = [
+        ("full scan before any index", full_plan.get("access") == "full"),
+        ("index chosen after CREATE INDEX", index_plan.get("access") == "index"),
+        ("result identical with index", full_rows == index_rows),
+        ("fewer rows examined with index",
+         index_plan.get("rows_examined", 10**9) < full_plan.get("rows_examined", 0)),
+        ("multi-candidate picks smallest estimate",
+         multi_plan.get("index") == "idx_amount"
+         and estimates == {"idx_region": args.rows // 4, "idx_amount": 1}),
+    ]
+    for label, ok in checks:
+        print(f"{label:<40} {'PASS' if ok else 'FAIL'}")
 
     db.close()
     tmp.cleanup()
-    return 0
+    return 0 if all(ok for _, ok in checks) else 1
 
 
 if __name__ == "__main__":

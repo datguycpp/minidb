@@ -354,11 +354,11 @@ class Database:
             return self.storage.search_row(table.entry, rowid)
         return table.rows[rowid - 1]
 
-    def _pick_index(self, table, where):
-        """Only conjunctions of column = literal are index-eligible.
+    def _equalities(self, table, where):
+        """Equality constraints usable by an index: only conjunctions of column = literal.
 
-        That is a deliberate floor for M4: OR, ranges and expressions stay full scans until the
-        cost-based planner in M21 can reason about them.
+        OR, ranges and expressions stay full scans until the cost-based planner (M21) can price
+        them; half-supporting them now would mean choosing an index that returns wrong answers.
         """
         equalities = {}
 
@@ -376,14 +376,53 @@ class Database:
                         equalities[position] = right.value
 
         collect(where)
-        best = None
+        return equalities
+
+    def _row_count(self, table):
+        # No DELETE exists yet, so the next rowid is exactly the number of rows.
+        return table.entry["next_rowid"] - 1 if table.on_disk else len(table.rows)
+
+    def _choose_access(self, table, where):
+        """M5's choice layer. The rule, in order:
+
+        1. No WHERE, or no index whose every column is constrained -> full scan.
+        2. Estimate each eligible index as `len(bucket)` for the equality key: the number of rows
+           a lookup would hand to the filter.
+        3. Prefer the smallest estimate; break ties by more constrained columns, then unique,
+           then name. Deterministic, so the same query always takes the same path.
+        4. If the best estimate is not smaller than the full table, scan instead — an index that
+           touches everything only adds a lookup.
+        """
+        total = self._row_count(table)
+        if where is None:
+            return {"access": "full", "reason": "no-predicate", "candidates": [], "estimated_rows": total}
+
+        equalities = self._equalities(table, where)
+        candidates = []
         for index in table.indexes.values():
             if all(position in equalities for position in index.columns):
-                if best is None or len(index.columns) > len(best.columns):
-                    best = index
-        if best is None:
-            return None, None
-        return best, tuple(equalities[position] for position in best.columns)
+                key = tuple(equalities[position] for position in index.columns)
+                candidates.append({
+                    "index": index,
+                    "key": key,
+                    "estimated_rows": len(index.lookup(key)),
+                    "columns": [table.columns[i].name for i in index.columns],
+                })
+
+        summary = [{"name": c["index"].name, "columns": c["columns"],
+                    "estimated_rows": c["estimated_rows"]} for c in candidates]
+        if not candidates:
+            return {"access": "full", "reason": "no-eligible-index", "candidates": summary,
+                    "estimated_rows": total}
+
+        best = min(candidates, key=lambda c: (c["estimated_rows"], -len(c["columns"]),
+                                              not c["index"].unique, c["index"].name))
+        if best["estimated_rows"] >= total:
+            return {"access": "full", "reason": "index-not-selective", "candidates": summary,
+                    "estimated_rows": total}
+
+        return {"access": "index", "reason": "smallest-estimate", "candidate": best,
+                "candidates": summary, "estimated_rows": best["estimated_rows"]}
 
     def _select(self, node: ast.Select):
         table = self.table(node.table)
@@ -396,16 +435,16 @@ class Database:
             else:
                 items.append(item.alias or _describe(item.expr))
 
-        index, key = (None, None)
-        if node.where is not None:
-            index, key = self._pick_index(table, node.where)
-
-        if index is not None:
-            candidates = [(rowid, self._row_by_id(table, rowid)) for rowid in sorted(index.lookup(key))]
-            access, examined, index_name = "index", len(candidates), index.name
+        decision = self._choose_access(table, node.where)
+        if decision["access"] == "index":
+            chosen = decision["candidate"]
+            candidates = [(rowid, self._row_by_id(table, rowid))
+                          for rowid in sorted(chosen["index"].lookup(chosen["key"]))]
         else:
             candidates = list(self._rows_with_ids(table))
-            access, examined, index_name = "full", len(candidates), None
+        access = decision["access"]
+        examined = len(candidates)
+        index_name = decision["candidate"]["index"].name if access == "index" else None
 
         rows = []
         for _, row in candidates:
@@ -423,7 +462,10 @@ class Database:
             rows.append(tuple(projected))
 
         self.last_plan = {"table": table.name, "access": access, "index": index_name,
-                          "rows_examined": examined, "rows_matched": len(rows)}
+                          "rows_examined": examined, "rows_matched": len(rows),
+                          "reason": decision["reason"],
+                          "estimated_rows": decision["estimated_rows"],
+                          "candidates": decision["candidates"]}
 
         if node.distinct:
             seen, unique = set(), []
