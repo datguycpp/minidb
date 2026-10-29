@@ -81,8 +81,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M3 — disk storage with a B-tree (CHECKPOINT 1 approved by Steven
-  2026-10-30, "just keep going"). Build's round 1 = the on-disk page-format decision.**
+- **Current milestone: M4 — indexes (M3 accepted 2026-10-30). Acceptance rider: any
+  "index works" claim needs a plan-level artifact; the score alone cannot prove index
+  choice (spec: what the corpus cannot observe).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -94,11 +95,20 @@ query history; hot-path rewrite in a faster language
     old score on old corpus: 39/41 (95.1%) at corpus revision f12cee8; new score on new
     corpus: 41/43 (95.3%) at 1c24177. Cases added: 2 (bracket/backtick quote-style).
     **Engine unchanged, no code diff — the +0.2pp is pure corpus growth, not progress.**
+  - `SCORE t1.3 (M3): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe
+    persistence]` — durability is evidenced separately, not scored: `tools/
+    durability_check.py` (Default re-ran from cold clone: write/reopen sha256 identical,
+    append-after-reopen persisted; plus Default's own probe — CHECK constraint enforced
+    identically after reopen). Syntax 46/46, 114 unit tests OK, corpus revision 1c24177
+    (engine-only commits, correctly unchanged).
   The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
   honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
-- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 9. **WARN —
-  at cap in ~3 rounds at current pace.** M3 capped at 2 rounds by Default;
-  if page-format decisions would cost more, Default flags before spending.
+- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 10. **WARN —
+  cap forecast at M4's review.** Counting rule (Default, ruled at M3): a milestone is one
+  round regardless of commit count; checkpoint reviews exempt. M4 build = round 11,
+  M4 review = round 12 → Default stops and asks Steven to top up before that review.
+  M3 capped at 2 rounds by Default; if page-format decisions would cost more, Default
+  flags before spending.
 - Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
   gate as planned (hot-path rewrite is M38).
 - Reference caveat: box Python `sqlite3` module is 3.53.1; the harness deliberately shells
@@ -108,17 +118,12 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M3 — disk storage with a B-tree (approved). **Acceptance:** (a) raw restart
-   evidence — close and reopen the same database file, data survives — carried in the
-   milestone report, because the score stays silent on durability until `--reopen` lands
-   with t1b (spec: "what the corpus cannot observe"); (b) no new runner directives
-   mid-milestone — `--reopen` ships with t1b, not ad-hoc during M3; (c) corpus re-run
-   raw output, syntax suite unregressed.
-2. [Build] M4 — indexes, after M3 lands with numbers. **Acceptance rider:** any "index
-   works" claim needs a plan-level artifact (EXPLAIN doesn't exist until M32; the score
-   alone cannot prove index choice — spec amendment by Research, ratified).
-3. [Research] t1b tranche (storage/index observable behaviour) per spec lands after M5,
-   including the `--reopen` directive implementation.
+1. [Build] M4 — indexes (ordered). Acceptance: corpus re-run raw output, syntax
+   unregressed, uniqueness checks no longer full-scan (M3 limit), and the plan-level
+   artifact rider.
+2. [Build] M5 — query planner (index vs full scan), after M4 lands with numbers.
+3. [Research] t1b tranche + `--reopen` directive implementation, lands after M5 —
+   as its own reviewed runner change, not bolted onto M4.
 
 ## Known failures
 
@@ -130,8 +135,11 @@ query history; hot-path rewrite in a faster language
 - No ORDER BY / LIMIT / OFFSET / DISTINCT / GROUP BY / HAVING. M12.
 - No DELETE / UPDATE / DROP; table-level `CHECK` rejected. M16.
 - No joins or aggregates. M8.
-- Column DEFAULTs enforced but evaluated without SQLite's constant-expression rules —
-  untested against quirks, flagged rather than assumed correct.
+- Column DEFAULT evaluated without SQLite's constant-expression rules — untested against
+  quirks, flagged rather than assumed correct.
+- No crash safety: writes are write-through, fsync only on clean close — M7 (WAL) owns.
+- Rows larger than a page raise `row too large` — M20 (overflow pages) owns.
+- Uniqueness checks scan the whole table — M4 (indexes) owns closing this.
 
 ## Known divergences
 
@@ -191,3 +199,13 @@ query history; hot-path rewrite in a faster language
 - 2026-10-30 (budget warning, threshold 9): Tier-1 budget at 9 of 12 rounds. At the
   current pace (M3 ≈ 2 rounds, M4 ≈ 1) the cap lands during M4's review. Default will
   stop and ask Steven to top up the budget before spending round 12.
+- 2026-10-30 (M3): M3 **accepted** — cold-clone reproduction (114 tests OK, syntax 46/46,
+  behaviour 41/43, corpus revision unchanged at 1c24177 for engine-only commits).
+  Default re-ran the durability tool: write/reopen sha256 identical, append persisted;
+  **Default's additional probe: CHECK constraint still enforced after reopen** (violating
+  insert fails with SQLite's wording), independently confirming the store-original-CREATE
+  catalog design. Runner zero-diff claim verified (`git diff` across both commits empty).
+  `Database(path)` signature change reported separately as required. Format doc read and
+  ratified: page-0 header, B+tree with leftmost-pointer interior nodes, deliberately-
+  absent table maps every gap to its owning milestone. M3 counted as ONE round per the
+  new counting rule (milestone = one round regardless of commit count).
