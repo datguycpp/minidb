@@ -101,6 +101,29 @@ when their tranche is published** — they fail, and that is the point
 (decision 2). Tranche scope is about ladder ownership, not about hiding
 failures.
 
+## Directives roadmap (research-owned; runner adds them on demand)
+
+- `-- sort` — sort both sides' rows by JSON repr before compare. Not yet
+  implemented; no case needs it yet.
+- `-- reopen` (lands with **t1b**, for M3 persistence): after the setup
+  statements, both engines close and reopen the *same* database — SQLite on
+  a temp file instead of `:memory:`, MiniDB on its file — then the final
+  SELECT runs. This is the only way persistence is observable from inside
+  the corpus. The runner owns temp-file lifecycle (fresh dir per case,
+  deleted after), preserving fresh-fixture isolation.
+
+## What the corpus cannot observe (engineer-owned evidence, not score)
+
+- **Crash recovery / WAL** (M7, M2.5-adjacent): a killed process is not a
+  corpus case. Milestone reports carry their own restart/kill evidence
+  raw; the score stays silent about durability until `--reopen` exists,
+  and even then only about *clean* reopen.
+- **Index choice** (M4/M21): differential testing compares outcomes, not
+  plans — with or without an index, both engines must return the same
+  rows, and that *is* in the corpus (cases may `CREATE INDEX` freely).
+  Whether MiniDB chose the index is invisible until EXPLAIN lands (Tier 5,
+  milestone 32); do not report "index works" from a score alone.
+
 ## Runner interface (for the milestone's harness to expose)
 
 - `run_corpus` globs `tests/corpus/t*.txt`, runs every case, prints per-case

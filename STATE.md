@@ -81,8 +81,8 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: CHECKPOINT 1 — awaiting Steven's approval before M3 (disk storage
-  with B-tree).**
+- **Current milestone: M3 — disk storage with a B-tree (CHECKPOINT 1 approved by Steven
+  2026-10-30, "just keep going"). Build's round 1 = the on-disk page-format decision.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -96,9 +96,9 @@ query history; hot-path rewrite in a faster language
     **Engine unchanged, no code diff — the +0.2pp is pure corpus growth, not progress.**
   The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
   honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
-- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 8. **Warn at 9.**
-  Checkpoint reviews don't count against the budget. **M3 capped at 2 rounds by Default;
-  if page-format decisions would cost more, Default flags before spending.**
+- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 9. **WARN —
+  at cap in ~3 rounds at current pace.** M3 capped at 2 rounds by Default;
+  if page-format decisions would cost more, Default flags before spending.
 - Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
   gate as planned (hot-path rewrite is M38).
 - Reference caveat: box Python `sqlite3` module is 3.53.1; the harness deliberately shells
@@ -108,14 +108,17 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M3 — disk storage with a B-tree; **starts only after Steven approves
-   CHECKPOINT 1.** Acceptance: corpus re-run raw output, syntax unregressed, new storage
-   tests with raw output.
-2. [Research] Add the two quote-style cases to t1a (bracketed and backtick identifiers
-   resolve to `no such column: apple` without the hint — Default confirmed against the
-   pinned binary). Any corpus edit is a re-baseline event per spec; batch with t1b or do
-   it as its own documented edit.
-3. [Build] M4 — indexes, after M3 lands with numbers.
+1. [Build] M3 — disk storage with a B-tree (approved). **Acceptance:** (a) raw restart
+   evidence — close and reopen the same database file, data survives — carried in the
+   milestone report, because the score stays silent on durability until `--reopen` lands
+   with t1b (spec: "what the corpus cannot observe"); (b) no new runner directives
+   mid-milestone — `--reopen` ships with t1b, not ad-hoc during M3; (c) corpus re-run
+   raw output, syntax suite unregressed.
+2. [Build] M4 — indexes, after M3 lands with numbers. **Acceptance rider:** any "index
+   works" claim needs a plan-level artifact (EXPLAIN doesn't exist until M32; the score
+   alone cannot prove index choice — spec amendment by Research, ratified).
+3. [Research] t1b tranche (storage/index observable behaviour) per spec lands after M5,
+   including the `--reopen` directive implementation.
 
 ## Known failures
 
@@ -179,3 +182,12 @@ query history; hot-path rewrite in a faster language
   Remaining known failures: 2 corpus cases (SELECT-without-FROM, M10) + features not yet
   reached (M8 joins, M10 expressions, M12 ordering, M16 constraints/DML, M17 affinity).
   Budget: 7 of 12 rounds. M3 (disk storage, B-tree) ordered on approval.
+- 2026-10-30 (CHECKPOINT 1 approved): Steven approved ("just keep going"). M3 opened;
+  round 1 = on-disk page-format decision (expensive to reverse). Research's spec
+  amendments ratified as-is: `--sort`/`--reopen` directives roadmap (reopen lands with
+  t1b, not mid-M3), crash-recovery and index-choice evidence is engineer-owned because
+  the corpus cannot observe them (M4 rider: plan-level artifact required for any "index
+  works" claim). No re-baseline — no normalization or scoring change in the spec edit.
+- 2026-10-30 (budget warning, threshold 9): Tier-1 budget at 9 of 12 rounds. At the
+  current pace (M3 ≈ 2 rounds, M4 ≈ 1) the cap lands during M4's review. Default will
+  stop and ask Steven to top up the budget before spending round 12.
