@@ -1,0 +1,349 @@
+"""Recursive-descent parser for the MiniDB SQL subset (milestone 1).
+
+Scope is deliberately narrow — CREATE TABLE, INSERT, SELECT with WHERE — because milestone 10
+owns the full expression engine. Anything outside the subset raises ParseError rather than
+being silently accepted and mis-parsed later.
+"""
+
+from . import ast
+from .lexer import LexError, tokenize
+
+RESERVED_STARTERS = {"CREATE", "INSERT", "SELECT"}
+
+# Words that cannot be bare identifiers in this subset. SQLite needs them quoted too, so
+# accepting `FROM where` would parse a statement no real engine accepts.
+RESERVED_IDENTIFIERS = RESERVED_STARTERS | {
+    "FROM", "WHERE", "INTO", "VALUES", "TABLE", "AND", "OR", "NOT", "IS", "NULL",
+    "PRIMARY", "KEY", "UNIQUE", "DEFAULT", "CHECK", "AS", "DISTINCT", "TRUE", "FALSE",
+}
+
+
+CONSTRAINT_STARTERS = {"PRIMARY", "NOT", "NULL", "UNIQUE", "DEFAULT", "CHECK", "REFERENCES"}
+
+COMPARISON_OPS = {"=", "==", "!=", "<>", "<", "<=", ">", ">="}
+
+# Type names accepted in CREATE TABLE. Anything else needs quoting, same as SQLite's leniency
+# being deferred until milestone 17 (type affinity).
+TYPE_NAMES = {
+    "INT", "INTEGER", "TINYINT", "SMALLINT", "MEDIUMINT", "BIGINT", "UNSIGNED",
+    "REAL", "DOUBLE", "FLOAT", "NUMERIC", "DECIMAL",
+    "TEXT", "CLOB", "CHAR", "VARCHAR", "CHARACTER", "NCHAR", "NVARCHAR",
+    "BLOB", "BOOLEAN", "DATE", "DATETIME",
+}
+
+
+class ParseError(Exception):
+    def __init__(self, message, token=None, line=None, col=None):
+        if token is not None:
+            line, col = token.line, token.col
+        super().__init__(f"{message} at line {line}, column {col}")
+        self.message = message
+        self.token = token
+        self.line = line
+        self.col = col
+
+
+class Parser:
+    def __init__(self, tokens):
+        self.tokens = tokens
+        self.i = 0
+
+    # -- token helpers ---------------------------------------------------------
+    @property
+    def tok(self):
+        return self.tokens[self.i]
+
+    def peek(self, offset=1):
+        j = min(self.i + offset, len(self.tokens) - 1)
+        return self.tokens[j]
+
+    def advance(self):
+        tok = self.tokens[self.i]
+        if tok.kind != "EOF":
+            self.i += 1
+        return tok
+
+    def at_keyword(self, *words):
+        return self.tok.kind == "KEYWORD" and self.tok.upper in words
+
+    def at_punct(self, *chars):
+        return self.tok.kind == "PUNCT" and self.tok.value in chars
+
+    def accept_keyword(self, *words):
+        if self.at_keyword(*words):
+            return self.advance()
+        return None
+
+    def expect_keyword(self, word):
+        if not self.at_keyword(word):
+            raise ParseError(f"expected {word}, got {self.describe(self.tok)}", self.tok)
+        return self.advance()
+
+    def accept_punct(self, char):
+        if self.at_punct(char):
+            return self.advance()
+        return None
+
+    def expect_punct(self, char):
+        if not self.at_punct(char):
+            raise ParseError(f"expected {char!r}, got {self.describe(self.tok)}", self.tok)
+        return self.advance()
+
+    @staticmethod
+    def describe(tok):
+        if tok.kind == "EOF":
+            return "end of input"
+        return f"{tok.value!r}"
+
+    def parse_identifier(self, what="identifier"):
+        if self.tok.kind == "IDENT":
+            return self.advance().value
+        if self.tok.kind == "KEYWORD" and self.tok.upper not in RESERVED_IDENTIFIERS:
+            # SQLite allows many keywords as identifiers; quoted forms cover the rest.
+            return self.advance().value
+        raise ParseError(f"expected {what}, got {self.describe(self.tok)}", self.tok)
+
+    # -- entry point -----------------------------------------------------------
+    def parse_statement(self):
+        if self.at_keyword("CREATE"):
+            stmt = self.parse_create()
+        elif self.at_keyword("INSERT"):
+            stmt = self.parse_insert()
+        elif self.at_keyword("SELECT"):
+            stmt = self.parse_select()
+        else:
+            raise ParseError(f"expected CREATE, INSERT or SELECT, got {self.describe(self.tok)}", self.tok)
+
+        self.accept_punct(";")
+        if self.tok.kind != "EOF":
+            raise ParseError(f"unexpected trailing input {self.describe(self.tok)}", self.tok)
+        return stmt
+
+    # -- CREATE TABLE ----------------------------------------------------------
+    def parse_create(self):
+        start = self.expect_keyword("CREATE")
+        if self.at_keyword("TABLE"):
+            pass
+        else:
+            raise ParseError("only CREATE TABLE is supported", self.tok)
+        self.advance()
+
+        if_not_exists = False
+        if self.accept_keyword("IF"):
+            self.expect_keyword("NOT")
+            self.expect_keyword("EXISTS")
+            if_not_exists = True
+
+        name = self.parse_identifier("table name")
+        self.expect_punct("(")
+
+        columns = []
+        if self.at_punct(")"):
+            raise ParseError("CREATE TABLE needs at least one column", self.tok)
+        while True:
+            columns.append(self.parse_column_def())
+            if self.accept_punct(","):
+                continue
+            break
+        self.expect_punct(")")
+        return ast.CreateTable(name=name, columns=columns, if_not_exists=if_not_exists)
+
+    def parse_column_def(self):
+        name = self.parse_identifier("column name")
+        type_name, type_args = None, []
+        if self.tok.kind == "IDENT" or (self.tok.kind == "KEYWORD" and self.tok.upper in TYPE_NAMES):
+            word = self.advance().value
+            if word.upper() not in TYPE_NAMES:
+                raise ParseError(f"unknown type {word!r}", self.tokens[self.i - 1])
+            type_name = word.upper()
+            # VARCHAR(20), DECIMAL(10,2)
+            if self.at_punct("("):
+                self.advance()
+                while True:
+                    if self.tok.kind != "NUMBER":
+                        raise ParseError("expected a number in type arguments", self.tok)
+                    type_args.append(int(self.advance().value))
+                    if self.accept_punct(","):
+                        continue
+                    break
+                self.expect_punct(")")
+
+        constraints = []
+        while self.tok.kind == "KEYWORD" and self.tok.upper in CONSTRAINT_STARTERS:
+            constraints.append(self.parse_column_constraint())
+        return ast.ColumnDef(name=name, type_name=type_name, type_args=type_args, constraints=constraints)
+
+    def parse_column_constraint(self):
+        if self.accept_keyword("PRIMARY"):
+            self.expect_keyword("KEY")
+            return ast.Constraint("PRIMARY KEY")
+        if self.accept_keyword("NOT"):
+            self.expect_keyword("NULL")
+            return ast.Constraint("NOT NULL")
+        if self.accept_keyword("NULL"):
+            return ast.Constraint("NULL")
+        if self.accept_keyword("UNIQUE"):
+            return ast.Constraint("UNIQUE")
+        if self.accept_keyword("DEFAULT"):
+            return ast.Constraint("DEFAULT", self.parse_expression())
+        if self.accept_keyword("CHECK"):
+            self.expect_punct("(")
+            expr = self.parse_expression()
+            self.expect_punct(")")
+            return ast.Constraint("CHECK", expr)
+        raise ParseError("unsupported column constraint", self.tok)
+
+    # -- INSERT ----------------------------------------------------------------
+    def parse_insert(self):
+        self.expect_keyword("INSERT")
+        self.expect_keyword("INTO")
+        table = self.parse_identifier("table name")
+
+        columns = None
+        if self.at_punct("("):
+            self.advance()
+            columns = [self.parse_identifier("column name")]
+            while self.accept_punct(","):
+                columns.append(self.parse_identifier("column name"))
+            self.expect_punct(")")
+
+        self.expect_keyword("VALUES")
+        rows = []
+        while True:
+            self.expect_punct("(")
+            row = [self.parse_expression()]
+            while self.accept_punct(","):
+                row.append(self.parse_expression())
+            self.expect_punct(")")
+            rows.append(row)
+            if not self.accept_punct(","):
+                break
+        return ast.Insert(table=table, columns=columns, rows=rows)
+
+    # -- SELECT ----------------------------------------------------------------
+    def parse_select(self):
+        self.expect_keyword("SELECT")
+        distinct = bool(self.accept_keyword("DISTINCT"))
+
+        if self.at_punct("*"):
+            self.advance()
+            items = [ast.Star()]
+        else:
+            items = [self.parse_select_item()]
+            while self.accept_punct(","):
+                items.append(self.parse_select_item())
+
+        self.expect_keyword("FROM")
+        table = self.parse_identifier("table name")
+
+        where = None
+        if self.accept_keyword("WHERE"):
+            where = self.parse_expression()
+
+        return ast.Select(items=items, table=table, where=where, distinct=distinct)
+
+    def parse_select_item(self):
+        # table.* shorthand
+        if self.tok.kind in ("IDENT", "KEYWORD") and self.peek().kind == "PUNCT" and self.peek().value == "." \
+                and self.peek(2).kind == "PUNCT" and self.peek(2).value == "*":
+            table = self.advance().value
+            self.advance()  # .
+            self.advance()  # *
+            return ast.Star(table=table)
+
+        expr = self.parse_expression()
+        alias = None
+        if self.accept_keyword("AS"):
+            alias = self.parse_identifier("alias")
+        elif self.tok.kind == "IDENT":
+            alias = self.advance().value
+        return ast.SelectItem(expr=expr, alias=alias)
+
+    # -- expressions -----------------------------------------------------------
+    def parse_expression(self):
+        return self.parse_or()
+
+    def parse_or(self):
+        node = self.parse_and()
+        while self.accept_keyword("OR"):
+            node = ast.BinaryOp("OR", node, self.parse_and())
+        return node
+
+    def parse_and(self):
+        node = self.parse_not()
+        while self.accept_keyword("AND"):
+            node = ast.BinaryOp("AND", node, self.parse_not())
+        return node
+
+    def parse_not(self):
+        if self.accept_keyword("NOT"):
+            return ast.UnaryOp("NOT", self.parse_not())
+        return self.parse_comparison()
+
+    def parse_comparison(self):
+        node = self.parse_primary()
+        # IS [NOT] NULL
+        if self.accept_keyword("IS"):
+            negated = bool(self.accept_keyword("NOT"))
+            self.expect_keyword("NULL")
+            node = ast.IsNull(node, negated=negated)
+            return node
+        if self.tok.kind == "PUNCT" and self.tok.value in COMPARISON_OPS:
+            op = self.advance().value
+            if op == "==":
+                op = "="
+            elif op == "<>":
+                op = "!="
+            return ast.BinaryOp(op, node, self.parse_primary())
+        return node
+
+    def parse_primary(self):
+        tok = self.tok
+
+        if tok.kind == "PUNCT" and tok.value == "(":
+            self.advance()
+            node = self.parse_expression()
+            self.expect_punct(")")
+            return node
+
+        if tok.kind == "NUMBER":
+            self.advance()
+            text = tok.value
+            value = float(text) if any(c in text for c in ".eE") else int(text)
+            return ast.Literal(value, "number")
+
+        if tok.kind == "STRING":
+            self.advance()
+            return ast.Literal(tok.value, "string")
+
+        if tok.kind == "KEYWORD" and tok.upper == "NULL":
+            self.advance()
+            return ast.Literal(None, "null")
+
+        if tok.kind == "KEYWORD" and tok.upper in ("TRUE", "FALSE"):
+            self.advance()
+            return ast.Literal(tok.upper == "TRUE", "bool")
+
+        if tok.kind == "PUNCT" and tok.value in ("-", "+"):
+            op = self.advance().value
+            return ast.UnaryOp(op, self.parse_primary())
+
+        if tok.kind in ("IDENT", "KEYWORD") and tok.upper not in RESERVED_IDENTIFIERS:
+            name = self.advance().value
+            if self.at_punct("."):
+                self.advance()
+                column = self.parse_identifier("column name")
+                return ast.ColumnRef(name=column, table=name)
+            return ast.ColumnRef(name=name)
+
+        raise ParseError(f"unexpected {self.describe(tok)} in expression", tok)
+
+
+def parse(sql):
+    """Parse exactly one statement."""
+    try:
+        tokens = tokenize(sql)
+        return Parser(tokens).parse_statement()
+    except LexError as exc:
+        # One error type for callers: lexing failures are parse failures.
+        raise ParseError(exc.message, line=exc.line, col=exc.col) from None

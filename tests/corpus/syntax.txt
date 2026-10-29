@@ -1,0 +1,58 @@
+# Milestone 1 syntax corpus.
+#
+# Each line is one statement. Statements prefixed with "#!" are expected to be REJECTED by
+# SQLite 3.54.0; the harness still asks SQLite rather than trusting the marker, so a wrong
+# marker shows up as a disagreement instead of a silent pass.
+#
+# This is a syntax-level denominator only: it asks whether MiniDB's parser agrees with SQLite
+# about what is valid SQL. Execution conformance comes with Research's corpus.
+
+CREATE TABLE t (id INTEGER)
+CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)
+CREATE TABLE IF NOT EXISTS t (id INT, label VARCHAR(20))
+CREATE TABLE t (price DECIMAL(10,2))
+CREATE TABLE t (a INTEGER, b TEXT DEFAULT 'x')
+CREATE TABLE t (a INTEGER CHECK (a > 0))
+create table lower_case (v real)
+CREATE TABLE "quoted name" (id INTEGER)
+CREATE TABLE [bracket name] (id INTEGER)
+
+INSERT INTO t VALUES (1)
+INSERT INTO t VALUES (1, 'a')
+INSERT INTO t (id) VALUES (1)
+INSERT INTO t (id, name) VALUES (1, 'a'), (2, 'b')
+insert into t values (-5, NULL)
+INSERT INTO t VALUES ('it''s')
+INSERT INTO t VALUES (1e3)
+
+SELECT * FROM t
+SELECT id FROM t
+SELECT id, name FROM t
+SELECT id AS ident, name FROM t
+SELECT DISTINCT id FROM t
+SELECT t.* FROM t
+select * from t where id = 1
+SELECT * FROM t WHERE id <> 1
+SELECT * FROM t WHERE id != 1
+SELECT * FROM t WHERE id <= 2 AND name = 'a'
+SELECT * FROM t WHERE id = 1 OR id = 2
+SELECT * FROM t WHERE NOT id = 1
+SELECT * FROM t WHERE id IS NULL
+SELECT * FROM t WHERE id IS NOT NULL
+SELECT * FROM t WHERE t.id = 1
+SELECT * FROM t WHERE (id = 1 OR id = 2) AND name = 'a'
+SELECT * FROM t WHERE id > -1
+SELECT * FROM t;
+
+#!SELECT * FROM
+#!SELECT FROM t
+#!SELECT * FROM t WHERE
+#!CREATE TABLE
+#!CREATE TABLE t
+#!CREATE TABLE t ()
+#!INSERT INTO t
+#!INSERT INTO t VALUES
+#!INSERT INTO t VALUES (1,)
+#!SELECT * FROM where
+#!THIS IS NOT SQL
+#!SELECT * FROM t WHERE id = = 1
