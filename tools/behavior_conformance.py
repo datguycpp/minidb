@@ -122,8 +122,12 @@ def run_sqlite(phases):
     result = None
     for index, statements in enumerate(phases):
         script = ";\n".join(statements) + ";\n"
+        db_path = path
+        if db_path is None:
+            assert REOPEN_TMPDIR is not None, "multi-phase case without a temp dir"
+            db_path = os.path.join(REOPEN_TMPDIR, "sqlite.db")
         proc = subprocess.run(
-            ["sqlite3", "-json", path if path else os.path.join(REOPEN_TMPDIR, "sqlite.db")],
+            ["sqlite3", "-json", db_path],
             input=script, capture_output=True, text=True, timeout=20,
         )
         if proc.returncode != 0 or proc.stderr.strip():
@@ -141,7 +145,8 @@ def run_minidb(phases):
     Database(path) → execute → close → Database(path) again, once per phase, same file.
     """
     result = ([], [])
-    path = None if len(phases) == 1 else os.path.join(REOPEN_TMPDIR, "minidb.db")
+    path = None if len(phases) == 1 else os.path.join(REOPEN_TMPDIR, "minidb.db")  # type: ignore[arg-type]
+    assert path is None or REOPEN_TMPDIR is not None, "multi-phase case without a temp dir"
     db = Database(path) if path else Database()
     try:
         for index, statements in enumerate(phases):
