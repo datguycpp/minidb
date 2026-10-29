@@ -1,0 +1,100 @@
+-- Behaviour corpus for milestone 2. Cases are separated by a blank line; each case is run in
+-- a fresh database. The last statement must be a SELECT — its columns and rows are compared
+-- against real SQLite. If any statement errors, both engines must fail with the same message.
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, 'b');
+SELECT * FROM t;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, 'b');
+SELECT name FROM t;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, 'b');
+SELECT * FROM t WHERE id > 1;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'apple');
+INSERT INTO t VALUES (2, 'banana');
+SELECT * FROM t WHERE name = 'banana';
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT * FROM t WHERE id > 1 AND id < 3;
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT * FROM t WHERE id = 1 OR id = 3;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, NULL);
+INSERT INTO t VALUES (2, 'x');
+SELECT * FROM t WHERE name IS NULL;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, NULL);
+INSERT INTO t VALUES (2, 'x');
+SELECT * FROM t WHERE name IS NOT NULL;
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT DISTINCT id FROM t;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t (id, name) VALUES (1, 'a'), (2, 'b'), (3, 'c');
+SELECT * FROM t WHERE id >= 2;
+
+CREATE TABLE t (id INTEGER, name TEXT NOT NULL);
+INSERT INTO t (id) VALUES (1);
+SELECT * FROM t;
+
+CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT);
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (1, 'b');
+SELECT * FROM t;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1);
+SELECT * FROM t;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t (id, nope) VALUES (1, 'a');
+SELECT * FROM t;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+SELECT * FROM missing;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (NULL, 'a');
+SELECT * FROM t WHERE id = NULL;
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'a');
+SELECT id AS ident FROM t;
+
+CREATE TABLE u (n INTEGER CHECK (n > 0));
+INSERT INTO u VALUES (0);
+SELECT * FROM u;
+
+CREATE TABLE u (n INTEGER DEFAULT 5, m TEXT);
+INSERT INTO u (m) VALUES ('x');
+SELECT n FROM u;
+
+CREATE TABLE u (n INTEGER DEFAULT 5);
+INSERT INTO u VALUES (NULL);
+SELECT n FROM u;
+
+CREATE TABLE u (id INTEGER PRIMARY KEY, name TEXT);
+INSERT INTO u VALUES (1, 'a');
+INSERT INTO u VALUES (2, 'b');
+SELECT name FROM u WHERE id = 2;

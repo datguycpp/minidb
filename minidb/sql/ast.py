@@ -57,6 +57,7 @@ class SelectItem(Node):
 class Constraint(Node):
     kind: str              # PRIMARY KEY | NOT NULL | UNIQUE | DEFAULT | CHECK
     value: "Node | None" = None
+    text: "str | None" = None   # source text, for CHECK: SQLite quotes it back in errors
 
 
 @dataclass

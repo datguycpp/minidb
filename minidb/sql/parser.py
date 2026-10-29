@@ -44,8 +44,9 @@ class ParseError(Exception):
 
 
 class Parser:
-    def __init__(self, tokens):
+    def __init__(self, tokens, source=""):
         self.tokens = tokens
+        self.source = source
         self.i = 0
 
     # -- token helpers ---------------------------------------------------------
@@ -187,10 +188,14 @@ class Parser:
         if self.accept_keyword("DEFAULT"):
             return ast.Constraint("DEFAULT", self.parse_expression())
         if self.accept_keyword("CHECK"):
-            self.expect_punct("(")
+            open_paren = self.expect_punct("(")
             expr = self.parse_expression()
+            close_paren = self.tok
             self.expect_punct(")")
-            return ast.Constraint("CHECK", expr)
+            # SQLite echoes the CHECK expression verbatim in its error message, so the source
+            # span is captured here rather than reconstructed from the AST later.
+            text = self.source[open_paren.pos + 1:close_paren.pos].strip()
+            return ast.Constraint("CHECK", expr, text=text)
         raise ParseError("unsupported column constraint", self.tok)
 
     # -- INSERT ----------------------------------------------------------------
@@ -343,7 +348,7 @@ def parse(sql):
     """Parse exactly one statement."""
     try:
         tokens = tokenize(sql)
-        return Parser(tokens).parse_statement()
+        return Parser(tokens, source=sql).parse_statement()
     except LexError as exc:
         # One error type for callers: lexing failures are parse failures.
         raise ParseError(exc.message, line=exc.line, col=exc.col) from None
