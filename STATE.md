@@ -81,8 +81,11 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: TIER-1 LADDER PAUSED at the budget cap (12/12) after M4's
-  acceptance — M5 (query planner) ordered but NOT started; resumes on Steven's top-up.**
+- **Current milestone: M5 — query planner (index vs full scan). CHECKPOINT 1 follow-on
+  approved: Steven's 2026-10-30 directive "finish up all of the milestones, i approve of
+  both of them" = budget topped up +6 AND a standing instruction to run the ladder to the
+  end of Tier 6 without pausing at gates (see decision log for the exact interpretation
+  and Steven's exit clause).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -113,10 +116,13 @@ query history; hot-path rewrite in a faster language
       probe). 133 unit tests, durability PASS, syntax 46/46.**
   The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
   honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
-- Tier-1 budget: **12 team rounds. Used: 12 — CAP REACHED.** Ladder paused after M4's
-  acceptance; **top-up ask re-issued to Steven (Default recommends +6: M4 review exempt,
-  M5 build+review, t1b/`--reopen` landing, M6 build).** Counting rule (Default, ruled at
-  M3): a milestone is one round regardless of commit count; checkpoint reviews exempt.
+- Tier-1 budget: **18 rounds after Steven's +6 top-up. Used: 12.** Budget rule changed by
+  Steven's standing directive ("finish up all of the milestones"): the stop-and-ask cap is
+  **suspended for the rest of the project** — round counts are still logged here for
+  transparency, and Default still flags anything impossible or too slow per the charter's
+  honesty rule, but the ladder no longer pauses at a round count. Checkpoint cadence
+  stays (every 3 milestones) but checkpoints are **reports, not approval waits** —
+  advance approval stands for any checkpoint whose verification passes.
 - Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
   gate as planned (hot-path rewrite is M38).
 - Reference caveat: box Python `sqlite3` module is 3.53.1; the harness deliberately shells
@@ -126,15 +132,17 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M5 — query planner (index vs full scan). Ordered; **NOT started — ladder
-   paused at the budget cap.** Plan machinery exists (`last_plan`) from M4; M5 turns
-   eligibility into a real choice layer.
-2. [Research] t1b tranche + `--reopen` implementation after M5 — **landing requirements
-   now two:** (a) the negative-control harness test (break reopen, assert the
-   constraints-survive case fails); (b) directive syntax must be a distinct marker (e.g.
-   `--directive: reopen`) and the loader must ERROR on anything directive-shaped that
-   isn't in the known set — silently ignoring directive-looking lines is a ratified bug,
-   not a feature (Build's amendment, Default-ratified; spec wording Research's).
+1. [Build] M5 — query planner (index vs full scan). **Ordered, started.** Scope: a real
+   choice layer over M4's eligibility — when multiple indexes are eligible, choose one
+   by an explicit rule (documented, not vibes); when none, full scan; `last_plan`
+   enriched accordingly. Acceptance: `tools/plan_check.py` extended to cover choice
+   scenarios (multi-candidate, no-candidate) with raw output; corpus re-run raw;
+   syntax unregressed; the five index-outcome cases in Research's parked t1b draft
+   should pass when it lands post-M5 (they are NOT in the denominator yet).
+2. [Research] t1b + `--directive: reopen` landing the round after M5 — one re-baseline
+   event, negative control included, per the ratified spec. Then t1c/t1d/t1e per
+   tranche plan; Tier-2 suites drafted as milestones complete so gates are measured
+   against suites written before the fixes.
 3. [Build] M6 — transactions, after M5 lands with numbers.
 
 ## Known failures
@@ -232,6 +240,16 @@ query history; hot-path rewrite in a faster language
   t1b landing: distinct marker + error on unknown directive-shaped lines** (Build's
   amendment to Research's negative-control requirement). Round 12 consumed; ladder
   paused pending top-up.
+- 2026-10-30 (standing directive — the entry later tiers assume): Steven said
+  **"finish up all of the milestones, i approve of both of them."** Default's recorded
+  interpretation: (1) the +6 top-up is approved; (2) "both of them" and "finish up all"
+  together read as **advance approval to run the entire ladder (Tiers 1–6) without
+  pausing for per-checkpoint or per-tier approval**, provided each gate is met and
+  verified. Tier gates (90% T1, 95% T2, etc.) become **verification events Default
+  reports**, not stopping points; the every-3-milestones checkpoint cadence stays as
+  reporting. **Exit clause preserved:** if Steven meant only Tier 1, one word at any
+  checkpoint restores the pause rule from that point. Rounds are logged, not enforced.
+  Irreversible actions still require explicit words per standing rules.
 - 2026-10-30 (t1b draft verification): Default ran Research's parked `docs/t1b-draft.txt`
   (9 cases, outside the runner glob — parking confirmed: main run still 41/43) through the
   CURRENT runner: **4/9**. The five index cases fail correctly per decision 2
