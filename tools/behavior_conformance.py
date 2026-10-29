@@ -1,13 +1,28 @@
 #!/usr/bin/env python3
-"""Behavioural conformance against real SQLite (milestone 2).
+"""Behavioural conformance against real SQLite (milestone 2; directives added with t1b).
 
 Syntax conformance asked "does it parse"; this asks "does it produce the same answer". Each
-case in tests/corpus/behavior.txt runs against the pinned `sqlite3` CLI and against MiniDB, and
+case in tests/corpus/ runs against the pinned `sqlite3` CLI and against MiniDB, and
 the case passes only when both agree — on rows and column names when SQLite succeeds, or on
 the error message when SQLite fails.
 
 Normalisation is deliberately minimal and lives here, not in the engine: SQLite's JSON output
 already gives typed values, so the only rewrite is stripping the CLI's error framing.
+
+Directives (ratified spec: docs/conformance-spec.md, Directives roadmap):
+
+- `--directive: reopen` is POSITIONAL: it closes the current phase. Statements before the
+  marker run in one database; statements after it run after both engines have closed and
+  reopened the same file (SQLite: one `sqlite3` invocation per phase on a temp file; MiniDB:
+  `Database(path)`, close, `Database(path)` again). A case may reopen several times. The
+  result compared is the final phase's last statement; an error anywhere is compared as an
+  error, so rejection agreement still counts after a reopen.
+- `--directive: sort` is case-level: both sides' rows are sorted by JSON repr before compare.
+- The loader FAILS LOUDLY on: an unknown directive name after the marker, and colon-shaped
+  lines whose key is within edit distance 1 of a known directive name (`--reopn:`) — the
+  misspelled-directive trap that would otherwise no-op into a fake pass. Prose comments that
+  merely start with a directive word (`-- reopen: rows written before close...`) stay
+  comments: the marker is the only directive syntax, and corpus prose predates it.
 """
 
 import argparse
@@ -18,6 +33,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -37,6 +53,23 @@ PINNED = "3.54.0"
 # The CLI frames errors differently per class: "Error: near line 1: ...", "Parse error: ...",
 # "Runtime error near line 2: ...". The framing is the tool's, not SQLite's, so it is stripped.
 ERROR_FRAMING = re.compile(r"^(?:Parse |Runtime )?[Ee]rror(?:[:]? near line \d+)?[:]\s*")
+
+KNOWN_DIRECTIVES = {"sort", "reopen"}
+DIRECTIVE_RE = re.compile(r"^--\s*directive\s*:\s*([A-Za-z_][A-Za-z0-9_-]*)\s*$")
+SHAPED_RE = re.compile(r"^--\s*([A-Za-z_][A-Za-z0-9_-]*)\s*:")
+
+
+def _levenshtein(a, b):
+    """Edit distance, small inputs only — used to catch near-miss directive keys."""
+    if len(a) < len(b):
+        a, b = b, a
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
 
 
 def sqlite_version():
@@ -77,49 +110,131 @@ def clean_error(text):
     return (text or "").strip()
 
 
-def run_sqlite(statements):
-    script = ";\n".join(statements) + ";\n"
-    proc = subprocess.run(
-        ["sqlite3", "-json", ":memory:"],
-        input=script, capture_output=True, text=True, timeout=20,
-    )
-    if proc.returncode != 0 or proc.stderr.strip():
-        return {"error": clean_error(proc.stderr)}
-    body = proc.stdout.strip()
-    rows = json.loads(body) if body else []
+def run_sqlite(phases):
+    """Run each phase as its own `sqlite3` invocation.
+
+    Single phase: one invocation on :memory: (the pre-directive behaviour). Multiple phases:
+    every phase runs against the SAME temp-file database, one invocation per phase — each
+    invocation is a fresh open+close, which is exactly the reopen cycle. An error in any
+    phase aborts; the result compared is the final phase's output.
+    """
+    path = ":memory:" if len(phases) == 1 else None
+    result = None
+    for index, statements in enumerate(phases):
+        script = ";\n".join(statements) + ";\n"
+        proc = subprocess.run(
+            ["sqlite3", "-json", path if path else os.path.join(REOPEN_TMPDIR, "sqlite.db")],
+            input=script, capture_output=True, text=True, timeout=20,
+        )
+        if proc.returncode != 0 or proc.stderr.strip():
+            return {"error": clean_error(proc.stderr)}
+        result = proc.stdout.strip()
+    rows = json.loads(result) if result else []
     columns = list(rows[0].keys()) if rows else []
     return {"columns": columns, "rows": rows}
 
 
-def run_minidb(statements):
-    db = Database()
+def run_minidb(phases):
+    """Mirror of run_sqlite's phase structure for MiniDB.
+
+    Single phase: one in-memory Database (the pre-directive behaviour). Multiple phases:
+    Database(path) → execute → close → Database(path) again, once per phase, same file.
+    """
+    result = ([], [])
+    path = None if len(phases) == 1 else os.path.join(REOPEN_TMPDIR, "minidb.db")
+    db = Database(path) if path else Database()
     try:
-        result = ([], [])
-        for statement in statements:
-            result = db.execute(parse(statement))
+        for index, statements in enumerate(phases):
+            last = index == len(phases) - 1
+            try:
+                for statement in statements:
+                    result = db.execute(parse(statement))
+            except (ExecError, ParseError) as exc:
+                return {"error": str(exc)}
+            if not last:
+                db.close()
+                db = Database(path)
         columns, rows = result
         keys = list(columns)
         return {"columns": keys, "rows": [dict(zip(keys, row)) for row in rows]}
-    except (ExecError, ParseError) as exc:
-        return {"error": str(exc)}
+    finally:
+        if path:
+            db.close()
+
+
+REOPEN_TMPDIR = None  # set per-case by main(); owned by the runner, deleted after the case
 
 
 def load_cases(path):
-    cases, current = [], []
+    """Return [(case_directives, phases), ...] in file order.
+
+    `phases` is a list of statement lists split by `--directive: reopen` markers: one phase
+    = no reopen (all statements together); N phases = N-1 reopen cycles. `case_directives`
+    holds non-positional directives (sort). The loader raises SystemExit on directive
+    mistakes so a typo can never no-op into a fake pass (see module docstring).
+    """
+    cases = []
+    phases, pending, case_directives = [[]], [], set()
+
+    def flush(lineno):
+        nonlocal phases, pending, case_directives
+        if not any(phases):
+            if case_directives:
+                raise SystemExit(f"{path}:{lineno}: directive with no case block after it")
+            return
+        if not phases[-1]:
+            raise SystemExit(
+                f"{path}:{lineno}: reopen directive with no statements after it")
+        cases.append((case_directives, phases))
+        phases, pending, case_directives = [[]], [], set()
+
     with open(path, encoding="utf-8") as fh:
-        for line in fh:
+        for lineno, line in enumerate(fh, 1):
             stripped = line.strip()
             if not stripped:
-                if current:
-                    cases.append(current)
-                    current = []
+                flush(lineno)
                 continue
             if stripped.startswith("--"):
-                continue
-            current.append(stripped.rstrip(";").strip())
-    if current:
-        cases.append(current)
+                m = DIRECTIVE_RE.match(stripped)
+                if m:
+                    name = m.group(1)
+                    if name not in KNOWN_DIRECTIVES:
+                        raise SystemExit(
+                            f"{path}:{lineno}: unknown directive '{name}' "
+                            f"(known: {', '.join(sorted(KNOWN_DIRECTIVES))})")
+                    if name == "reopen":
+                        if not phases[-1] and len(phases) > 1:
+                            raise SystemExit(
+                                f"{path}:{lineno}: redundant reopen — no statements since "
+                                f"the previous reopen")
+                        if phases[-1]:
+                            phases.append([])
+                        pending.append(name)
+                    else:
+                        case_directives.add(name)
+                    continue
+                m2 = SHAPED_RE.match(stripped)
+                if m2:
+                    key = m2.group(1)
+                    if key not in KNOWN_DIRECTIVES:
+                        near = [k for k in sorted(KNOWN_DIRECTIVES)
+                                if _levenshtein(key.lower(), k) <= 1]
+                        if near:
+                            raise SystemExit(
+                                f"{path}:{lineno}: '--{key}:' looks like a misspelled "
+                                f"directive — use `--directive: {near[0]}`")
+                continue  # plain comment (provenance headers, case descriptions)
+            phases[-1].append(stripped.rstrip(";").strip())
+    flush(lineno + 1)
     return cases
+
+
+def sort_rows(result):
+    """--directive: sort — both sides' rows sorted by JSON repr before compare."""
+    if "error" in result:
+        return result
+    return {**result, "rows": sorted(result.get("rows", []),
+                                     key=lambda r: json.dumps(r, sort_keys=True))}
 
 
 def compare(expected, actual):
@@ -163,13 +278,23 @@ def main():
         name = os.path.relpath(path, ROOT)
         cases = load_cases(path)
         corpus_passed = 0
-        for index, statements in enumerate(cases, 1):
-            expected = run_sqlite(statements)
-            actual = run_minidb(statements)
+        for index, (case_directives, phases) in enumerate(cases, 1):
+            global REOPEN_TMPDIR
+            REOPEN_TMPDIR = tempfile.mkdtemp(prefix="minidb-reopen-") if len(phases) > 1 else None
+            try:
+                expected = run_sqlite(phases)
+                actual = run_minidb(phases)
+            finally:
+                if REOPEN_TMPDIR:
+                    shutil.rmtree(REOPEN_TMPDIR, ignore_errors=True)
+                    REOPEN_TMPDIR = None
+            if "sort" in case_directives:
+                expected, actual = sort_rows(expected), sort_rows(actual)
             ok, detail = compare(expected, actual)
             corpus_passed += 1 if ok else 0
-            results.append({"corpus": name, "case": index, "statements": statements,
-                            "pass": ok, "detail": detail})
+            results.append({"corpus": name, "case": index, "statements": phases[-1],
+                            "directives": sorted(case_directives),
+                            "reopens": len(phases) - 1, "pass": ok, "detail": detail})
         per_corpus[name] = (corpus_passed, len(cases))
 
     passed = sum(1 for r in results if r["pass"])
@@ -184,7 +309,8 @@ def main():
     for r in results:
         if args.verbose or not r["pass"]:
             tag = "ok  " if r["pass"] else "FAIL"
-            print(f"{tag} {r['corpus']} case {r['case']}: {r['statements'][-1]}")
+            suffix = f"  [reopens={r['reopens']}]" if r["reopens"] else ""
+            print(f"{tag} {r['corpus']} case {r['case']}: {r['statements'][-1]}{suffix}")
             if not r["pass"]:
                 print(f"     {r['detail']}")
 
