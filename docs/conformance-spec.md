@@ -103,14 +103,24 @@ failures.
 
 ## Directives roadmap (research-owned; runner adds them on demand)
 
-- `-- sort` — sort both sides' rows by JSON repr before compare. Not yet
-  implemented; no case needs it yet.
-- `-- reopen` (lands with **t1b**, for M3 persistence): after the setup
-  statements, both engines close and reopen the *same* database — SQLite on
-  a temp file instead of `:memory:`, MiniDB on its file — then the final
-  SELECT runs. This is the only way persistence is observable from inside
-  the corpus. The runner owns temp-file lifecycle (fresh dir per case,
-  deleted after), preserving fresh-fixture isolation.
+Syntax (amendment, ratified at M4 review): directives use the distinct
+marker `--directive: <name>`. The loader **errors** on any line that is
+directive-shaped but not in the known set — a typo must fail loudly, never
+silently no-op into a fake pass (the parked-t1b finding: inert `--reopen`
+comments passed without testing anything).
+
+- `--directive: sort` — sort both sides' rows by JSON repr before compare.
+  Not yet implemented; no case needs it yet.
+- `--directive: reopen` (lands with **t1b**, for M3 persistence): after the
+  setup statements, both engines close and reopen the *same* database —
+  SQLite on a temp file instead of `:memory:`, MiniDB on its file — then the
+  final SELECT runs. This is the only way persistence is observable from
+  inside the corpus. The runner owns temp-file lifecycle (fresh dir per
+  case, deleted after), preserving fresh-fixture isolation.
+- The `--reopen` landing ships with a **negative control**: a harness test
+  that deliberately breaks the reopen step and asserts a
+  constraints-survive case then FAILS. A mechanism that claims to test
+  something must be proven able to fail.
 
 ## What the corpus cannot observe (engineer-owned evidence, not score)
 
