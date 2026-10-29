@@ -81,3 +81,16 @@ INTEGER column stays TEXT until M17.
 Each insert rewrites the affected leaf and the catalog row (which carries `next_rowid` and the
 tree root). That is the obvious inefficiency to attack in M18, and it is stated here rather
 than discovered later.
+
+## Indexes (milestone 4)
+
+Index **definitions** live in the table's catalog row (`indexes: [{name, columns, unique}]`);
+the index *structures* are rebuilt on open by scanning the table. That is a deliberate M4
+choice: persisting index pages before write-ahead logging (M7) exists would mean two structures
+that can disagree after a crash, and an index that lies is worse than a slow scan. The cost is
+an O(n) rebuild per open, which the page cache in M18 will make cheaper to live with.
+
+Indexes are in-memory hash maps from key tuple to rowids. Only conjunctions of
+`column = literal` are index-eligible; OR, ranges and expressions stay full scans until the
+cost-based planner (M21) can price them. A composite index is used only when every one of its
+columns is constrained.
