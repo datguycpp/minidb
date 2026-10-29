@@ -13,7 +13,8 @@ from minidb.sql.parser import ParseError, parse
 class TestCreateTable(unittest.TestCase):
     def test_minimal(self):
         stmt = parse("CREATE TABLE t (id INTEGER)")
-        self.assertEqual(stmt, ast.CreateTable("t", [ast.ColumnDef("id", "INTEGER")]))
+        self.assertEqual(stmt, ast.CreateTable("t", [ast.ColumnDef("id", "INTEGER")],
+                                               sql="CREATE TABLE t (id INTEGER)"))
 
     def test_multiple_columns_and_constraints(self):
         stmt = parse("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)")

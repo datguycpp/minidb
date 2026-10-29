@@ -74,6 +74,7 @@ class CreateTable(Node):
     name: str
     columns: list
     if_not_exists: bool = False
+    sql: "str | None" = None    # original statement text; it is what the catalog stores
 
 
 @dataclass

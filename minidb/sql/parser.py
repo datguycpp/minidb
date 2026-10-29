@@ -165,7 +165,10 @@ class Parser:
                 continue
             break
         self.expect_punct(")")
-        return ast.CreateTable(name=name, columns=columns, if_not_exists=if_not_exists)
+        statement = ast.CreateTable(name=name, columns=columns, if_not_exists=if_not_exists)
+        # The catalog keeps the CREATE statement verbatim so reopening needs no AST serialiser.
+        statement.sql = self.source.strip() if self.source else None
+        return statement
 
     def parse_column_def(self):
         name = self.parse_identifier("column name")

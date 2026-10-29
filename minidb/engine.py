@@ -10,6 +10,8 @@ compares, so they are produced here rather than reworded by a caller.
 """
 
 from .sql import ast
+from .storage.disk import DiskStorage
+from .storage.pager import StorageError
 
 # SQLite's storage-class ordering, used when comparing values of different types.
 _RANK = {type(None): 0, int: 1, float: 1, str: 2, bytes: 3}
@@ -100,11 +102,16 @@ class Column:
 
 
 class Table:
-    def __init__(self, name, columns):
+    def __init__(self, name, columns, entry=None):
         self.name = name
         self.columns = columns                 # list[Column]
-        self.rows = []                          # list[tuple]
+        self.rows = []                          # in-memory rows; unused when `entry` is set
+        self.entry = entry                      # catalog entry when backed by disk
         self.index_of = {c.name.lower(): i for i, c in enumerate(columns)}
+
+    @property
+    def on_disk(self):
+        return self.entry is not None
 
     @property
     def column_names(self):
@@ -112,8 +119,39 @@ class Table:
 
 
 class Database:
-    def __init__(self):
+    """`Database()` is in-memory; `Database(path)` persists to a page file.
+
+    The path argument is the only API change milestone 3 makes, and callers that never pass it
+    behave exactly as before — the conformance runner is untouched and still in-memory.
+    """
+
+    def __init__(self, path=None):
+        self.path = path
+        self.storage = DiskStorage(path) if path else None
         self.tables = {}
+        self._sql = None
+        if self.storage is not None:
+            self._load_schema()
+
+    def _load_schema(self):
+        from .sql.parser import parse
+        for entry in self.storage.catalog.values():
+            statement = parse(entry["sql"])
+            columns = [Column(c) for c in statement.columns]
+            self.tables[entry["name"].lower()] = Table(entry["name"], columns, entry)
+
+    def close(self):
+        if self.storage is not None:
+            self.storage.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def _rows(self, table):
+        return self.storage.iter_rows(table.entry) if table.on_disk else table.rows
 
     # -- entry point ---------------------------------------------------------
     def execute(self, statement):
@@ -127,6 +165,7 @@ class Database:
 
     def run(self, sql):
         from .sql.parser import parse
+        self._sql = sql
         return self.execute(parse(sql))
 
     # -- CREATE --------------------------------------------------------------
@@ -142,7 +181,12 @@ class Database:
             if lname in seen:
                 raise ExecError(f"duplicate column name: {column.name}")
             seen.add(lname)
-        self.tables[key] = Table(node.name, [Column(c) for c in node.columns])
+        columns = [Column(c) for c in node.columns]
+        if self.storage is not None:
+            entry = self.storage.create_table(node.name, node.sql or self._sql or f"CREATE TABLE {node.name}")
+            self.tables[key] = Table(node.name, columns, entry)
+        else:
+            self.tables[key] = Table(node.name, columns)
         return None
 
     def table(self, name):
@@ -188,10 +232,16 @@ class Database:
                 if column.check is not None and not truthy(self._eval(column.check, table, dict(zip(table.column_names, values)))):
                     raise ExecError(f"CHECK constraint failed: {column.check_text}")
                 if column.unique:
-                    for existing in table.rows:
+                    for existing in self._rows(table):
                         if existing[i] == values[i]:
                             raise ExecError(f"UNIQUE constraint failed: {table.name}.{column.name}")
-            table.rows.append(tuple(values))
+            if table.on_disk:
+                try:
+                    self.storage.insert_row(table.entry, values)
+                except StorageError as exc:
+                    raise ExecError(str(exc)) from None
+            else:
+                table.rows.append(tuple(values))
         return len(node.rows)
 
     # -- SELECT --------------------------------------------------------------
@@ -207,7 +257,7 @@ class Database:
                 items.append(item.alias or _describe(item.expr))
 
         rows = []
-        for row in table.rows:
+        for row in self._rows(table):
             env = dict(zip((c.name.lower() for c in table.columns), row))
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 continue
