@@ -81,17 +81,18 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M2.5 — parser error-message conformance (Build; ordered before M3,
-  it unblocks 4 of the 6 corpus failures). M3 — disk storage with B-tree — follows.**
+- **Current milestone: CHECKPOINT 1 — awaiting Steven's approval before M3 (disk storage
+  with B-tree).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
-  - **`SCORE t1.2 (re-baselined): 35/41 (85.4%) [Δ −6 vs pre-corpus 21/21 behaviour; +20
-    cases]`** — corpus `behavior.txt (21) + t1a.txt (20)`, corpus revision f12cee8,
-    reference SQLite 3.54.0. Syntax suite unchanged at 46/46.
-  The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; 85.4%
-  is the honest baseline everything from here is measured against.
-- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 5. **Warn at 9.**
+  - `SCORE t1.2 (re-baselined): 35/41 (85.4%) [Δ −6 vs pre-corpus 21/21 behaviour; +20
+    cases]` — corpus `behavior.txt (21) + t1a.txt (20)`, corpus revision f12cee8
+  - **`SCORE t1.2.5: 39/41 (95.1%) [Δ +4 vs re-baselined 35/41]`** — syntax unregressed
+    (46/46), 94 unit tests OK, corpus revision f12cee8, reference SQLite 3.54.0.
+  The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
+  honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
+- Tier-1 budget: **12 team rounds** (a round = one message per role). Used: 7. **Warn at 9.**
   Checkpoint reviews don't count against the budget.
 - Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
   gate as planned (hot-path rewrite is M38).
@@ -102,21 +103,20 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M2.5 — parser error-message conformance: ParseError text matches SQLite's
-   byte-for-byte after framing strip (t1a cases 1–3, 6). Acceptance: corpus run 39/41+
-   with raw output; no syntax-suite regressions.
-2. [Build] M3 — disk storage with a B-tree, ordered, starts after M2.5 lands with numbers.
-3. [Research] t1b tranche (storage/index observable behaviour) per spec lands after M5;
-   no immediate deliverable until then.
+1. [Build] M3 — disk storage with a B-tree; **starts only after Steven approves
+   CHECKPOINT 1.** Acceptance: corpus re-run raw output, syntax unregressed, new storage
+   tests with raw output.
+2. [Research] Add the two quote-style cases to t1a (bracketed and backtick identifiers
+   resolve to `no such column: apple` without the hint — Default confirmed against the
+   pinned binary). Any corpus edit is a re-baseline event per spec; batch with t1b or do
+   it as its own documented edit.
+3. [Build] M4 — indexes, after M3 lands with numbers.
 
 ## Known failures
 
-- **Parser error messages differ from SQLite's** — 4 t1a cases fail on message text alone
-  (cases 1–3 rejection text; case 6 loses SQLite's `no such column: "apple" - should this
-  be a string literal in single-quotes?` wording; behavior matches in all four). **M2.5
-  owns closing this.**
 - `SELECT 1` (no FROM) is valid SQLite; our parser rejects it — in Research's t1a corpus
-  (cases 4–5); **expected to fail** until implemented. M10.
+  (cases 4–5, now erroring `incomplete input` in SQLite's wording); **expected to fail**
+  until implemented. M10.
 - No type affinity — `'5'` into an INTEGER column stores text. M17.
 - Arithmetic in expressions (`a + 1 > 2`, `id + 1`) unparsed. M10.
 - No ORDER BY / LIMIT / OFFSET / DISTINCT / GROUP BY / HAVING. M12.
@@ -153,3 +153,17 @@ query history; hot-path rewrite in a faster language
   f12cee8/f189d1d already carried the glob and as-is file commits; Default added the
   spec-required corpus-revision output and ran the cold-clone verification). Build reviews
   the Default-written runner addition next round.
+- 2026-10-30 (M2.5): M2.5 **accepted** — cold-clone reproduction (94 tests OK, syntax
+  46/46, behaviour 39/41). Default independently confirmed against the pinned binary:
+  `SELECT 1e` → `unrecognized token: "1e"` (crash fixed), unterminated block comment
+  accepted as comment-to-EOI (fix real; `SELECT 1 /*…` still fails only via the known
+  FROM gap), bracket/backtick identifiers → `no such column: apple` without the hint,
+  and ParseError.detail preserved alongside conformance wording. Build's nit on the
+  5e62a3c commit message was correct — the diff carried spec + runner only, not t1a
+  (Build's f12cee8 already had it); logged as a message-accuracy lesson, not corrected
+  retroactively.
+- 2026-10-30 (CHECKPOINT 1): three milestones complete (M1 parser, M2 in-memory tables,
+  M2.5 error wording). Score trajectory 35/41 → 39/41 (95.1%) behaviour, 46/46 syntax.
+  Remaining known failures: 2 corpus cases (SELECT-without-FROM, M10) + features not yet
+  reached (M8 joins, M10 expressions, M12 ordering, M16 constraints/DML, M17 affinity).
+  Budget: 7 of 12 rounds. M3 (disk storage, B-tree) ordered on approval.
