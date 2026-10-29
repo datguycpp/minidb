@@ -235,6 +235,12 @@ class Database:
         if isinstance(node, ast.ColumnRef):
             key = node.name.lower()
             if env is None or key not in env:
+                # SQLite adds the hint only for double-quoted identifiers, and prints the
+                # quotes back; bracket/backtick forms lose their quotes in the message.
+                if node.quote == '"':
+                    raise ExecError(
+                        f'no such column: "{node.name}" - should this be a string literal in single-quotes?'
+                    )
                 raise ExecError(f"no such column: {node.name}")
             return env[key]
         if isinstance(node, ast.BinaryOp):

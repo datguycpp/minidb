@@ -29,21 +29,26 @@ IDENT_BODY = IDENT_START | set("0123456789")
 
 
 class LexError(Exception):
-    def __init__(self, message, pos, line, col):
-        super().__init__(f"{message} at line {line}, column {col}")
+    """Carries SQLite's own wording: `unrecognized token: "<text>"`."""
+
+    def __init__(self, message, pos, line, col, snippet=""):
         self.message = message
         self.pos = pos
         self.line = line
         self.col = col
+        self.snippet = snippet
+        super().__init__(f'unrecognized token: "{snippet}"' if snippet else message)
 
 
 @dataclass(frozen=True)
 class Token:
     kind: str          # KEYWORD | IDENT | NUMBER | STRING | PUNCT | EOF
-    value: str         # raw text as written (identifiers keep their case)
+    value: str         # interpreted text (string contents, unquoted identifier)
     pos: int
     line: int
     col: int
+    raw: str = ""      # exact source text, for error messages SQLite-style
+    quote: str = ""    # '"', "`", "[" when the identifier was quoted
 
     @property
     def upper(self):
@@ -84,10 +89,13 @@ class _Scanner:
                     self.advance()
             elif ch == "/" and self.peek(1) == "*":
                 start_line, start_col = self.line, self.col
+                start_i = self.i
                 self.advance(2)
                 while True:
                     if not self.peek():
-                        raise LexError("unterminated block comment", self.i, start_line, start_col)
+                        # SQLite treats an unterminated block comment as comment-to-EOF and
+                        # carries on ("SELECT 1 /* never closed" returns 1). Match it.
+                        return
                     if self.peek() == "*" and self.peek(1) == "/":
                         self.advance(2)
                         break
@@ -111,12 +119,14 @@ def tokenize(sql):
         # Quoted identifiers: "col", `col`, [col]
         if ch in ('"', "`", "["):
             close = "]" if ch == "[" else ch
+            quote = ch
             sc.advance()
             buf = []
             while True:
                 c = sc.peek()
                 if not c:
-                    raise LexError("unterminated quoted identifier", start_i, start_line, start_col)
+                    raise LexError("unterminated quoted identifier", start_i, start_line, start_col,
+                                   snippet=sc.sql[start_i:])
                 if c == close:
                     # doubled quote escapes itself inside "..." and `...`
                     if close != "]" and sc.peek(1) == close:
@@ -127,7 +137,8 @@ def tokenize(sql):
                     break
                 buf.append(c)
                 sc.advance()
-            tokens.append(Token("IDENT", "".join(buf), start_i, start_line, start_col))
+            tokens.append(Token("IDENT", "".join(buf), start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i], quote=quote))
             continue
 
         if ch == "'":
@@ -136,7 +147,8 @@ def tokenize(sql):
             while True:
                 c = sc.peek()
                 if not c:
-                    raise LexError("unterminated string literal", start_i, start_line, start_col)
+                    raise LexError("unterminated string literal", start_i, start_line, start_col,
+                                   snippet=sc.sql[start_i:])
                 if c == "'":
                     if sc.peek(1) == "'":
                         buf.append("'")
@@ -146,7 +158,8 @@ def tokenize(sql):
                     break
                 buf.append(c)
                 sc.advance()
-            tokens.append(Token("STRING", "".join(buf), start_i, start_line, start_col))
+            tokens.append(Token("STRING", "".join(buf), start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i]))
             continue
 
         if ch.isdigit() or (ch == "." and sc.peek(1).isdigit()):
@@ -171,7 +184,11 @@ def tokenize(sql):
                         sc.advance()
                 else:
                     break
-            tokens.append(Token("NUMBER", "".join(buf), start_i, start_line, start_col))
+            text = "".join(buf)
+            if text[-1] in "eE" or text in (".",):
+                raise LexError("malformed number", start_i, start_line, start_col, snippet=text)
+            tokens.append(Token("NUMBER", text, start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i]))
             continue
 
         if ch in IDENT_START:
@@ -181,13 +198,15 @@ def tokenize(sql):
                 sc.advance()
             word = "".join(buf)
             kind = "KEYWORD" if word.upper() in KEYWORDS else "IDENT"
-            tokens.append(Token(kind, word, start_i, start_line, start_col))
+            tokens.append(Token(kind, word, start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i]))
             continue
 
         for punct in PUNCTUATION:
             if sc.sql.startswith(punct, sc.i):
                 sc.advance(len(punct))
-                tokens.append(Token("PUNCT", punct, start_i, start_line, start_col))
+                tokens.append(Token("PUNCT", punct, start_i, start_line, start_col,
+                                    raw=sc.sql[start_i:sc.i]))
                 break
         else:
-            raise LexError(f"unexpected character {ch!r}", start_i, start_line, start_col)
+            raise LexError(f"unexpected character {ch!r}", start_i, start_line, start_col, snippet=ch)

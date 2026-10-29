@@ -21,6 +21,7 @@ class Literal(Node):
 class ColumnRef(Node):
     name: str
     table: "str | None" = None
+    quote: str = ""        # '"', "`", "[" — SQLite's error text depends on how it was written
 
 
 @dataclass

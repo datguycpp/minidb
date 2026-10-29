@@ -33,14 +33,32 @@ TYPE_NAMES = {
 
 
 class ParseError(Exception):
-    def __init__(self, message, token=None, line=None, col=None):
+    """Raises SQLite's wording, keeps our diagnostic alongside it.
+
+    `str(exc)` is what SQLite itself would print (`near "X": syntax error`, or
+    `incomplete input` at end of statement) because that text is part of the conformance
+    contract. `exc.detail` keeps the specific explanation — expected token, position — for
+    humans and tests. Losing our own diagnostics to match a yacc parser would be a bad trade,
+    so both are kept.
+    """
+
+    def __init__(self, detail, token=None, sqlite_text=None, line=None, col=None):
+        self.detail = detail
+        self.token = token
         if token is not None:
             line, col = token.line, token.col
-        super().__init__(f"{message} at line {line}, column {col}")
-        self.message = message
-        self.token = token
         self.line = line
         self.col = col
+        if sqlite_text is None:
+            sqlite_text = self._sqlite_text(token)
+        super().__init__(sqlite_text)
+
+    @staticmethod
+    def _sqlite_text(token):
+        if token is None or token.kind == "EOF":
+            return "incomplete input"
+        return f'near "{token.raw or token.value}": syntax error'
+
 
 
 class Parser:
@@ -335,11 +353,13 @@ class Parser:
 
         if tok.kind in ("IDENT", "KEYWORD") and tok.upper not in RESERVED_IDENTIFIERS:
             name = self.advance().value
+            quote = tok.quote
             if self.at_punct("."):
                 self.advance()
+                column_tok = self.tok
                 column = self.parse_identifier("column name")
-                return ast.ColumnRef(name=column, table=name)
-            return ast.ColumnRef(name=name)
+                return ast.ColumnRef(name=column, table=name, quote=column_tok.quote)
+            return ast.ColumnRef(name=name, quote=quote)
 
         raise ParseError(f"unexpected {self.describe(tok)} in expression", tok)
 
@@ -350,5 +370,6 @@ def parse(sql):
         tokens = tokenize(sql)
         return Parser(tokens, source=sql).parse_statement()
     except LexError as exc:
-        # One error type for callers: lexing failures are parse failures.
-        raise ParseError(exc.message, line=exc.line, col=exc.col) from None
+        # One error type for callers: lexing failures are parse failures. SQLite's wording for
+        # these is already the exception text.
+        raise ParseError(exc.message, sqlite_text=str(exc), line=exc.line, col=exc.col) from None

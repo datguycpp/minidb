@@ -56,17 +56,30 @@ class TestLexer(unittest.TestCase):
     def test_unterminated_string_reports_position(self):
         with self.assertRaises(LexError) as ctx:
             tokenize("SELECT 'oops")
-        self.assertIn("unterminated string", str(ctx.exception))
+        self.assertIn("unterminated string", ctx.exception.message)
         self.assertEqual(ctx.exception.col, 8)
 
-    def test_unterminated_block_comment(self):
-        with self.assertRaises(LexError):
-            tokenize("/* never closed")
+    def test_unterminated_string_uses_sqlite_wording(self):
+        # SQLite: Parse error near line 1: unrecognized token: "'oops"
+        with self.assertRaises(LexError) as ctx:
+            tokenize("SELECT 'oops")
+        self.assertEqual(str(ctx.exception), 'unrecognized token: "\'oops"')
+
+    def test_unterminated_block_comment_is_comment_to_eof(self):
+        # SQLite accepts this and returns rows; an unterminated comment is not an error.
+        self.assertEqual([(t.kind, t.value) for t in tokenize("1 /* never closed") if t.kind != "EOF"],
+                         [("NUMBER", "1")])
 
     def test_unexpected_character(self):
         with self.assertRaises(LexError) as ctx:
             tokenize("SELECT #")
-        self.assertIn("unexpected character", str(ctx.exception))
+        self.assertIn("unexpected character", ctx.exception.message)
+        self.assertEqual(str(ctx.exception), 'unrecognized token: "#"')
+
+    def test_malformed_number(self):
+        with self.assertRaises(LexError) as ctx:
+            tokenize("SELECT 1e")
+        self.assertEqual(str(ctx.exception), 'unrecognized token: "1e"')
 
 
 if __name__ == "__main__":

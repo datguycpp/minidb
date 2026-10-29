@@ -46,17 +46,17 @@ class TestCreateTable(unittest.TestCase):
     def test_no_columns_is_an_error(self):
         with self.assertRaises(ParseError) as ctx:
             parse("CREATE TABLE t ()")
-        self.assertIn("at least one column", str(ctx.exception))
+        self.assertIn("at least one column", ctx.exception.detail)
 
     def test_unknown_type_is_rejected(self):
         with self.assertRaises(ParseError) as ctx:
             parse("CREATE TABLE t (id WIDGET)")
-        self.assertIn("unknown type", str(ctx.exception))
+        self.assertIn("unknown type", ctx.exception.detail)
 
     def test_only_create_table_is_accepted(self):
         with self.assertRaises(ParseError) as ctx:
             parse("CREATE INDEX i ON t (id)")
-        self.assertIn("CREATE TABLE", str(ctx.exception))
+        self.assertIn("CREATE TABLE", ctx.exception.detail)
 
 
 class TestInsert(unittest.TestCase):
@@ -82,7 +82,7 @@ class TestInsert(unittest.TestCase):
     def test_missing_values_keyword(self):
         with self.assertRaises(ParseError) as ctx:
             parse("INSERT INTO t (a) (1)")
-        self.assertIn("expected VALUES", str(ctx.exception))
+        self.assertIn("expected VALUES", ctx.exception.detail)
 
 
 class TestSelect(unittest.TestCase):
@@ -150,12 +150,37 @@ class TestSelect(unittest.TestCase):
     def test_missing_from(self):
         with self.assertRaises(ParseError) as ctx:
             parse("SELECT 1")
-        self.assertIn("expected FROM", str(ctx.exception))
+        self.assertIn("expected FROM", ctx.exception.detail)
 
     def test_reserved_word_cannot_be_a_table_name(self):
         with self.assertRaises(ParseError) as ctx:
             parse("SELECT * FROM where")
-        self.assertIn("expected table name", str(ctx.exception))
+        self.assertIn("expected table name", ctx.exception.detail)
+
+
+class TestErrorWording(unittest.TestCase):
+    """The message text is part of the conformance contract (spec: byte-identical after the
+    CLI framing strip), so it is asserted directly rather than through a substring."""
+
+    def test_pointed_at_a_bad_token(self):
+        with self.assertRaises(ParseError) as ctx:
+            parse("CREAT TABLE t (a INT)")
+        self.assertEqual(str(ctx.exception), 'near "CREAT": syntax error')
+
+    def test_missing_keyword_names_that_token(self):
+        with self.assertRaises(ParseError) as ctx:
+            parse("SELECT * FRM t")
+        self.assertEqual(str(ctx.exception), 'near "FRM": syntax error')
+
+    def test_end_of_input_is_incomplete_input(self):
+        with self.assertRaises(ParseError) as ctx:
+            parse("SELECT * FROM")
+        self.assertEqual(str(ctx.exception), "incomplete input")
+
+    def test_our_diagnostic_survives_in_detail(self):
+        with self.assertRaises(ParseError) as ctx:
+            parse("SELECT * FRM t")
+        self.assertIn("expected FROM", ctx.exception.detail)
 
 
 class TestStatementFraming(unittest.TestCase):
@@ -166,12 +191,12 @@ class TestStatementFraming(unittest.TestCase):
     def test_trailing_garbage_is_rejected(self):
         with self.assertRaises(ParseError) as ctx:
             parse("SELECT * FROM t WHERE 1 = 1 extra")
-        self.assertIn("trailing input", str(ctx.exception))
+        self.assertIn("trailing input", ctx.exception.detail)
 
     def test_empty_input(self):
         with self.assertRaises(ParseError) as ctx:
             parse("   ")
-        self.assertIn("expected CREATE, INSERT or SELECT", str(ctx.exception))
+        self.assertIn("expected CREATE, INSERT or SELECT", ctx.exception.detail)
 
     def test_unknown_statement(self):
         with self.assertRaises(ParseError):
@@ -185,7 +210,7 @@ class TestStatementFraming(unittest.TestCase):
     def test_lexer_error_surfaces_as_parse_error(self):
         with self.assertRaises(ParseError) as ctx:
             parse("SELECT 'unterminated FROM t")
-        self.assertIn("unterminated string", str(ctx.exception))
+        self.assertIn("unterminated string", ctx.exception.detail)
 
 
 if __name__ == "__main__":
