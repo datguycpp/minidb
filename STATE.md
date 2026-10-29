@@ -81,11 +81,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M5 — query planner (index vs full scan). CHECKPOINT 1 follow-on
-  approved: Steven's 2026-10-30 directive "finish up all of the milestones, i approve of
-  both of them" = budget topped up +6 AND a standing instruction to run the ladder to the
-  end of Tier 6 without pausing at gates (see decision log for the exact interpretation
-  and Steven's exit clause).**
+- **Current milestone: t1b + `--directive: reopen` landing (Default implements the runner
+  machinery per Research's ratified spec; Build reviews). M6 — transactions — ordered
+  after. M5 (query planner) accepted 2026-10-30.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -103,6 +101,15 @@ query history; hot-path rewrite in a faster language
     append-after-reopen persisted; plus Default's own probe — CHECK constraint enforced
     identically after reopen). Syntax 46/46, 114 unit tests OK, corpus revision 1c24177
     (engine-only commits, correctly unchanged).
+  - `SCORE t1.5 (M5): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe plan
+    choice]` — plan evidence instead: `tools/plan_check.py` extended to five scenarios
+    (Default re-ran: all PASS). **Default's edge probes of the documented rule
+    (docs/planner.md): equal-estimate tie-break → name order (`aaa` over `zzz`);
+    unique-preference disambiguated from name order (UNIQUE `zzz` beats regular `aaa`)
+    — confirmed; bucket == table size → full scan with `reason=index-not-selective`;
+    range predicate → full with `no-eligible-index`. `last_plan` carries reason,
+    estimated_rows and per-candidate estimates — the choice is auditable post-hoc.
+    142 unit tests OK, syntax 46/46, durability PASS.**
     - `SCORE t1.4 (M4): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe index
       choice]` — plan-level evidence instead: `tools/plan_check.py` (Default re-ran from
       cold clone: full-scan 2000 examined before, index access 1 examined after, index
@@ -132,18 +139,14 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M5 — query planner (index vs full scan). **Ordered, started.** Scope: a real
-   choice layer over M4's eligibility — when multiple indexes are eligible, choose one
-   by an explicit rule (documented, not vibes); when none, full scan; `last_plan`
-   enriched accordingly. Acceptance: `tools/plan_check.py` extended to cover choice
-   scenarios (multi-candidate, no-candidate) with raw output; corpus re-run raw;
-   syntax unregressed; the five index-outcome cases in Research's parked t1b draft
-   should pass when it lands post-M5 (they are NOT in the denominator yet).
-2. [Research] t1b + `--directive: reopen` landing the round after M5 — one re-baseline
-   event, negative control included, per the ratified spec. Then t1c/t1d/t1e per
-   tranche plan; Tier-2 suites drafted as milestones complete so gates are measured
-   against suites written before the fixes.
-3. [Build] M6 — transactions, after M5 lands with numbers.
+1. [Default + Research + Build] t1b landing (next round): Default implements the runner
+   machinery per the ratified spec — `--directive: <name>` marker, error on unknown
+   directive-shaped lines, `reopen` with temp-file lifecycle, **negative-control harness
+   test included**; Research's converted t1b draft moves to `tests/corpus/t1b.txt` in the
+   same commit; one re-baseline entry (43 → 52 cases) with before/after scores; Build
+   reviews the runner diff.
+2. [Build] M6 — transactions, after t1b lands with numbers.
+3. [Research] t1c (joins/aggregates/subqueries) after M8; t1d after M7; t1e after M9.
 
 ## Known failures
 
@@ -250,6 +253,12 @@ query history; hot-path rewrite in a faster language
   reporting. **Exit clause preserved:** if Steven meant only Tier 1, one word at any
   checkpoint restores the pause rule from that point. Rounds are logged, not enforced.
   Irreversible actions still require explicit words per standing rules.
+- 2026-10-30 (M5): M5 **accepted** — cold-clone reproduction (142 tests OK, syntax 46/46,
+  behaviour 41/43, durability PASS, plan_check 5/5). Rule verified at its edges by
+  Default: name tie-break, unique preference (disambiguated from name order by probing
+  UNIQUE-named-zzz vs regular-named-aaa), non-selective fallback (bucket == table →
+  scan), range/OR exclusion. Planner rule documented in docs/planner.md — "the planner
+  picked it" is no longer an unexplained answer.
 - 2026-10-30 (t1b draft verification): Default ran Research's parked `docs/t1b-draft.txt`
   (9 cases, outside the runner glob — parking confirmed: main run still 41/43) through the
   CURRENT runner: **4/9**. The five index cases fail correctly per decision 2
