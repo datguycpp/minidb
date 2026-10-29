@@ -1,0 +1,89 @@
+-- t1d DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ so the glob can't see it — denominator stays 52 until
+-- Default orders the tranche. Machinery exists already (--directive: reopen
+-- landed with t1b), so landing = move + one re-baseline entry, no runner work.
+-- src: authored   tier: t1 (tranche d: transactions M6, crash-visible M7)
+-- Shapes: the eight scripts from M6's differential evidence, plus DDL-index
+-- rollback and two reopen-phase combinations.
+
+-- Rollback discards an insert.
+
+CREATE TABLE t (id INTEGER);
+BEGIN;
+INSERT INTO t VALUES (1);
+ROLLBACK;
+SELECT * FROM t;
+
+-- Commit keeps an insert.
+
+CREATE TABLE t (id INTEGER);
+BEGIN;
+INSERT INTO t VALUES (1);
+COMMIT;
+SELECT * FROM t;
+
+-- Rollback discards DDL: the dropped table must be missing on BOTH sides,
+-- with byte-identical error text (error-agreement case).
+
+CREATE TABLE keep (id INTEGER);
+BEGIN;
+CREATE TABLE ghost (id INTEGER);
+ROLLBACK;
+SELECT * FROM ghost;
+
+-- Rollback leaves rows written before the transaction.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+BEGIN;
+INSERT INTO t VALUES (2);
+ROLLBACK;
+SELECT * FROM t;
+
+-- BEGIN...END spelling: END is a commit alias in SQLite.
+
+CREATE TABLE t (id INTEGER);
+BEGIN;
+INSERT INTO t VALUES (1);
+END;
+SELECT * FROM t;
+
+-- Error agreement: transaction control without an active transaction.
+
+COMMIT;
+
+ROLLBACK;
+
+-- Error agreement: nested BEGIN.
+
+CREATE TABLE t (id INTEGER);
+BEGIN;
+BEGIN;
+
+-- Rollback discards CREATE INDEX as one unit with the rows.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+BEGIN;
+CREATE INDEX idx_id ON t (id);
+ROLLBACK;
+SELECT * FROM t WHERE id = 1;
+
+-- Committed transaction survives reopen (reopen machinery from t1b).
+
+CREATE TABLE t (id INTEGER);
+BEGIN;
+INSERT INTO t VALUES (1);
+COMMIT;
+--directive: reopen
+SELECT * FROM t;
+
+-- Rolled-back row is absent after reopen: the snapshot restore must be
+-- what the reopened file contains, not what the pre-rollback image held.
+
+CREATE TABLE t (id INTEGER);
+BEGIN;
+INSERT INTO t VALUES (1);
+ROLLBACK;
+--directive: reopen
+SELECT * FROM t;

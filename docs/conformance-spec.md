@@ -133,6 +133,11 @@ comments passed without testing anything).
   rows, and that *is* in the corpus (cases may `CREATE INDEX` freely).
   Whether MiniDB chose the index is invisible until EXPLAIN lands (Tier 5,
   milestone 32); do not report "index works" from a score alone.
+- **Storage at all**, except in `--directive: reopen` cases: single-phase
+  cases run in-memory on both sides by design. A "52 cases" score says
+  nothing about the disk layer beyond the four (six with t1d)
+  reopen cases — persistence claims come from reopen cases and the
+  milestone's own durability evidence, never from the headline number.
 
 ## Runner interface (for the milestone's harness to expose)
 

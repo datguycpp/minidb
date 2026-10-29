@@ -155,6 +155,14 @@ class TestDirectiveLoader(unittest.TestCase):
         with self.assertRaises(SystemExit):
             bc.load_cases(self.corpus("CREATE TABLE t (id INTEGER)\n--directive: reopen\n"))
 
+    def test_empty_corpus_file_is_a_clean_error_not_a_traceback(self):
+        with self.assertRaises(SystemExit):
+            bc.load_cases(self.corpus(""))
+
+    def test_comment_only_corpus_file_is_a_clean_error(self):
+        with self.assertRaises(SystemExit):
+            bc.load_cases(self.corpus("-- just a header, no cases\n"))
+
     def test_provenance_comments_stay_comments(self):
         cases = bc.load_cases(self.corpus("-- src: authored\n-- tier: t1\nSELECT 1\n"))
         self.assertEqual(cases, [(set(), [["SELECT 1"]])])

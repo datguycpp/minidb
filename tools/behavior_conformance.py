@@ -174,10 +174,11 @@ def load_cases(path):
     mistakes so a typo can never no-op into a fake pass (see module docstring).
     """
     cases = []
-    phases, pending, case_directives = [[]], [], set()
+    phases, case_directives = [[]], set()
+    saw_marker_line = False
 
     def flush(lineno):
-        nonlocal phases, pending, case_directives
+        nonlocal phases, case_directives
         if not any(phases):
             if case_directives:
                 raise SystemExit(f"{path}:{lineno}: directive with no case block after it")
@@ -186,15 +187,17 @@ def load_cases(path):
             raise SystemExit(
                 f"{path}:{lineno}: reopen directive with no statements after it")
         cases.append((case_directives, phases))
-        phases, pending, case_directives = [[]], [], set()
+        phases, case_directives = [[]], set()
 
     with open(path, encoding="utf-8") as fh:
+        lineno = 0
         for lineno, line in enumerate(fh, 1):
             stripped = line.strip()
             if not stripped:
                 flush(lineno)
                 continue
             if stripped.startswith("--"):
+                saw_marker_line = True
                 m = DIRECTIVE_RE.match(stripped)
                 if m:
                     name = m.group(1)
@@ -209,7 +212,6 @@ def load_cases(path):
                                 f"the previous reopen")
                         if phases[-1]:
                             phases.append([])
-                        pending.append(name)
                     else:
                         case_directives.add(name)
                     continue
@@ -225,6 +227,8 @@ def load_cases(path):
                                 f"directive — use `--directive: {near[0]}`")
                 continue  # plain comment (provenance headers, case descriptions)
             phases[-1].append(stripped.rstrip(";").strip())
+    if not saw_marker_line and not any(phases):
+        raise SystemExit(f"{path}: no cases found (file is empty or comment-only)")
     flush(lineno + 1)
     return cases
 
