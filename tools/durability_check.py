@@ -74,12 +74,25 @@ def main():
     ok_second = rows == expected + [(args.rows + 1, "after-reopen", 0.5, "new")]
     db.close()
 
+    # A rolled-back transaction must leave nothing behind once the file is reopened.
+    db = Database(path)
+    db.run("BEGIN")
+    db.run(f"INSERT INTO t VALUES ({args.rows + 2}, 'rolled-back', 1.0, 'gone')")
+    db.run("ROLLBACK")
+    db.close()
+    db = Database(path)
+    columns, rows = db.run("SELECT * FROM t")
+    ok_third = rows == expected + [(args.rows + 1, "after-reopen", 0.5, "new")]
+    print(f"rollback: rows={len(rows):<5} (unchanged after rollback+reopen: {'yes' if ok_third else 'no'})")
+    db.close()
+
     print()
     print(f"content identical across close/reopen: {'PASS' if ok_first else 'FAIL'}")
     print(f"row written after reopen persisted:    {'PASS' if ok_second else 'FAIL'}")
+    print(f"rolled-back row absent after reopen:   {'PASS' if ok_third else 'FAIL'}")
     if cleanup:
         cleanup.cleanup()
-    return 0 if (ok_first and ok_second) else 1
+    return 0 if (ok_first and ok_second and ok_third) else 1
 
 
 if __name__ == "__main__":
