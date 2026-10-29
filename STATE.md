@@ -81,7 +81,8 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M6 — transactions (t1b landed; ordered). Build's round.**
+- **Current milestone: M7 — write-ahead log and crash recovery (M6 accepted, harness
+  defects fixed). Build's round.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -118,6 +119,17 @@ query history; hot-path rewrite in a faster language
     previously-inert reopen cases are now the mechanism's own proof of work: under the
     old loader they passed without testing anything; under the new one they execute the
     reopen cycle and can fail (negative controls prove it).
+  - `SCORE t1.6 (M6): 50/52 (96.2%) [Δ +0 — expected; transaction cases land with t1d]` —
+    differential evidence in `tools/transaction_check.py`: 8/8 shapes match SQLite
+    (Default re-ran from cold clone). **Default's independent probes against the pinned
+    binary: all three error wordings byte-exact (`cannot commit - no transaction is
+    active`, `cannot rollback - no transaction is active`, `cannot start a transaction
+    within a transaction`); DDL rollback verified on the binary (post-ROLLBACK SELECT →
+    `no such table: ghost`, matching MiniDB); close-with-open-transaction rolls back on
+    BOTH engines (binary: BEGIN+INSERT, no COMMIT, fresh invocation sees nothing;
+    MiniDB: `[]` after reopen). Durability 3/3 incl. rolled-back row absent. Snapshot-
+    per-transaction is O(database size) — documented cost, replaced by M7's WAL. 174
+    engine tests + harness suite = 176 OK, syntax 46/46.**
     - `SCORE t1.4 (M4): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe index
       choice]` — plan-level evidence instead: `tools/plan_check.py` (Default re-ran from
       cold clone: full-scan 2000 examined before, index access 1 examined after, index
@@ -131,7 +143,8 @@ query history; hot-path rewrite in a faster language
       probe). 133 unit tests, durability PASS, syntax 46/46.**
   The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
   honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
-- Tier-1 budget: **18 rounds after Steven's +6 top-up. Used: 14.** Budget rule changed by
+- Tier-1 budget: **18 rounds after Steven's +6 top-up. Used: 16** (M6 build 15, Default
+  harness-fix round 16). Budget rule changed by
   Steven's standing directive ("finish up all of the milestones"): the stop-and-ask cap is
   **suspended for the rest of the project** — round counts are still logged here for
   transparency, and Default still flags anything impossible or too slow per the charter's
@@ -147,13 +160,14 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M6 — transactions (ordered, next). Acceptance: BEGIN/COMMIT/ROLLBACK
-   observable per SQLite semantics on the corpus differential; durability tool extended
-   if rollback changes what survives; corpus re-run raw; syntax unregressed. **This is
-   the milestone engineer flagged as the storage layer's first real stress test.**
-2. [Build] M7 — write-ahead log and crash recovery, after M6.
-3. [Research] t1c (joins/aggregates/subqueries) after M8; t1d after M7; t1e after M9.
-   Tier-2 suite drafting starts BEFORE the M10+ fixes, as ratified.
+1. [Build] M7 — write-ahead log and crash recovery (ordered, next). Acceptance:
+   crash-visible evidence per the spec's engineer-owned-evidence section — kill the
+   process mid-write, verify recovery — raw; corpus re-run; the M6 snapshot cost is what
+   WAL replaces, so the transaction_check numbers should be re-measured after.
+2. [Build] M8 — joins, aggregates, subqueries, after M7. Research's t1c lands against it.
+3. [Build] M9 — fuzzing against SQLite, after M8. Research's fuzzer spec + t1e seeds
+   land here. **Tier-1 gate is formally verified after M9** — see decision log for why
+   the arithmetic being met today does not close the tier.
 
 ## Known failures
 
@@ -283,6 +297,24 @@ query history; hot-path rewrite in a faster language
   expectation was wrong; fixed by testing both shapes (rows-visible and
   error-agreement). Corpus: t1b 9/9 first run, 50/52 (96.2%), research's prediction
   exact. Build reviews the full runner diff next round.
+- 2026-10-30 (M6): M6 **accepted** — cold-clone reproduction (transaction_check 8/8,
+  durability 3/3 incl. rolled-back-row-absent, syntax 46/46, behaviour 50/52). Default's
+  probes against the pinned binary all exact (wordings, DDL rollback, close-rolls-back on
+  both engines). Snapshot-per-transaction cost ratified as documented-and-replaced-by-M7.
+- 2026-10-30 (harness fixes from Build's M6 review): both defects confirmed and fixed by
+  Default (dead `pending` state removed; empty/comment-only corpus file now raises a
+  clean error with two new tests). **Process failure logged honestly: the first fix
+  commit (a9e6d6b) shipped with a failing test** — Default chained `unittest | tail` and
+  `git commit` in one shell line, and the pipe masked the exit code, so the failure
+  scrolled past. Caught on the next command, fixed in `4c4199a` (the guard had counted
+  ANY comment as a directive marker; corrected to directive markers only), invariant
+  asserts added in `9308de2`. Lesson: never chain a commit after piped test output —
+  pipefail or separate turns.
+- 2026-10-30 (Tier-1 gate timing, precise): engineer's arithmetic is correct — 50/52 =
+  96.2% ≥ 90% — but the charter defines Tier 1 as milestones 1–9, so the gate is the
+  tier-COMPLETION gate, formally verified after M9 with the full tranche set (t1b/t1c/
+  t1d/t1e) in the denominator. Recording this now so nobody closes Tier 1 early on a
+  partial denominator.
 - 2026-10-30 (t1b draft verification): Default ran Research's parked `docs/t1b-draft.txt`
   (9 cases, outside the runner glob — parking confirmed: main run still 41/43) through the
   CURRENT runner: **4/9**. The five index cases fail correctly per decision 2
