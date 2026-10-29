@@ -108,6 +108,19 @@ CREATE TABLE t (id INTEGER, name TEXT);
 INSERT INTO t (id) VALUES (1);
 SELECT * FROM t;
 
+-- Quote style is load-bearing: bracket and backtick quoting resolve to a
+-- hint-less 'no such column: apple', unlike double quotes (case 6 above,
+-- which carries SQLite's full string-literal hint). Re-baseline edit,
+-- researched at checkpoint 1: +2 cases, no engine change expected.
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'apple');
+SELECT * FROM t WHERE name = [apple];
+
+CREATE TABLE t (id INTEGER, name TEXT);
+INSERT INTO t VALUES (1, 'apple');
+SELECT * FROM t WHERE name = `apple`;
+
 -- Semantic rejection agreement: creating twice.
 
 CREATE TABLE t (id INTEGER);
