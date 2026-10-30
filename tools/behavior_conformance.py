@@ -28,6 +28,7 @@ Directives (ratified spec: docs/conformance-spec.md, Directives roadmap):
 import argparse
 import glob
 import json
+import sqlite3
 import math
 import os
 import re
@@ -252,6 +253,36 @@ def rows_equal(left, right):
     return True
 
 
+def _statement_complete(sql):
+    """True when a wrapped line is a whole statement.
+
+    `WITH x AS (SELECT ...)` is balanced and semicolon-terminated yet still incomplete: the CTE
+    list needs a body SELECT at paren depth 0. Checked structurally rather than by executing
+    anything, so no second parser becomes a second truth.
+    """
+    text = sql.strip()
+    if not text.lower().startswith("with"):
+        return True
+    depth = 0
+    word = ""
+    for character in text:
+        if character == "(":
+            if depth == 0 and word.lower() == "select":
+                return True
+            depth += 1
+            word = ""
+        elif character == ")":
+            depth -= 1
+            word = ""
+        elif character.isalnum() or character == "_":
+            word += character
+        else:
+            if depth == 0 and word.lower() == "select":
+                return True
+            word = ""
+    return depth == 0 and word.lower() == "select"
+
+
 def load_cases(path):
     """Return [(case_directives, phases), ...] in file order.
 
@@ -316,8 +347,10 @@ def load_cases(path):
                 continue  # plain comment (provenance headers, case descriptions)
             pending = (pending_join + " " + stripped.rstrip(";").strip()
                        if pending_join else stripped.rstrip(";").strip())
-            if pending.count("(") > pending.count(")") or pending.rstrip().endswith(","):
-                pending_join = pending  # still open: parens unbalanced or mid-list
+            if (pending.count("(") > pending.count(")")
+                    or pending.rstrip().endswith(",")
+                    or not _statement_complete(pending)):
+                pending_join = pending  # still open: parens unbalanced, mid-list, or no body yet
             else:
                 phases[-1].append(pending.rstrip(";").strip())
                 pending_join = ""

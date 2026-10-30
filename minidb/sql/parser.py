@@ -141,6 +141,10 @@ class Parser:
             stmt = self.parse_commit()
         elif self.at_keyword("ROLLBACK"):
             stmt = self.parse_rollback()
+        elif self.at_keyword("WITH"):
+            stmt = self.parse_with()
+        elif self.at_keyword("DROP"):
+            stmt = self.parse_drop()
         elif self.at_keyword("SELECT"):
             stmt = self.parse_compound()
         else:
@@ -183,6 +187,8 @@ class Parser:
             return self.parse_create_index(unique)
         if unique:
             raise ParseError("expected INDEX after UNIQUE", self.tok)
+        if self.at_keyword("VIEW"):
+            return self.parse_create_view(False)
         if not self.at_keyword("TABLE"):
             raise ParseError("only CREATE TABLE and CREATE INDEX are supported", self.tok)
         self.advance()
@@ -209,6 +215,58 @@ class Parser:
         # The catalog keeps the CREATE statement verbatim so reopening needs no AST serialiser.
         statement.sql = self.source.strip() if self.source else None
         return statement
+
+    def parse_create_view(self, if_not_exists):
+        self.expect_keyword("VIEW")
+        if self.accept_keyword("IF"):
+            self.expect_keyword("NOT")
+            self.expect_keyword("EXISTS")
+            if_not_exists = True
+        name = self.parse_identifier("view name")
+        columns = []
+        if self.accept_punct("("):
+            columns.append(self.parse_identifier("column name"))
+            while self.accept_punct(","):
+                columns.append(self.parse_identifier("column name"))
+            self.expect_punct(")")
+        self.expect_keyword("AS")
+        select = self.parse_compound()
+        return ast.CreateView(name=name, columns=columns, select=select,
+                              if_not_exists=if_not_exists, sql=getattr(self, 'source', None))
+
+    def parse_drop(self):
+        self.expect_keyword("DROP")
+        if not self.at_keyword("VIEW"):
+            raise ParseError("only DROP VIEW is supported", self.tok)
+        self.advance()
+        if_exists = False
+        if self.accept_keyword("IF"):
+            self.expect_keyword("EXISTS")
+            if_exists = True
+        name = self.parse_identifier("view name")
+        return ast.DropView(name=name, if_exists=if_exists)
+
+    def parse_with(self):
+        self.expect_keyword("WITH")
+        recursive = bool(self.accept_keyword("RECURSIVE"))
+        ctes = []
+        while True:
+            name = self.parse_identifier("CTE name")
+            columns = []
+            if self.accept_punct("("):
+                columns.append(self.parse_identifier("column name"))
+                while self.accept_punct(","):
+                    columns.append(self.parse_identifier("column name"))
+                self.expect_punct(")")
+            self.expect_keyword("AS")
+            self.expect_punct("(")
+            select = self.parse_compound()
+            self.expect_punct(")")
+            ctes.append(ast.CTE(name=name, columns=columns, select=select, recursive=recursive))
+            if not self.accept_punct(","):
+                break
+        body = self.parse_compound()
+        return ast.With(ctes=ctes, body=body)
 
     def parse_create_index(self, unique):
         if_not_exists = False

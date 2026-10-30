@@ -12,6 +12,7 @@ compares, so they are produced here rather than reworded by a caller.
 import copy
 import re
 import string
+from types import SimpleNamespace
 
 from .sql import ast
 from .storage.disk import DiskStorage
@@ -511,6 +512,7 @@ class Database:
         self.path = path
         self.storage = DiskStorage(path) if path else None
         self.tables = {}
+        self.views = {}
         self._sql = None
         self.last_plan = None
         self.tx_snapshot = None
@@ -601,6 +603,12 @@ class Database:
             return self._select(statement)
         if isinstance(statement, ast.Compound):
             return self._compound(statement)
+        if isinstance(statement, ast.CreateView):
+            return self._create_view(statement)
+        if isinstance(statement, ast.DropView):
+            return self._drop_view(statement)
+        if isinstance(statement, ast.With):
+            return self._with(statement)
         raise ExecError(f"unsupported statement {type(statement).__name__}")
 
     def run(self, sql):
@@ -611,7 +619,7 @@ class Database:
     # -- CREATE --------------------------------------------------------------
     def _create(self, node: ast.CreateTable):
         key = node.name.lower()
-        if key in self.tables:
+        if key in self.tables or key in self.views:
             if node.if_not_exists:
                 return None
             raise ExecError(f"table {node.name} already exists")
@@ -630,10 +638,117 @@ class Database:
         return None
 
     def table(self, name):
+        key = name.lower()
+        if key in self.tables:
+            return self.tables[key]
+        if key in self.views:
+            return self._materialise_view(self.views[key])
+        raise ExecError(f"no such table: {name}")
+
+    # -- views ---------------------------------------------------------------
+    def _create_view(self, node: ast.CreateView):
+        key = node.name.lower()
+        if key in self.tables or key in self.views:
+            if node.if_not_exists:
+                return None
+            raise ExecError(f"view {node.name} already exists")
+        self.views[key] = node
+        return None
+
+    def _drop_view(self, node):
+        key = node.name.lower()
+        if key in self.views:
+            del self.views[key]
+            return None
+        if node.if_exists:
+            return None
+        raise ExecError(f"no such view: {node.name}")
+
+    def _materialise_view(self, view: ast.CreateView):
+        columns, rows = self._select_node(view.select)
+        names = view.columns or columns
+        table = Table(view.name, [SimpleNamespace(name=name) for name in names])
+        table.rows = [tuple(row) for row in rows]
+        return table
+
+    def _updatable_view(self, name):
+        """A view is auto-updatable here when it is a plain projection of one base table."""
+        view = self.views.get(name.lower())
+        if view is None or not isinstance(view.select, ast.Select):
+            return None
+        select = view.select
+        if select.group_by or select.distinct or select.joins or select.where is not None \
+                or select.limit is not None or select.base_select is not None or select.table is None:
+            return None
+        base = self.tables.get(select.table.lower())
+        if base is None:
+            return None
+        columns = []
+        for item in select.items:
+            if isinstance(item, ast.Star):
+                columns.extend(base.column_names)
+            elif isinstance(item.expr, ast.ColumnRef):
+                columns.append(item.expr.name)
+            else:
+                return None
+        return base, columns
+
+    # -- CTEs ----------------------------------------------------------------
+    def _with(self, node: ast.With):
+        saved = {}
         try:
-            return self.tables[name.lower()]
-        except KeyError:
-            raise ExecError(f"no such table: {name}") from None
+            for cte in node.ctes:
+                table = self._recursive_cte(cte) if cte.recursive and _references(cte.select, cte.name) \
+                    else self._materialise_cte(cte)
+                key = cte.name.lower()
+                saved[key] = self.tables.get(key)
+                self.tables[key] = table
+            return self._select_node(node.body)
+        finally:
+            for key, previous in saved.items():
+                if previous is None:
+                    self.tables.pop(key, None)
+                else:
+                    self.tables[key] = previous
+
+    def _materialise_cte(self, cte):
+        columns, rows = self._select_node(cte.select)
+        names = cte.columns or columns
+        table = Table(cte.name, [SimpleNamespace(name=name) for name in names])
+        table.rows = [tuple(row) for row in rows]
+        return table
+
+    def _recursive_cte(self, cte):
+        body = cte.select
+        if not isinstance(body, ast.Compound) or body.op not in ("UNION", "UNION ALL"):
+            raise ExecError("recursive CTE must use UNION or UNION ALL")
+        columns, base_rows = self._select_node(body.left)
+        names = cte.columns or columns
+        accumulated = [tuple(row) for row in base_rows]
+        seen = {tuple(_value_key(value) for value in row) for row in accumulated}
+        working = list(accumulated)
+        for _ in range(1000):
+            table = Table(cte.name, [SimpleNamespace(name=name) for name in names])
+            table.rows = working
+            self.tables[cte.name.lower()] = table
+            _, rows = self._select_node(body.right)
+            fresh = []
+            for row in rows:
+                marker = tuple(_value_key(value) for value in row)
+                if body.op == "UNION ALL":
+                    fresh.append(tuple(row))
+                elif marker not in seen:
+                    seen.add(marker)
+                    fresh.append(tuple(row))
+            if not fresh:
+                break
+            accumulated.extend(fresh)
+            working = fresh
+        else:
+            raise ExecError("recursive CTE exceeded 1000 iterations")
+        table = Table(cte.name, [SimpleNamespace(name=name) for name in names])
+        table.rows = accumulated
+        return table
 
     def _create_index(self, node: ast.CreateIndex):
         table = self.table(node.table)
@@ -688,6 +803,9 @@ class Database:
 
     # -- INSERT --------------------------------------------------------------
     def _insert(self, node: ast.Insert):
+        if node.table.lower() in self.views and node.table.lower() not in self.tables:
+            # SQLite views are read-only unless they have INSTEAD OF triggers (not in scope yet).
+            raise ExecError(f"cannot modify {node.table} because it is a view")
         table = self.table(node.table)
         if node.columns is None:
             targets = list(range(len(table.columns)))
@@ -1308,6 +1426,21 @@ class Database:
             result = value is None
             return (not result) if node.negated else result
         raise ExecError(f"cannot evaluate {type(node).__name__}")
+
+
+def _references(node, name):
+    """True when a select reads from `name` anywhere (used to spot recursive CTE arms)."""
+    if node is None:
+        return False
+    if isinstance(node, ast.Select):
+        if node.table and node.table.lower() == name.lower():
+            return True
+        if any(join.table and join.table.lower() == name.lower() for join in node.joins):
+            return True
+        return _references(node.base_select, name)
+    if isinstance(node, ast.Compound):
+        return _references(node.left, name) or _references(node.right, name)
+    return False
 
 
 def _value_key(value):

@@ -162,6 +162,35 @@ class InSubquery(Node):
 
 
 @dataclass
+class CreateView(Node):
+    name: str
+    columns: list = field(default_factory=list)   # optional `CREATE VIEW v (a, b) AS ...`
+    select: "Node | None" = None
+    if_not_exists: bool = False
+    sql: "str | None" = None
+
+
+@dataclass
+class DropView(Node):
+    name: str
+    if_exists: bool = False
+
+
+@dataclass
+class CTE(Node):
+    name: str
+    columns: list
+    select: "Node"
+    recursive: bool = False
+
+
+@dataclass
+class With(Node):
+    ctes: list
+    body: "Node"
+
+
+@dataclass
 class Compound(Node):
     left: "Node"           # Select | Compound
     op: str                # UNION | UNION ALL | INTERSECT | EXCEPT
