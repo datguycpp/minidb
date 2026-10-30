@@ -1,0 +1,95 @@
+-- t2a DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator untouched (63, or 75 once t1c lands) until
+-- the tranche is ordered. Written BEFORE M10 exists: cases are M10's scope
+-- (expression engine: operators, CASE, CAST, NULL handling) and fail until
+-- it ships — that is the drafts-before-fixes rule, Tier-2 edition.
+-- src: authored   tier: t2 (tranche a: expression engine, M10)
+-- Includes the FROM-less SELECT shape: M10 owns that gap, so cases 1-6
+-- double as its regression net.
+
+-- Precedence: * binds tighter than +.
+
+SELECT 1 + 2 * 3 - 4;
+
+-- Integer division truncates toward zero (C semantics), not floor.
+
+SELECT 7 / 2, -7 / 2, 6 / -4;
+
+-- Modulo sign follows the dividend (C semantics).
+
+SELECT 7 % 3, -7 % 3, 7 % -3;
+
+-- REAL promotion: int + real = real.
+
+SELECT 1.5 + 2, 2 + 1.5;
+
+-- String concatenation: text only, and integer coerces to text
+-- ('1x', not an error and not 1 concatenated numerically).
+
+SELECT 'a' || 'b' || 'c';
+
+SELECT 1 || 'x';
+
+-- Simple CASE: match against the subject; no match with ELSE -> ELSE.
+
+SELECT CASE 'b' WHEN 'a' THEN 1 WHEN 'b' THEN 2 ELSE 3 END;
+
+-- Searched CASE: boolean conditions in order.
+
+SELECT CASE WHEN 1 > 2 THEN 'x' WHEN 2 > 1 THEN 'y' ELSE 'z' END;
+
+-- CASE with no matching branch and no ELSE -> NULL, not error.
+
+SELECT CASE WHEN 1 > 2 THEN 'x' END;
+
+-- CAST: string to number, number to string, round-trip.
+
+SELECT CAST('5' AS INTEGER) + 1;
+
+SELECT CAST('1.5' AS REAL);
+
+SELECT CAST(5 AS TEXT) = '5';
+
+-- CAST of NULL is NULL.
+
+SELECT CAST(NULL AS INTEGER);
+
+-- CAST of non-numeric text to INTEGER is 0 (SQLite quirk, ground truth
+-- by decision 3 — not an error).
+
+SELECT CAST('abc' AS INTEGER);
+
+-- NULL propagation through arithmetic: NULL op anything = NULL.
+
+SELECT NULL + 1, NULL * 0, NULL / NULL;
+
+-- Three-valued logic truth tables: the rows engines get wrong.
+-- AND: false wins, else unknown. OR: true wins, else unknown.
+
+SELECT 1 AND NULL, 0 AND NULL, 1 OR NULL, 0 OR NULL;
+
+-- IS / IS NOT: the NULL-safe comparisons (= on NULL is never true).
+
+SELECT 1 IS NULL, NULL IS NULL, 1 IS NOT NULL;
+
+-- BETWEEN as an operator, on a column.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT * FROM t WHERE id BETWEEN 1 AND 3;
+
+-- Arithmetic inside WHERE — the M2-known gap handed to M10.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (5);
+SELECT * FROM t WHERE id + 1 > 2;
+
+-- Unary minus applied to a column value.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (-5);
+INSERT INTO t VALUES (3);
+SELECT * FROM t WHERE -id < 0;

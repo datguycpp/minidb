@@ -81,8 +81,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M9 accepted (fuzzer + spec delivered); Tier-1 gate verification
-  pending — requires t1c AND t1e in the denominator first (see decision log). M10 next.**
+- **Current milestone: TIER-1 GATE PROJECTION 89.3% — BELOW THE 90% LINE. Gate remedy
+  decision with Steven (options + numbers in the decision log; t1e outstanding).
+  Ladder holds for M10 (Tier 2) until resolved per charter.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -162,6 +163,18 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t1.8+ (t1c landing, re-baselined #6): 67/75 (89.3%) [Δ +12 cases, +6 passes,
+    −6 fails — BELOW THE TIER-1 GATE LINE]`** — old: 61/63 (96.8%) at 4e29319; new: 67/75
+    (89.3%) at 4e29319+dirty (t1c.txt). Failures classified from the raw list: 5 declared
+    scope fails (comma-join, LEFT, RIGHT, FULL OUTER, FROM-subquery — engineer's stated
+    M8 limits) + **1 undeclared: `(SELECT MAX(id) FROM t) AS top` → `incomplete input`,
+    the FROM-less bug wearing a subquery hat (same root cause as t1a cases 4–5, M10)**.
+    **Research's pre-registered floor (68/75 = 7 fails) was violated by one — her own
+    framing said "below 68 is a bug delta, not scope," and it is case 9.** Both recorded
+    predictions missed (hers 68–69, engineer's 69): falsifiability working, not failing.
+    **BELOW-90 FLAG: at 89.3% the projected Tier-1 gate does not clear; formal
+    verification stays held for t1a–e complete (t1e outstanding), and the remedy decision
+    goes to Steven with the options in the decision log.**
    - `SCORE t1.9 (M9): fuzz pipeline delivered; gate metric measured raw — see decision
     log` — **the Tier-1 conformance score is unchanged (61/63, 96.8%); this milestone
     measures a different quantity.** Engineer's published gate run: 25/10k
@@ -201,19 +214,17 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M8 — joins, aggregates, subqueries (ordered, next). Acceptance: corpus
-   differential (research's t1c tranche is authored against THIS milestone); raw output
-   on every new statement shape; the plan-check scenarios extended to at least one join
-   access path (M5's rule documents eligibility for tables — a join must not silently
-   full-scan-×-full-scan without the planner saying what it did).
-2. [Build] M9 — fuzzing against SQLite, after M8. Research's fuzzer spec + t1e seeds land
-   here. **Tier-1 gate is formally verified after M9** — the arithmetic (96.2% ≥ 90%) is
-   already cleared, but the tier closes only when milestones 1–9 are done AND the full
-   tranche set is in the denominator (decision log, Tier-1 gate timing).
-3. [Research + Default] **t1d (11 pre-drafted cases) + the two loader fixes land NEXT** —
-   one re-baseline event, before the M8 build: the transaction shapes all pass on M6
-   evidence, so landing them now moves the denominator to 63 at no risk, and the
-   tranche plan has t1d owned by M7, which is complete.
+1. [Steven — GATE REMEDY DECISION] Choose A / B / C for the Tier-1 gate (see decision
+   log: A = FROM-less fix only, 93.3%; B = A + join-scope support, 98.7%; C = full,
+   100%). **Default recommends B.** Ties to the ladder's own wording ("Joins,
+   aggregates, subqueries" — unqualified) and the corpus's five join-scope cases stand
+   as the factual record of what Tier-1 joins currently mean. **Ladder holds for M10
+   (Tier 2) until resolved per charter** — but the chosen remedy is Tier-1 remediation,
+   orderable immediately without tier-boundary ambiguity.
+2. [Research] t1e seed scenarios (torn WAL frame, first-commit-on-empty-file, reusing
+   `MINIDB_CRASH_POINT`) — the last outstanding Tier-1 tranche; fuzzer machinery ready
+   to consume them.
+3. [Build] M10 — expression engine (Tier 2), starts after the gate outcome is resolved.
 
 ## Known failures
 
@@ -461,10 +472,31 @@ query history; hot-path rewrite in a faster language
   any scored re-run against new floats: corpus floats (1.5, 2) are untouched, verified
   corpora identical, scores unchanged → Δ0 recorded here. Counts reported with every
   fuzz line henceforth.
-- 2026-10-30 (Tier-1 gate correction — responding to Build's "the Tier-1 gate
-  verification is yours and the number is 61/63"): 61/63 (96.8%) is the CURRENT
-  denominator, not the gate number. Per the recorded ruling (and twice already), the
-  gate is verified with t1a–e in the denominator — that requires t1c (+12, predicted
-  69/75 = 92.0%) and t1e (research-owned seed tranche due at this milestone) to land
-  first. Margin status going in: 2.0 points of headroom at 12/13 milestones; **the
-  verified gate report follows those two landings, and the 90% line decides it.**
+- 2026-10-30 (t1c landing — re-baseline event #6, executed by Default): corpus 63 → 75
+  (@12 research-authored cases). **Landed at 67/75 (89.3%) — BOTH predictions missed and
+  loaded raw before any fix: research pre-registered 68–69/75, engineer 69/75, actual
+  67/75 = 8 fails.** Failure classification (raw list in the scores section): five
+  declared-scope fails (comma-join, LEFT, RIGHT, FULL OUTER, FROM-subquery) + one
+  undeclared fail (FROM-less scalar subquery — the M10-owned root cause, found by the
+  tranche exactly as her floor framing predicted: "below 68 is a bug delta, not scope").
+  Research's prediction quality remains exemplary overall (2-for-2 prior) — and the
+  under-count was the *undeclared* class, which is what pre-registration is for.
+- 2026-10-30 (TIER-1 GATE PROJECTION BELOW LINE — 89.3% < 90% with t1e outstanding;
+  remedy decision to Steven per the recorded rule): options with numbers, raw:
+  - **A. FROM-less fix only** (M10-owned; fixes t1a 4–5 + t1c case 9 = 3 cases):
+    → 70/75 = **93.3%**. Estimated ~1 round (M10's first parser fix).
+  - **B. A + join-scope support** (comma + LEFT + RIGHT + FULL OUTER = 4 more cases;
+    nested-loop engine already pairs rows — the delta is NULL-padded outer semantics
+    and parser forms): → 74/75 = **98.7%** (FROM-subquery remains owned). Estimated
+    ~1–2 rounds. Makes "joins" honest against the ladder's unqualified wording.
+  - **C. Full completion** (+ FROM-subquery/derived tables): → 75/75 = 100%. Est.
+    2–3 rounds — highest cost, touches the planner rules for derived tables.
+  **Default recommends B.** A clears the gate but leaves "joins" meaning INNER-only;
+  B matches the ladder's plain wording, closes 7 of 8 failures, and the cheaper C
+  remains owned and reachable. All options keep raw FAIL lines posted and the
+  maximally-relevant scope decision real: nothing here is a silent re-scope. THE GATE
+  NUMBER VERIFICATION STAYS HELD UNTIL t1e (research-owned) LANDS; the %s above are
+  projections, not the verification.
+- 2026-10-30 (t1e ownership confirmed): the fuzz seed scenarios (torn WAL frame,
+  first-commit-on-empty-file — reusing `MINIDB_CRASH_POINT`) remain Research's authored
+  deliverable per her spec; the fuzzer machinery is ready to consume them.
