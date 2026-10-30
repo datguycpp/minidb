@@ -540,6 +540,9 @@ class Column:
                 self.check_text = constraint.text
 
 
+RANDOM_ACCESS_COST = 20      # measured: ~250us random row fetch vs ~10us sequential row read
+
+
 class Index:
     """Hash index over one or more columns (milestone 4).
 
@@ -569,6 +572,20 @@ class Index:
         key = self.key_for(values)
         if self.unique and not any(v is None for v in key) and self.map.get(key):
             raise ExecError(f"UNIQUE constraint failed: {self._conflict_message()}")
+
+    def lookup_range(self, op, value):
+        """Rows whose first indexed column satisfies `col op value`.
+
+        The hash map is keyed by value, so a range means probing every distinct key. That is
+        O(distinct keys), not O(rows), which is why it still beats a full scan on a selective range.
+        """
+        rowids = set()
+        for key, bucket in self.map.items():
+            if len(key) != 1:
+                continue
+            if sql_compare(key[0], value, op):
+                rowids |= bucket
+        return rowids
 
     def add(self, rowid, values):
         self.check_unique(values)
@@ -1386,6 +1403,33 @@ class Database:
         collect(where)
         return equalities
 
+    def _ranges(self, table, where):
+        """Range constraints usable by an index: conjunctions of `column OP literal`.
+
+        Only the first index column can drive a hash-index range scan, so the planner uses these
+        for single-column indexes. The literal is flipped when it appears on the left.
+        """
+        flipped = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}
+        ranges = {}
+
+        def collect(node):
+            if isinstance(node, ast.BinaryOp) and node.op == "AND":
+                collect(node.left)
+                collect(node.right)
+            elif isinstance(node, ast.BinaryOp) and node.op in flipped:
+                left, right = node.left, node.right
+                op = node.op
+                if isinstance(right, ast.ColumnRef) and isinstance(left, ast.Literal):
+                    left, right = right, left
+                    op = flipped[op]
+                if isinstance(left, ast.ColumnRef) and isinstance(right, ast.Literal):
+                    position = table.index_of.get(left.name.lower())
+                    if position is not None:
+                        ranges[position] = (op, right.value)
+
+        collect(where)
+        return ranges
+
     def _row_count(self, table):
         # No DELETE exists yet, so the next rowid is exactly the number of rows.
         return table.entry["next_rowid"] - 1 if table.on_disk else len(table.rows)
@@ -1406,16 +1450,32 @@ class Database:
             return {"access": "full", "reason": "no-predicate", "candidates": [], "estimated_rows": total}
 
         equalities = self._equalities(table, where)
+        ranges = self._ranges(table, where)
         candidates = []
         for index in table.indexes.values():
             if all(position in equalities for position in index.columns):
                 key = tuple(equalities[position] for position in index.columns)
+                rowids = index.lookup(key)
                 candidates.append({
                     "index": index,
                     "key": key,
-                    "estimated_rows": len(index.lookup(key)),
+                    "rowids": rowids,
+                    "estimated_rows": len(rowids),
+                    "kind": "equality",
                     "columns": [table.columns[i].name for i in index.columns],
                 })
+            elif len(index.columns) == 1 and index.columns[0] in ranges:
+                op, value = ranges[index.columns[0]]
+                rowids = index.lookup_range(op, value)
+                if rowids:
+                    candidates.append({
+                        "index": index,
+                        "key": None,
+                        "rowids": rowids,
+                        "estimated_rows": len(rowids),
+                        "kind": "range",
+                        "columns": [table.columns[i].name for i in index.columns],
+                    })
 
         summary = [{"name": c["index"].name, "columns": c["columns"],
                     "estimated_rows": c["estimated_rows"]} for c in candidates]
@@ -1425,7 +1485,14 @@ class Database:
 
         best = min(candidates, key=lambda c: (c["estimated_rows"], -len(c["columns"]),
                                               not c["index"].unique, c["index"].name))
+        # Cost model, measured rather than guessed: a random row fetch (~250 us) costs roughly
+        # RANDOM_ACCESS_COST times a sequential row read (~10 us), so a range index only pays when
+        # it touches a small fraction of the table. Equality keeps M5's simpler rule because an
+        # exact bucket count is already the true row count there.
         if best["estimated_rows"] >= total:
+            return {"access": "full", "reason": "index-not-selective", "candidates": summary,
+                    "estimated_rows": total}
+        if best["kind"] == "range" and best["estimated_rows"] * RANDOM_ACCESS_COST >= total:
             return {"access": "full", "reason": "index-not-selective", "candidates": summary,
                     "estimated_rows": total}
 
@@ -1703,8 +1770,13 @@ class Database:
         decision = self._choose_access(table, node.where)
         if decision["access"] == "index":
             chosen = decision["candidate"]
-            candidates = [(rowid, self._row_by_id(table, rowid))
-                          for rowid in sorted(chosen["index"].lookup(chosen["key"]))]
+            rowids = chosen["rowids"]
+            if len(rowids) * 4 >= self._row_count(table):
+                # Random-accessing a large share of the tree costs more than one sequential walk.
+                candidates = [(rowid, row) for rowid, row in self._rows_with_ids(table)
+                              if rowid in rowids]
+            else:
+                candidates = [(rowid, self._row_by_id(table, rowid)) for rowid in sorted(rowids)]
         else:
             candidates = list(self._rows_with_ids(table))
         access = decision["access"]

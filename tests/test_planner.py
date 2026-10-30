@@ -48,6 +48,35 @@ class TestChoiceRule(PlannerBase):
         self.assertEqual(plan["reason"], "index-not-selective")
         self.assertEqual(plan["rows_examined"], 100)
 
+    def test_selective_range_uses_the_index(self):
+        db = Database()
+        db.run("CREATE TABLE t (v INTEGER)")
+        for start in range(1, 1001, 100):
+            db.run("INSERT INTO t VALUES " + ", ".join(f"({i % 100})" for i in range(start, start + 100)))
+        db.run("CREATE INDEX idx_v ON t (v)")
+        db.run("SELECT * FROM t WHERE v = 99")
+        self.assertEqual(db.last_plan["access"], "index", "equality is unchanged")
+
+    def test_wide_range_falls_back_to_a_scan_by_cost(self):
+        db = Database()
+        db.run("CREATE TABLE t (v INTEGER)")
+        for start in range(1, 1001, 100):
+            db.run("INSERT INTO t VALUES " + ", ".join(f"({i % 100})" for i in range(start, start + 100)))
+        db.run("CREATE INDEX idx_v ON t (v)")
+        db.run("SELECT * FROM t WHERE v > 10")
+        self.assertEqual(db.last_plan["access"], "full")
+        self.assertEqual(db.last_plan["reason"], "index-not-selective",
+                         "a range touching most of the table costs more than a scan")
+
+    def test_narrow_range_uses_the_index(self):
+        db = Database()
+        db.run("CREATE TABLE t (v INTEGER)")
+        for start in range(1, 1001, 100):
+            db.run("INSERT INTO t VALUES " + ", ".join(f"({i % 100})" for i in range(start, start + 100)))
+        db.run("CREATE INDEX idx_v ON t (v)")
+        db.run("SELECT * FROM t WHERE v > 98")
+        self.assertEqual(db.last_plan["access"], "index")
+
     def test_no_index_means_scan(self):
         plan = self.plan("SELECT c FROM t WHERE b = 7")
         self.assertEqual(plan["access"], "full")
