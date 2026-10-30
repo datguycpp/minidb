@@ -162,6 +162,16 @@ class InSubquery(Node):
 
 
 @dataclass
+class Compound(Node):
+    left: "Node"           # Select | Compound
+    op: str                # UNION | UNION ALL | INTERSECT | EXCEPT
+    right: "Node"
+    order_by: list = field(default_factory=list)
+    limit: "Node | None" = None
+    offset: "Node | None" = None
+
+
+@dataclass
 class Select(Node):
     items: list            # list[SelectItem] or [Star]
     table: "str | None"

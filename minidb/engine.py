@@ -599,6 +599,8 @@ class Database:
             return self._create_index(statement)
         if isinstance(statement, ast.Select):
             return self._select(statement)
+        if isinstance(statement, ast.Compound):
+            return self._compound(statement)
         raise ExecError(f"unsupported statement {type(statement).__name__}")
 
     def run(self, sql):
@@ -841,7 +843,7 @@ class Database:
         """Source list: base table or derived table, then one entry per JOIN."""
         out = []
         if node.base_select is not None:
-            columns, rows = self._select(node.base_select)
+            columns, rows = self._select_node(node.base_select)
             out.append({"alias": (node.alias or "subquery").lower(),
                         "columns": columns, "rows": rows, "kind": "base", "on": None})
         elif node.table is not None:
@@ -853,7 +855,7 @@ class Database:
         for join in node.joins:
             alias = (join.alias or join.table or "subquery").lower()
             if join.select is not None:
-                columns, rows = self._select(join.select)
+                columns, rows = self._select_node(join.select)
             else:
                 table = self.table(join.table)
                 columns = table.column_names
@@ -915,6 +917,71 @@ class Database:
         if self._is_complex(node):
             return self._select_complex(node)
         return self._select_simple(node)
+
+    def _compound(self, node: ast.Compound):
+        left_items, left_rows = self._select_node(node.left)
+        right_items, right_rows = self._select_node(node.right)
+        if len(left_items) != len(right_items):
+            raise ExecError(f"SELECTs to the left and right of {node.op} "
+                            "do not have the same number of result columns")
+
+        def key(row):
+            return tuple(_value_key(value) for value in row)
+
+        if node.op == "UNION ALL":
+            rows = list(left_rows) + list(right_rows)
+        elif node.op == "UNION":
+            rows, seen = [], set()
+            for row in list(left_rows) + list(right_rows):
+                marker = key(row)
+                if marker not in seen:
+                    seen.add(marker)
+                    rows.append(row)
+        elif node.op == "INTERSECT":
+            right_keys = {key(row) for row in right_rows}
+            rows, seen = [], set()
+            for row in left_rows:
+                marker = key(row)
+                if marker in right_keys and marker not in seen:
+                    seen.add(marker)
+                    rows.append(row)
+        elif node.op == "EXCEPT":
+            right_keys = {key(row) for row in right_rows}
+            rows, seen = [], set()
+            for row in left_rows:
+                marker = key(row)
+                if marker not in right_keys and marker not in seen:
+                    seen.add(marker)
+                    rows.append(row)
+        else:
+            raise ExecError(f"unsupported compound operator {node.op}")
+
+        for expression, descending in reversed(node.order_by):
+            index = None
+            if isinstance(expression, ast.Literal) and isinstance(expression.value, int) \
+                    and not isinstance(expression.value, bool):
+                index = expression.value
+                if index < 1 or index > len(left_items):
+                    raise ExecError(f"{_ordinal(index)} ORDER BY term out of range - "
+                                    f"should be between 1 and {len(left_items)}")
+                index -= 1
+            elif isinstance(expression, ast.ColumnRef):
+                lowered = [name.lower() for name in left_items]
+                if expression.name.lower() not in lowered:
+                    raise ExecError(f"{_ordinal(order_position(node, expression))} ORDER BY term "
+                                    "does not match any column in the result set")
+                index = lowered.index(expression.name.lower())
+            else:
+                raise ExecError("1st ORDER BY term does not match any column in the result set")
+            rows.sort(key=lambda row, i=index: _order_sort_key(row[i]), reverse=descending)
+
+        rows = self._apply_limit(node, rows)
+        return left_items, rows
+
+    def _select_node(self, node):
+        if isinstance(node, ast.Compound):
+            return self._compound(node)
+        return self._select(node)
 
     def _select_simple(self, node: ast.Select):
         table = self.table(node.table)
@@ -1136,7 +1203,7 @@ class Database:
     def _scalar_subquery(self, select):
         saved = self.last_plan
         try:
-            _, rows = self._select(select)
+            _, rows = self._select_node(select)
         finally:
             self.last_plan = saved
         if not rows:
@@ -1147,7 +1214,7 @@ class Database:
         value = self._eval(node.expr, None, env, group)
         saved = self.last_plan
         try:
-            _, rows = self._select(node.select)
+            _, rows = self._select_node(node.select)
         finally:
             self.last_plan = saved
         values = {row[0] for row in rows}
@@ -1241,6 +1308,32 @@ class Database:
             result = value is None
             return (not result) if node.negated else result
         raise ExecError(f"cannot evaluate {type(node).__name__}")
+
+
+def _value_key(value):
+    """Row identity for set operations: numbers compare by value, so 1 and 1.0 are one row."""
+    if value is None:
+        return ("null",)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return ("num", float(value))
+    if isinstance(value, bytes):
+        return ("blob", value)
+    return ("text", value)
+
+
+def _ordinal(number):
+    if 10 <= number % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
+def order_position(node, expression):
+    for position, (candidate, _) in enumerate(node.order_by, start=1):
+        if candidate is expression:
+            return position
+    return 1
 
 
 def _order_sort_key(value):

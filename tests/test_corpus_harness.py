@@ -39,10 +39,11 @@ class TestReferenceClassification(unittest.TestCase):
         self.assertTrue(any(w in note.lower() for w in ("syntax", "incomplete input")), note)
 
     def test_harness_detects_disagreement(self):
-        # Set operations are valid SQLite and still outside the supported subset (M13), so the
-        # disagreement must surface rather than be swallowed as agreement.
-        sqlite_ok, _ = sc.sqlite_syntax_ok("SELECT 1 UNION SELECT 2")
-        minidb_ok, _ = sc.minidb_syntax_ok("SELECT 1 UNION SELECT 2")
+        # VALUES is valid SQLite and still outside the supported subset, so the disagreement must
+        # surface rather than be swallowed as agreement. (Set operations were this guard's subject
+        # until M13 implemented them — the guard catching its own obsolescence is the point.)
+        sqlite_ok, _ = sc.sqlite_syntax_ok("VALUES (1)")
+        minidb_ok, _ = sc.minidb_syntax_ok("VALUES (1)")
         self.assertTrue(sqlite_ok)
         self.assertFalse(minidb_ok)
 

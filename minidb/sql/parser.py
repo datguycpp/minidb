@@ -142,7 +142,7 @@ class Parser:
         elif self.at_keyword("ROLLBACK"):
             stmt = self.parse_rollback()
         elif self.at_keyword("SELECT"):
-            stmt = self.parse_select()
+            stmt = self.parse_compound()
         else:
             raise ParseError(f"expected CREATE, INSERT or SELECT, got {self.describe(self.tok)}", self.tok)
 
@@ -350,6 +350,12 @@ class Parser:
         if self.accept_keyword("HAVING"):
             having = self.parse_expression()
 
+        return ast.Select(items=items, table=table, where=where, distinct=distinct,
+                          alias=alias, base_select=base_select, joins=joins,
+                          group_by=group_by, having=having)
+
+    def parse_select_tail(self):
+        """ORDER BY / LIMIT. Parsed once, at the end of a whole compound expression."""
         order_by = []
         if self.accept_keyword("ORDER"):
             self.expect_keyword("BY")
@@ -369,18 +375,39 @@ class Parser:
         if self.accept_keyword("LIMIT"):
             first = self.parse_additive()
             if self.accept_punct(","):
-                # SQLite's LIMIT <offset>, <count> form.
                 offset = first
                 limit = self.parse_additive()
             else:
                 limit = first
                 if self.accept_keyword("OFFSET"):
                     offset = self.parse_additive()
+        return order_by, limit, offset
 
-        return ast.Select(items=items, table=table, where=where, distinct=distinct,
-                          alias=alias, base_select=base_select, joins=joins,
-                          group_by=group_by, having=having, order_by=order_by,
-                          limit=limit, offset=offset)
+    def parse_compound(self):
+        """Set operations, all at equal precedence and left-associative.
+
+        SQLite is not the SQL standard here: `a UNION b INTERSECT c` means `(a UNION b) INTERSECT c`,
+        not `a UNION (b INTERSECT c)`. The reference decides, so this follows the reference.
+        """
+        left = self.parse_select()
+        while True:
+            if self.at_keyword("UNION") or self.at_keyword("EXCEPT"):
+                op = self.advance().upper
+                if op == "UNION" and self.accept_keyword("ALL"):
+                    op = "UNION ALL"
+            elif self.at_keyword("INTERSECT"):
+                self.advance()
+                op = "INTERSECT"
+            else:
+                break
+            right = self.parse_select()
+            left = ast.Compound(left=left, op=op, right=right)
+
+        order_by, limit, offset = self.parse_select_tail()
+        left.order_by = order_by
+        left.limit = limit
+        left.offset = offset
+        return left
 
     def parse_source(self):
         """A table name or a derived table: `FROM t`, `FROM t AS x`, `FROM (SELECT ...) AS x`."""
@@ -388,7 +415,7 @@ class Parser:
             self.advance()
             if not self.at_keyword("SELECT"):
                 raise ParseError("expected a subquery after ( in FROM", self.tok)
-            select = self.parse_select()
+            select = self.parse_compound()
             self.expect_punct(")")
             alias = self.parse_optional_alias()
             return None, alias, select
@@ -415,7 +442,7 @@ class Parser:
     def parse_join_body(self, kind):
         if self.at_punct("("):
             self.advance()
-            select = self.parse_select()
+            select = self.parse_compound()
             self.expect_punct(")")
             alias = self.parse_optional_alias()
             join = ast.Join(select=select, alias=alias, kind=kind)
@@ -519,7 +546,7 @@ class Parser:
             self.expect_punct("(")
             if not self.at_keyword("SELECT"):
                 raise ParseError("only IN (SELECT ...) is supported", self.tok)
-            inner = self.parse_select()
+            inner = self.parse_compound()
             self.expect_punct(")")
             return ast.InSubquery(expr=node, select=inner, negated=negated)
 
@@ -571,7 +598,7 @@ class Parser:
         if tok.kind == "PUNCT" and tok.value == "(":
             self.advance()
             if self.at_keyword("SELECT"):
-                inner = self.parse_select()
+                inner = self.parse_compound()
                 self.expect_punct(")")
                 return ast.Subquery(inner)
             node = self.parse_expression()
