@@ -513,6 +513,9 @@ class Database:
         self.storage = DiskStorage(path) if path else None
         self.tables = {}
         self.views = {}
+        self.triggers = {}
+        self.trigger_env = None
+        self._in_trigger = False
         self._sql = None
         self.last_plan = None
         self.tx_snapshot = None
@@ -523,6 +526,9 @@ class Database:
         from .sql.parser import parse
         for entry in self.storage.catalog.values():
             statement = parse(entry["sql"])
+            if entry.get("kind") == "view":
+                self.views[entry["name"].lower()] = statement
+                continue
             columns = [Column(c) for c in statement.columns]
             table = Table(entry["name"], columns, entry)
             self.tables[entry["name"].lower()] = table
@@ -603,6 +609,12 @@ class Database:
             return self._select(statement)
         if isinstance(statement, ast.Compound):
             return self._compound(statement)
+        if isinstance(statement, ast.CreateTrigger):
+            return self._create_trigger(statement)
+        if isinstance(statement, ast.DropTrigger):
+            return self._drop_trigger(statement)
+        if isinstance(statement, ast.AlterTable):
+            return self._alter(statement)
         if isinstance(statement, ast.Update):
             return self._update(statement)
         if isinstance(statement, ast.Delete):
@@ -657,12 +669,16 @@ class Database:
                 return None
             raise ExecError(f"view {node.name} already exists")
         self.views[key] = node
+        if self.storage is not None:
+            self.storage.create_view(node.name, node.sql or self._sql or f"CREATE VIEW {node.name}")
         return None
 
     def _drop_view(self, node):
         key = node.name.lower()
         if key in self.views:
             del self.views[key]
+            if self.storage is not None:
+                self.storage.drop_entry(node.name)
             return None
         if node.if_exists:
             return None
@@ -858,6 +874,7 @@ class Database:
             # neither a row nor a dangling index entry.
             for index in table.indexes.values():
                 index.check_unique(values)
+            self._fire(table, "INSERT", "BEFORE", None, values)
             if table.on_disk:
                 try:
                     rowid = self.storage.insert_row(table.entry, values)
@@ -869,7 +886,130 @@ class Database:
                 table.next_rowid += 1
             for index in table.indexes.values():
                 index.add(rowid, values)
+            self._fire(table, "INSERT", "AFTER", None, values)
         return len(node.rows)
+
+    # -- triggers ------------------------------------------------------------
+    def _create_trigger(self, node: ast.CreateTrigger):
+        key = node.name.lower()
+        if key in self.triggers:
+            if node.if_not_exists:
+                return None
+            raise ExecError(f"trigger {node.name} already exists")
+        self.table(node.table)
+        self.triggers[key] = node
+        return None
+
+    def _drop_trigger(self, node: ast.DropTrigger):
+        key = node.name.lower()
+        if key in self.triggers:
+            del self.triggers[key]
+            return None
+        if node.if_exists:
+            return None
+        raise ExecError(f"no such trigger: {node.name}")
+
+    def _fire(self, table, event, timing, old_values=None, new_values=None):
+        if self._in_trigger:
+            return          # SQLite does not fire triggers recursively by default
+        for trigger in list(self.triggers.values()):
+            if (trigger.table.lower() != table.name.lower() or trigger.event != event
+                    or trigger.timing != timing):
+                continue
+            env = {}
+            if new_values is not None:
+                for column, value in zip(table.columns, new_values):
+                    env[f"new.{column.name.lower()}"] = value
+                    env[column.name.lower()] = value
+            if old_values is not None:
+                for column, value in zip(table.columns, old_values):
+                    env[f"old.{column.name.lower()}"] = value
+                    env.setdefault(column.name.lower(), value)
+            if trigger.when is not None and not truthy(self._eval(trigger.when, table, env)):
+                continue
+            previous = self.trigger_env
+            self.trigger_env = env
+            self._in_trigger = True
+            try:
+                for statement in trigger.statements:
+                    self._execute(statement)
+            finally:
+                self._in_trigger = False
+                self.trigger_env = previous
+
+    # -- ALTER TABLE ---------------------------------------------------------
+    def _alter(self, node: ast.AlterTable):
+        table = self.table(node.table)
+        if node.action == "add":
+            column = Column(node.column)
+            if column.name.lower() in table.index_of:
+                raise ExecError(f"duplicate column name: {column.name}")
+            if column.not_null and column.default is None:
+                raise ExecError(f"Cannot add a NOT NULL column with default value NULL")
+            table.columns.append(column)
+            table.index_of[column.name.lower()] = len(table.columns) - 1
+            default = self._eval(column.default, table, {}) if column.default is not None else None
+            if table.on_disk:
+                rows = [(rowid, tuple(row) + (default,)) for rowid, row in self._rows_with_ids(table)]
+                self.storage.rewrite_rows(table.entry, rows)
+            else:
+                table.rows = [tuple(row) + (default,) for row in table.rows]
+        elif node.action == "rename_table":
+            new = node.new_name
+            if new.lower() in self.tables or new.lower() in self.views:
+                raise ExecError(f"table {new} already exists")
+            del self.tables[table.name.lower()]
+            if table.on_disk:
+                self.storage.drop_entry(table.name)
+                entry = self.storage.create_table(new, self._render_create(table, new))
+                table.entry = entry
+            table.name = new
+            self.tables[new.lower()] = table
+        elif node.action == "rename_column":
+            position = table.index_of.get(node.old_name.lower())
+            if position is None:
+                raise ExecError(f"no such column: {node.old_name}")
+            table.columns[position].name = node.new_name
+            table.index_of.pop(node.old_name.lower(), None)
+            table.index_of[node.new_name.lower()] = position
+        elif node.action == "drop_column":
+            position = table.index_of.get(node.old_name.lower())
+            if position is None:
+                raise ExecError(f"no such column: {node.old_name}")
+            if len(table.columns) == 1:
+                raise ExecError(f"cannot drop column \"{node.old_name}\": no other columns exist")
+            del table.columns[position]
+            table.index_of = {c.name.lower(): i for i, c in enumerate(table.columns)}
+            if table.on_disk:
+                rows = [(rowid, tuple(v for i, v in enumerate(row) if i != position))
+                        for rowid, row in self._rows_with_ids(table)]
+                self.storage.rewrite_rows(table.entry, rows)
+            else:
+                table.rows = [tuple(v for i, v in enumerate(row) if i != position)
+                              for row in table.rows]
+        if table.on_disk and node.action != "rename_table":
+            table.entry["sql"] = self._render_create(table, table.name)
+            self.storage.save_catalog_entry(table.entry)
+        return None
+
+    def _render_create(self, table, name):
+        parts = []
+        for column in table.columns:
+            text = column.name
+            if column.type_name:
+                text += " " + column.type_name
+            if column.not_null:
+                text += " NOT NULL"
+            if column.unique:
+                text += " UNIQUE"
+            if column.primary_key:
+                text += " PRIMARY KEY"
+            if column.default is not None:
+                text += " DEFAULT " + _render_expression(column.default)
+            if column.check_text:
+                text += " CHECK (" + column.check_text + ")"
+            parts.append(text)
+        return f"CREATE TABLE {name} (" + ", ".join(parts) + ")"
 
     # -- UPDATE / DELETE -----------------------------------------------------
     def _row_env(self, table, row):
@@ -882,10 +1022,7 @@ class Database:
     def _modified_table(self, node):
         if node.table.lower() in self.views and node.table.lower() not in self.tables:
             raise ExecError(f"cannot modify {node.table} because it is a view")
-        table = self.table(node.table)
-        if table.on_disk:
-            raise ExecError("UPDATE/DELETE on disk-backed tables lands with milestone 16")
-        return table
+        return self.table(node.table)
 
     def _update(self, node: ast.Update):
         table = self._modified_table(node)
@@ -895,6 +1032,25 @@ class Database:
             if position is None:
                 raise ExecError(f"no such column: {column}")
             positions.append(position)
+        if table.on_disk:
+            rows = list(self._rows_with_ids(table))
+            changed = 0
+            rewritten = []
+            for rowid, row in rows:
+                env = self._row_env(table, row)
+                if node.where is not None and not truthy(self._eval(node.where, table, env)):
+                    rewritten.append((rowid, row))
+                    continue
+                values = list(row)
+                for (_, expression), position in zip(node.assignments, positions):
+                    values[position] = self._eval(expression, table, env)
+                rewritten.append((rowid, tuple(values)))
+                changed += 1
+            if changed:
+                self.storage.rewrite_rows(table.entry, rewritten)
+            self._reindex(table)
+            return changed
+
         changed = 0
         for index, row in enumerate(list(table.rows)):
             env = self._row_env(table, row)
@@ -904,13 +1060,28 @@ class Database:
             # All assignments read the OLD row, so `SET a = b, b = a` swaps rather than copies.
             for (_, expression), position in zip(node.assignments, positions):
                 values[position] = self._eval(expression, table, env)
+            self._fire(table, "UPDATE", "BEFORE", row, values)
             table.rows[index] = tuple(values)
+            self._fire(table, "UPDATE", "AFTER", row, values)
             changed += 1
         self._reindex(table)
         return changed
 
     def _delete(self, node: ast.Delete):
         table = self._modified_table(node)
+        if table.on_disk:
+            kept = []
+            changed = 0
+            for rowid, row in self._rows_with_ids(table):
+                env = self._row_env(table, row)
+                if node.where is not None and not truthy(self._eval(node.where, table, env)):
+                    kept.append((rowid, row))
+                else:
+                    changed += 1
+            if changed:
+                self.storage.rewrite_rows(table.entry, kept)
+            self._reindex(table)
+            return changed
         kept = []
         changed = 0
         for row in table.rows:
@@ -918,6 +1089,8 @@ class Database:
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 kept.append(row)
             else:
+                self._fire(table, "DELETE", "BEFORE", row, None)
+                self._fire(table, "DELETE", "AFTER", row, None)
                 changed += 1
         table.rows = kept
         self._reindex(table)
@@ -1532,7 +1705,13 @@ class Database:
                 return self._aggregate(node, group)
             arguments = [self._eval(argument, table, env, group) for argument in (node.args or [])]
             return call_function(node.name, arguments)
+        if isinstance(node, ast.Raise):
+            raise ExecError(node.message if node.message else node.action.lower())
         if isinstance(node, ast.ColumnRef):
+            if node.table and self.trigger_env is not None:
+                qualified = f"{node.table.lower()}.{node.name.lower()}"
+                if qualified in self.trigger_env:
+                    return self.trigger_env[qualified]
             key = (f"{node.table.lower()}.{node.name.lower()}" if node.table
                    else node.name.lower())
             if env is None or key not in env:
@@ -1598,6 +1777,22 @@ class Database:
             result = value is None
             return (not result) if node.negated else result
         raise ExecError(f"cannot evaluate {type(node).__name__}")
+
+
+def _render_expression(node):
+    if isinstance(node, ast.Literal):
+        if isinstance(node.value, str):
+            return "'" + node.value.replace("'", "''") + "'"
+        if node.value is None:
+            return "NULL"
+        return str(node.value)
+    if isinstance(node, ast.ColumnRef):
+        return node.name
+    if isinstance(node, ast.UnaryOp):
+        return f"{node.op} {_render_expression(node.operand)}"
+    if isinstance(node, ast.BinaryOp):
+        return f"({_render_expression(node.left)} {node.op} {_render_expression(node.right)})"
+    return "NULL"
 
 
 def _references(node, name):

@@ -44,6 +44,7 @@ class DiskStorage:
             "root": entry["root"],
             "next_rowid": entry["next_rowid"],
             "indexes": entry.get("indexes", []),
+            "kind": entry.get("kind", "table"),
         }).encode("utf-8")
         new_root = self.tree.insert(self.pager.catalog_root, entry["key"], payload)
         if new_root != self.pager.catalog_root:
@@ -63,6 +64,40 @@ class DiskStorage:
         self.catalog[name.lower()] = entry
         self._save_catalog_entry(entry)
         return entry
+
+    def create_view(self, name, sql):
+        if name.lower() in self.catalog:
+            raise StorageError(f"view {name} already exists")
+        entry = {"name": name, "sql": sql, "root": 0, "next_rowid": 0,
+                 "key": self._next_catalog_key(), "indexes": [], "kind": "view"}
+        self.catalog[name.lower()] = entry
+        self._save_catalog_entry(entry)
+        return entry
+
+    def drop_entry(self, name):
+        entry = self.catalog.pop(name.lower(), None)
+        if entry is None:
+            return False
+        # Catalog rows are keyed, so removal means rewriting the catalog tree without that key.
+        remaining = [(other["key"], other) for other in self.catalog.values()]
+        root = self.tree.create()
+        for key, other in remaining:
+            root = self.tree.insert(root, key, json.dumps({
+                "name": other["name"], "sql": other["sql"], "root": other["root"],
+                "next_rowid": other["next_rowid"], "indexes": other.get("indexes", []),
+                "kind": other.get("kind", "table"),
+            }).encode("utf-8"))
+        self.pager.set_catalog_root(root)
+        return True
+
+    def rewrite_rows(self, entry, rows):
+        """Replace every row of a table. No B+tree delete exists yet (M19 owns it), so an
+        UPDATE or DELETE rebuilds the tree; the old pages stay allocated until the freelist."""
+        root = self.tree.create()
+        for rowid, values in rows:
+            root = self.tree.insert(root, rowid, record.encode(values))
+        entry["root"] = root
+        self._save_catalog_entry(entry)
 
     def table(self, name):
         try:

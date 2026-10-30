@@ -171,6 +171,39 @@ class CreateView(Node):
 
 
 @dataclass
+class CreateTrigger(Node):
+    name: str
+    timing: str = "BEFORE"        # BEFORE | AFTER
+    event: str = "INSERT"         # INSERT | UPDATE | DELETE
+    table: str = ""
+    when: "Node | None" = None
+    statements: list = field(default_factory=list)
+    if_not_exists: bool = False
+    sql: "str | None" = None
+
+
+@dataclass
+class DropTrigger(Node):
+    name: str
+    if_exists: bool = False
+
+
+@dataclass
+class Raise(Node):
+    action: str = "ABORT"
+    message: "str | None" = None
+
+
+@dataclass
+class AlterTable(Node):
+    table: str
+    action: str                  # add | rename_table | rename_column | drop_column
+    column: "ColumnDef | None" = None
+    old_name: "str | None" = None
+    new_name: "str | None" = None
+
+
+@dataclass
 class Update(Node):
     table: str
     assignments: list      # [(column, expression)]

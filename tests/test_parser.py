@@ -76,9 +76,10 @@ class TestCreateTable(unittest.TestCase):
             self.assertEqual(stmt.items[0].expr.name, word)
 
     def test_other_create_forms_are_rejected(self):
-        # CREATE VIEW moved into the subset at M14; the guard now uses a form still outside it.
+        # This guard follows the frontier: CREATE VIEW (M14) and CREATE TRIGGER (M16) have both
+        # moved into the subset, so it now names a form still outside it.
         with self.assertRaises(ParseError) as ctx:
-            parse("CREATE TRIGGER tr AFTER INSERT ON t BEGIN SELECT 1; END")
+            parse("CREATE VIRTUAL TABLE v USING fts5(a)")
         self.assertIn("CREATE TABLE and CREATE INDEX", ctx.exception.detail)
 
 

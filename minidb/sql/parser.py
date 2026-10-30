@@ -145,6 +145,8 @@ class Parser:
             stmt = self.parse_with()
         elif self.at_keyword("DROP"):
             stmt = self.parse_drop()
+        elif self.at_keyword("ALTER"):
+            stmt = self.parse_alter()
         elif self.at_keyword("UPDATE"):
             stmt = self.parse_update()
         elif self.at_keyword("DELETE"):
@@ -191,6 +193,8 @@ class Parser:
             return self.parse_create_index(unique)
         if unique:
             raise ParseError("expected INDEX after UNIQUE", self.tok)
+        if self.at_keyword("TRIGGER"):
+            return self.parse_create_trigger(False)
         if self.at_keyword("VIEW"):
             return self.parse_create_view(False)
         if not self.at_keyword("TABLE"):
@@ -220,6 +224,56 @@ class Parser:
         statement.sql = self.source.strip() if self.source else None
         return statement
 
+    def parse_create_trigger(self, if_not_exists):
+        self.expect_keyword("TRIGGER")
+        if self.accept_keyword("IF"):
+            self.expect_keyword("NOT")
+            self.expect_keyword("EXISTS")
+            if_not_exists = True
+        name = self.parse_identifier("trigger name")
+        timing = "BEFORE"
+        if self.accept_keyword("BEFORE"):
+            timing = "BEFORE"
+        elif self.accept_keyword("AFTER"):
+            timing = "AFTER"
+        if self.at_keyword("INSERT"):
+            event = "INSERT"
+            self.advance()
+        elif self.at_keyword("UPDATE"):
+            event = "UPDATE"
+            self.advance()
+        elif self.at_keyword("DELETE"):
+            event = "DELETE"
+            self.advance()
+        else:
+            raise ParseError("expected INSERT, UPDATE or DELETE in trigger", self.tok)
+        self.expect_keyword("ON")
+        table = self.parse_identifier("table name")
+        if self.accept_keyword("FOR"):
+            self.expect_keyword("EACH")
+            self.expect_keyword("ROW")
+        when = self.parse_expression() if self.accept_keyword("WHEN") else None
+        self.expect_keyword("BEGIN")
+        statements = []
+        while not self.at_keyword("END"):
+            statements.append(self.parse_trigger_statement())
+            self.accept_punct(";")
+        self.expect_keyword("END")
+        return ast.CreateTrigger(name=name, timing=timing, event=event, table=table, when=when,
+                                 statements=statements, if_not_exists=if_not_exists,
+                                 sql=self.source.strip() if self.source else None)
+
+    def parse_trigger_statement(self):
+        if self.at_keyword("INSERT"):
+            return self.parse_insert()
+        if self.at_keyword("UPDATE"):
+            return self.parse_update()
+        if self.at_keyword("DELETE"):
+            return self.parse_delete()
+        if self.at_keyword("SELECT"):
+            return self.parse_compound()
+        raise ParseError("unsupported statement inside a trigger body", self.tok)
+
     def parse_create_view(self, if_not_exists):
         self.expect_keyword("VIEW")
         if self.accept_keyword("IF"):
@@ -237,6 +291,28 @@ class Parser:
         select = self.parse_compound()
         return ast.CreateView(name=name, columns=columns, select=select,
                               if_not_exists=if_not_exists, sql=getattr(self, 'source', None))
+
+    def parse_alter(self):
+        self.expect_keyword("ALTER")
+        self.expect_keyword("TABLE")
+        table = self.parse_identifier("table name")
+        if self.accept_keyword("ADD"):
+            self.accept_keyword("COLUMN")
+            return ast.AlterTable(table=table, action="add", column=self.parse_column_def())
+        if self.accept_keyword("RENAME"):
+            if self.accept_keyword("TO"):
+                return ast.AlterTable(table=table, action="rename_table",
+                                      new_name=self.parse_identifier("table name"))
+            self.accept_keyword("COLUMN")
+            old = self.parse_identifier("column name")
+            self.expect_keyword("TO")
+            return ast.AlterTable(table=table, action="rename_column", old_name=old,
+                                  new_name=self.parse_identifier("column name"))
+        if self.accept_keyword("DROP"):
+            self.accept_keyword("COLUMN")
+            return ast.AlterTable(table=table, action="drop_column",
+                                  old_name=self.parse_identifier("column name"))
+        raise ParseError("expected ADD, RENAME or DROP after ALTER TABLE", self.tok)
 
     def parse_update(self):
         self.expect_keyword("UPDATE")
@@ -261,6 +337,13 @@ class Parser:
 
     def parse_drop(self):
         self.expect_keyword("DROP")
+        if self.at_keyword("TRIGGER"):
+            self.advance()
+            if_exists = False
+            if self.accept_keyword("IF"):
+                self.expect_keyword("EXISTS")
+                if_exists = True
+            return ast.DropTrigger(name=self.parse_identifier("trigger name"), if_exists=if_exists)
         if not self.at_keyword("VIEW"):
             raise ParseError("only DROP VIEW is supported", self.tok)
         self.advance()
@@ -761,6 +844,15 @@ class Parser:
         if tok.kind in ("IDENT", "KEYWORD") and self.peek().kind == "PUNCT" and self.peek().value == "(" \
                 and tok.upper not in RESERVED_IDENTIFIERS:
             name = self.advance().upper
+            if name == "RAISE":
+                self.expect_punct("(")
+                action = self.parse_identifier("RAISE action").upper()
+                message = None
+                if self.accept_punct(","):
+                    token = self.advance()
+                    message = token.value
+                self.expect_punct(")")
+                return ast.Raise(action=action, message=message)
             self.expect_punct("(")
             if self.at_punct("*"):
                 self.advance()
