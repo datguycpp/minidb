@@ -84,12 +84,10 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: t2e LANDED (168/168 = 20/20 tranche, verified cold-clone);
-  benchmark-spec recorded with the first-run-then-multiple rule. M13 (set ops) stays
-  the ordered next build — surface verified live in probes (UNION dedups, INTERSECT,
-  EXCEPT, UNION ALL multiplicity kept) but the milestone report never landed; t2d's
-  19-case landing waits for that review. M16 (ALTER/DDL) after, the type-union
-  hardening first.**
+- **Current milestone: t2d LANDED after M13's report — 187/187 (100%) verified
+  cold-clone; the whole t2a–e literal slice is in-corpus. Tier-2's remaining scope:
+  M16 (ALTER/DDL: view persistence, disk-backed UPDATE/DELETE) and M17
+  (affinity/collations), closing at the gate the slice ruling recorded pre-gate.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -180,6 +178,33 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t2.13 (M13 + t2d landing, re-baselined #15): 187/187 (100.0%) [Δ +19
+    cases, +19 passes, 0 fails]` — old: 168/168 at ae214bc; new: 187/187 at ce3546c.
+    M13's report (against the named acceptance list) verified from the cold clone:
+    INTERSECT precedence is FLAT LEFT-ASSOCIATIVE in SQLite — the reference overruled
+    the SQL-standard tighter-binding reading on `a UNION b INTERSECT c` → {2} (the
+    standard gives {1,2}); the same finding arrived via the corpus's case 7 AND by
+    probe agreeing; EXCEPT chain associativity by rows; NULL-as-equal set semantics
+    (UNION dedups, INTERSECT keeps, EXCEPT removes); first-branch column names
+    (`AS val` survives ORDER BY val); count-mismatch error text is the REFERENCE'S
+    exact wording; compound-in-derived-table/in-IN/empty-right-side/first-branch/
+    mixed-storage-class ORDER BY all match. Research's pre-registered prediction
+    164–166/167 (on the then-167 denominator) translates to **184–186/187 post-t2e —
+    actual 187/187, a full-band top-of-range pass** (case 7's hint was the report's
+    one prose correction, already neutralized by her draft's own comment corrected
+    pre-delivery per the t2b-lesson self-check).**
+  - **[HARDENING CLOSED] The SelectItem|Star type-union boundary debt is settled at
+    M13's report — `SELECT *` expands to ColumnRef projections once at the top of the
+    simple path, `Star` never reaches downstream code (three deferrals ended, the
+    fourth did not happen). The new invariant flushed out `SELECT *, expr` returning
+    early without parsing the trailing items (now fixed and tested); star-with-window
+    covered by the new cases.**
+  - **[CHECK — engineer's tree statement vs the pushed tree] His M13 summary said
+    "t2d's 19 and t2e's 20 both in-corpus" at 168/168, but the pushed `07efd3c` has
+    t2e only (148+20=168). The t2d file lived untracked in HIS working tree; Default
+    landed it from the parked draft (ce3546c), the park is now discharged — the
+    landing arithmetic belongs to the LANDING, not the working tree (protocol note:
+    tree claims must name the commit).**
   - **`SCORE t2.15-fix (t2e landing, re-baselined #14): 168/168 (100.0%) [Δ +20 cases,
     +20 passes, 0 fails]` — old: 148/148 at 0f1219b; new: 168/168 at ae214bc. t2e
     settled at 20/20 (matching Build's preview number — the landing verdict is
