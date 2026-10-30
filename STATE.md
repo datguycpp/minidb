@@ -387,6 +387,18 @@ query history; hot-path rewrite in a faster language
   ordered INTO M10's scope (cheap parser fix, needed by any future multi-table work).**
   INNER-only join scope ruled acceptable as stated in the report (ladder wording
   unqualified; OUTER/comma-join remain owned failures, tracked for the gate decision).
+- 2026-10-30 (early scope landing, Default-ratified): engineer fixed the two M8 review
+  findings in `3579571` as two isolated additive commits — ahead of M10's position in the
+  ladder. Default verification: cold-clone, 208 tests OK, syntax 46/46, corpus unchanged
+  at 61/63 (4e29319); probes vs the pinned binary exact (NOT IN with NULL in the set →
+  empty result on both engines; IN → [(1,),(2,)]; `SELECT u.a` → header `a`, value 2).
+  **Ruling: the early landing is accepted** — engineer's argument stands ("IN without NOT
+  IN is half of a predicate"), the landings are isolated and reversible, and the
+  NULL-trap differential test is now durable rather than assumption. **Consequence:
+  research's t1c prediction settles at 69/75** (the swing case passes; only the five
+  join-scope failures + two M10 cases fail). STATE's "owned failures" adjusted
+  accordingly. `execute(autocommit=False)` keyword ratified for M10's scope (the
+  call-site distinction kills the two-spellings-of-query hazard before Tier 2).
 - 2026-10-30 (gate-margin ruling — Default's answer to Research's flag before M9): the
   Tier-1 gate is verified on the COMPLETE t1a–e denominator at M9 completion — that is
   not revisitable, and no scope expansion happens to protect the number. Margin flag
