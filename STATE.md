@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: t2b landed at 124/127 (97.6%) with three engine-side fails (case
-  12 scalar-min/max NULL rule divergence — Build's; case 19 date modifiers + case 20
-  missing math functions — Build's declared-then-measured gaps). M11 needs a fix round.**
+- **Current milestone: M11 fix round (3 t2b engine gaps) → then M12 (ORDER BY/LIMIT/
+  DISTINCT scope) against the delivered+verified t2c tranche. Standing directive
+  extended: ALL remaining milestones (12–38) pre-approved; gates verify-and-report.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -152,6 +152,17 @@ query history; hot-path rewrite in a faster language
     owners:** redo log ≠ SQLite's WAL (single writer, no readers during recovery,
     whole-batch apply) — M18/M24. Timing re-measure owed by the M7 report (non-blocking;
     carried). 185 engine tests OK, syntax 46/46, behaviour 50/52, all tools green.**
+    - 2026-10-30 (standing directive extended — later tiers covered): Steven said
+    **"continue until the last milestones, i approve all of them"** — all remaining
+    milestones (12–38) are pre-approved; **tier gates for Tiers 2–6 are verify-and-report
+    events, not stop-and-ask**, with the recorded exceptions intact (impossible/too-slow
+    requirements still come to you; irreversible actions still need a word). Budget cap
+    permanently suspended; round counts logged.
+    - 2026-10-30 (sequencing rule confirmed, first application): t2c delivered before M12
+    started — Default verified the parked draft live (21 cases, loader-clean, no
+    directives) and confirms delivery; **M12 starts only after Build's t2b fix round
+    lands** (the 3 M11 gaps: scalar min/max NULL rule, date modifiers, math functions).
+    The rule — tranche confirmed first, milestone starts next round — is now protocol.
   - **`SCORE t1.7+ (t1d landing, re-baselined #4): 61/63 (96.8%) [Δ +11 cases, +11 passes,
     harness fix]`** — old score on old corpus: 50/52 (96.2%) at d6d0ac6; new score on new
     corpus: 61/63 (96.8%) at 4e29319. Cases added: 11 (transaction shapes from M6's
