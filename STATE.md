@@ -84,9 +84,8 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M12 fix round closed (STAR fix verified, 148/148, 255 tests);
-  t2d delivery confirmed (19 cases, loader-clean) — M13 ordered (set ops, Tier 2
-  continues).**
+- **Current milestone: M13 — set ops (ordered; t2d confirmed). t2f delivered BEFORE M16
+  started (third consecutive drafts-first tranche; parked until the M17 boundary).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -335,12 +334,23 @@ query history; hot-path rewrite in a faster language
    group, the M8-sorted-groups pin), HAVING (aggregate condition + the no-GROUP-BY
    quirk), and the GROUP+ORDER+LIMIT combination. **Pre-registered prediction:
    20–21/21**, with named swing case 21 (DISTINCT + ORDER BY on a non-selected column —
-   the restriction-rule case).
+   the restriction-rule case). **Also delivered: t2f (21 cases, M16/M17 scope) authored
+   BEFORE M16 started — third consecutive drafts-first tranche (t1c, t2a, t2f pattern
+   since the t2b slip). Default's landing-split ruling: t2f lands as ONE event after
+   M17's review (the prediction covers the whole file; a two-part landing would split
+   the attribution the DDR relies on).**
 2. [Build] M13 — set ops (UNION/UNION ALL/INTERSECT/EXCEPT, precedence by rows, compound
    ORDER-BY rules with reference-emitted error text). t2d delivered and confirmed
-   (19 cases); **Build's fix-round follow-up queued: the SelectItem|Star type-union
-   annotation + `_headings()` helper** — a hardening refactor deferred from M12's fix
-   round, belonging at the post-M13 milestone boundary rather than inside it.
+   (19 cases); **Acceptance highlights (research's named swings, now the
+   acceptance:list):** INTERSECT-binds-tighter decided BY ROWS (t1 UNION…INTERSECT …
+   gives {1,2} vs flat {2}); EXCEPT chain associativity ({1} vs {1,2,3}); NULL-as-equal
+   set semantics (UNION dedups, INTERSECT keeps, EXCEPT removes); mixed storage-class
+   ORDER BY 1 (int/text order — the "sorts by repr" rule check); INTERSECT ALL —
+   runtime decides (both-reject is agreement); compound-in-derived-table and
+   compound-in-IN; empty right side; first-branch column names (`AS val` through
+   UNION); **compound count-mismatch error text: the REFERENCE'S wording, not ours**.
+   **Build's fix-round follow-up carried onto the M13→M14 boundary: SelectItem|Star
+   annotation + `_headings()` helper.**
 3. [Build ✓ done note] The accepted M12 also closed the ORDER BY surface
    (Star-safe, mixed-direction multi-key, NULLs-last-DESC/first-ASC) and
    landed `LIMIT`/`OFFSET` in both keyword and comma forms, plus the t2b fix round
