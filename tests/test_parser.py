@@ -37,9 +37,12 @@ class TestCreateTable(unittest.TestCase):
         kinds = [c.kind for c in stmt.columns[0].constraints]
         self.assertEqual(kinds, ["DEFAULT", "CHECK"])
 
-    def test_table_level_check_is_rejected_for_now(self):
-        with self.assertRaises(ParseError):
-            parse("CREATE TABLE t (n INTEGER, CHECK (n > 0))")
+    def test_table_level_check_is_accepted(self):
+        # Was a rejection guard until M16 added table-level constraints; the invariant now is
+        # that the constraint lands on the table, not that the parser refuses it.
+        stmt = parse("CREATE TABLE t (n INTEGER, CHECK (n > 0))")
+        self.assertEqual([c.kind for c in stmt.table_constraints], ["CHECK"])
+        self.assertEqual(stmt.table_constraints[0].text, "n > 0")
 
     def test_case_insensitive_keywords(self):
         self.assertIsNotNone(parse("create table t (id integer)"))

@@ -214,15 +214,22 @@ class Parser:
         self.expect_punct("(")
 
         columns = []
+        table_constraints = []
         if self.at_punct(")"):
             raise ParseError("CREATE TABLE needs at least one column", self.tok)
         while True:
-            columns.append(self.parse_column_def())
+            if self.at_keyword("PRIMARY") or self.at_keyword("FOREIGN") \
+                    or self.at_keyword("CHECK") or self.at_keyword("UNIQUE"):
+                table_constraints.append(self.parse_table_constraint())
+            else:
+                columns.append(self.parse_column_def())
             if self.accept_punct(","):
                 continue
             break
         self.expect_punct(")")
-        statement = ast.CreateTable(name=name, columns=columns, if_not_exists=if_not_exists)
+        statement = ast.CreateTable(name=name, columns=columns,
+                                    table_constraints=table_constraints,
+                                    if_not_exists=if_not_exists)
         # The catalog keeps the CREATE statement verbatim so reopening needs no AST serialiser.
         statement.sql = self.source.strip() if self.source else None
         return statement
@@ -443,6 +450,47 @@ class Parser:
         while self.tok.kind == "KEYWORD" and self.tok.upper in CONSTRAINT_STARTERS:
             constraints.append(self.parse_column_constraint())
         return ast.ColumnDef(name=name, type_name=type_name, type_args=type_args, constraints=constraints)
+
+    def parse_table_constraint(self):
+        if self.accept_keyword("PRIMARY"):
+            self.expect_keyword("KEY")
+            self.expect_punct("(")
+            columns = [self.parse_identifier("column name")]
+            while self.accept_punct(","):
+                columns.append(self.parse_identifier("column name"))
+            self.expect_punct(")")
+            return ast.TableConstraint("PRIMARY KEY", columns=columns)
+        if self.accept_keyword("UNIQUE"):
+            self.expect_punct("(")
+            columns = [self.parse_identifier("column name")]
+            while self.accept_punct(","):
+                columns.append(self.parse_identifier("column name"))
+            self.expect_punct(")")
+            return ast.TableConstraint("UNIQUE", columns=columns)
+        if self.accept_keyword("FOREIGN"):
+            self.expect_keyword("KEY")
+            self.expect_punct("(")
+            columns = [self.parse_identifier("column name")]
+            while self.accept_punct(","):
+                columns.append(self.parse_identifier("column name"))
+            self.expect_punct(")")
+            self.expect_keyword("REFERENCES")
+            ref_table = self.parse_identifier("table name")
+            ref_columns = []
+            if self.accept_punct("("):
+                ref_columns.append(self.parse_identifier("column name"))
+                while self.accept_punct(","):
+                    ref_columns.append(self.parse_identifier("column name"))
+                self.expect_punct(")")
+            return ast.TableConstraint("FOREIGN KEY", columns=columns, ref_table=ref_table,
+                                       ref_columns=ref_columns)
+        self.expect_keyword("CHECK")
+        open_paren = self.expect_punct("(")
+        expr = self.parse_expression()
+        close_paren = self.tok
+        self.expect_punct(")")
+        text = self.source[open_paren.pos + 1:close_paren.pos].strip()
+        return ast.TableConstraint("CHECK", expr=expr, text=text)
 
     def parse_column_constraint(self):
         if self.accept_keyword("PRIMARY"):

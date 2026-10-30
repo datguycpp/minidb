@@ -715,11 +715,37 @@ class Database:
                 raise ExecError(f"duplicate column name: {column.name}")
             seen.add(lname)
         columns = [Column(c) for c in node.columns]
+        index_names = {column.name.lower() for column in columns}
+        for constraint in getattr(node, "table_constraints", []):
+            if constraint.kind in ("PRIMARY KEY", "UNIQUE"):
+                for name in constraint.columns:
+                    if name.lower() not in index_names:
+                        raise ExecError(f"no such column: {name}")
+            elif constraint.kind == "FOREIGN KEY":
+                for position, name in enumerate(constraint.columns):
+                    if name.lower() not in index_names:
+                        raise ExecError(f"no such column: {name}")
+                    target = columns[index_names and [c.name.lower() for c in columns].index(name.lower())]
+                    target.ref_table = constraint.ref_table
+                    if position < len(constraint.ref_columns):
+                        target.ref_column = constraint.ref_columns[position]
         if self.storage is not None:
             entry = self.storage.create_table(node.name, node.sql or self._sql or f"CREATE TABLE {node.name}")
             self.tables[key] = Table(node.name, columns, entry)
         else:
             self.tables[key] = Table(node.name, columns)
+        table = self.tables[key]
+        for constraint in getattr(node, "table_constraints", []):
+            if constraint.kind in ("PRIMARY KEY", "UNIQUE"):
+                positions = [table.index_of[name.lower()] for name in constraint.columns]
+                name = f"sqlite_autoindex_{node.name}_{len(table.indexes) + 1}"
+                index = Index(name, table.name, positions, list(constraint.columns), True)
+                table.indexes[name.lower()] = index
+                if self.storage is not None:
+                    self._persist_indexes(table)
+            elif constraint.kind == "CHECK":
+                table.checks = getattr(table, "checks", [])
+                table.checks.append((constraint.expr, constraint.text))
         return None
 
     def table(self, name):
@@ -947,6 +973,9 @@ class Database:
                             compared = values[i]
                         if same == compared:
                             raise ExecError(f"UNIQUE constraint failed: {table.name}.{column.name}")
+            for check_expr, check_text in getattr(table, "checks", []):
+                if not truthy(self._eval(check_expr, table, dict(zip(table.column_names, values)))):
+                    raise ExecError(f"CHECK constraint failed: {check_text}")
             # Unique indexes are checked before the row lands, so a rejected insert leaves
             # neither a row nor a dangling index entry.
             for index in table.indexes.values():

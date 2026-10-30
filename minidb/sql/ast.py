@@ -85,9 +85,20 @@ class ColumnDef(Node):
 
 
 @dataclass
+class TableConstraint(Node):
+    kind: str                       # PRIMARY KEY | FOREIGN KEY | CHECK | UNIQUE
+    columns: list = field(default_factory=list)
+    ref_table: "str | None" = None
+    ref_columns: list = field(default_factory=list)
+    expr: "Node | None" = None
+    text: "str | None" = None
+
+
+@dataclass
 class CreateTable(Node):
     name: str
     columns: list
+    table_constraints: list = field(default_factory=list)
     if_not_exists: bool = False
     sql: "str | None" = None    # original statement text; it is what the catalog stores
 
