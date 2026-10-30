@@ -1,0 +1,108 @@
+-- t1e DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator stays 75 until ordered. Last Tier-1 tranche;
+-- gate verification runs on the complete t1a-e denominator after this lands.
+-- src: authored (fuzz-seed shaped: edge cases a generator finds fast on
+--      Tier-1 features)   tier: t1 (tranche e: fuzz corpus seeds, M9)
+-- Scope: valid-input seeds only. Rejection-proximity repros (SELECT IN etc.)
+-- live in their own parked file per the fuzz-metric ruling (edit-distance
+-- rule claims them); crash/torn-WAL scenarios are NOT corpus cases — SQLite
+-- runs :memory: here and has no log to tear, so those belong to the fuzzer's
+-- stateful scenario mode against MINIDB_CRASH_POINT, not this file.
+
+-- NULL join keys never match: NULL = anything is unknown on both engines.
+
+CREATE TABLE a (id INTEGER, name TEXT);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (NULL, 'x');
+INSERT INTO a VALUES (1, 'y');
+INSERT INTO b VALUES (NULL, 99);
+INSERT INTO b VALUES (1, 10);
+SELECT a.name, b.score FROM a JOIN b ON a.id = b.aid;
+
+-- Join with no matches: aggregates over the empty result — COUNT is 0,
+-- SUM is NULL (not 0).
+
+CREATE TABLE a (id INTEGER);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (1);
+SELECT COUNT(*), SUM(b.score) FROM a JOIN b ON a.id = b.aid;
+
+-- Bare aggregates over an empty table: one row of 0s and NULLs, not an
+-- error and not zero rows (M8's IndexError bug, pinned as a seed).
+
+CREATE TABLE t (v REAL);
+SELECT COUNT(*), COUNT(v), SUM(v), AVG(v), MIN(v), MAX(v) FROM t;
+
+-- IN over an empty subquery result: no row is a member.
+
+CREATE TABLE t (id INTEGER);
+CREATE TABLE s (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT * FROM t WHERE id IN (SELECT id FROM s);
+
+-- NOT IN over an empty subquery result: every row qualifies (the other
+-- half of the same truth table).
+
+CREATE TABLE t (id INTEGER);
+CREATE TABLE s (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT * FROM t WHERE id NOT IN (SELECT id FROM s);
+
+-- LEFT JOIN NULL padding feeding an aggregate: unmatched rows pad the
+-- score column with NULL, and AVG ignores NULLs — the result is the
+-- average of MATCHED rows only.
+
+CREATE TABLE a (id INTEGER);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (1);
+INSERT INTO a VALUES (2);
+INSERT INTO b VALUES (1, 10);
+INSERT INTO b VALUES (2, 30);
+SELECT AVG(b.score) FROM a LEFT JOIN b ON a.id = b.aid;
+
+-- DISTINCT sees NULL as one value, not as "no value".
+
+CREATE TABLE t (v INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (NULL);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (NULL);
+SELECT DISTINCT v FROM t;
+
+-- Three-table inner join chain: two ON conditions, one row path.
+
+CREATE TABLE a (id INTEGER, name TEXT);
+CREATE TABLE b (aid INTEGER, cid INTEGER);
+CREATE TABLE c (cid INTEGER, label TEXT);
+INSERT INTO a VALUES (1, 'x');
+INSERT INTO b VALUES (1, 7);
+INSERT INTO c VALUES (7, 'L');
+SELECT a.name, c.label FROM a JOIN b ON a.id = b.aid JOIN c ON b.cid = c.cid;
+
+-- Scalar subquery with an aggregate, compared against a column.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (5);
+INSERT INTO t VALUES (9);
+SELECT * FROM t WHERE id > (SELECT MIN(id) FROM t);
+
+-- Scalar subquery in the projection alongside a real FROM.
+
+CREATE TABLE t (id INTEGER);
+CREATE TABLE a (n INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO a VALUES (10);
+SELECT a.n, (SELECT COUNT(*) FROM t) AS tc FROM a;
+
+-- LEFT JOIN whose ON never matches: every left row pads NULL, so the
+-- aggregate over the padded column sees only NULLs — COUNT=0, AVG=NULL.
+
+CREATE TABLE a (id INTEGER);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (1);
+INSERT INTO a VALUES (2);
+SELECT COUNT(b.score), AVG(b.score) FROM a LEFT JOIN b ON a.id = b.aid AND b.score > 9000;
