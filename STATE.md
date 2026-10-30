@@ -81,8 +81,8 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M7 — write-ahead log and crash recovery (M6 accepted, harness
-  defects fixed). Build's round.**
+- **Current milestone: M8 — joins, aggregates, subqueries (M7 WAL/crash recovery
+  accepted). Build's round.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -99,7 +99,6 @@ query history; hot-path rewrite in a faster language
     durability_check.py` (Default re-ran from cold clone: write/reopen sha256 identical,
     append-after-reopen persisted; plus Default's own probe — CHECK constraint enforced
     identically after reopen). Syntax 46/46, 114 unit tests OK, corpus revision 1c24177
-    (engine-only commits, correctly unchanged).
   - `SCORE t1.5 (M5): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe plan
     choice]` — plan evidence instead: `tools/plan_check.py` extended to five scenarios
     (Default re-ran: all PASS). **Default's edge probes of the documented rule
@@ -129,7 +128,26 @@ query history; hot-path rewrite in a faster language
     BOTH engines (binary: BEGIN+INSERT, no COMMIT, fresh invocation sees nothing;
     MiniDB: `[]` after reopen). Durability 3/3 incl. rolled-back row absent. Snapshot-
     per-transaction is O(database size) — documented cost, replaced by M7's WAL. 174
-    engine tests + harness suite = 176 OK, syntax 46/46.**
+    engine tests + harness suite = 176 OK, syntax 46/46.** The snapshot-per-transaction
+    cost is formally superseded by M7's WAL — transaction machinery unchanged otherwise.
+  - `SCORE t1.7 (M7): 50/52 (96.2%) [Δ +0 — the corpus cannot observe crash recovery]` —
+    evidence instead, all reproduced by Default from a cold clone: `tools/crash_check.py`
+    4/4 (real `os._exit(9)` children at a fault seam on both sides of the fsync; open
+    transaction lost, committed row kept; ten consecutive crashes). **Default's
+    additional sweep — crash at every commit position via `MINIDB_CRASH_COMMIT` 1–5,
+    fresh file, CREATE+INSERT child:** commit1 (header batch) → valid empty db (`no
+    such table`, correct — nothing durable yet); commit2 (CREATE batch) → table exists,
+    zero rows (correct — INSERT not durable); **commit3 (the INSERT's own commit) →
+    row (42, 'committed') survives via WAL replay from a 0-byte main file** (the bug-#1
+    shape); commits 4–5 → idempotent reopen. The three reported bugs' fixes confirmed in
+    the code: recovery runs before the new-file decision, post-ROLLBACK catalog_root
+    handled, `close()` flushes instead of silently dropping dirty pages. WAL format read
+    line-by-line in pager.py: per-frame CRC + batch commit-marker CRC +
+    torn-tail/partial-frame/CRC-mismatch → truncate-and-discard at every exit. Rollback
+    O(1) confirmed in code (buffer dropped, no file copy). **New limits recorded with
+    owners:** redo log ≠ SQLite's WAL (single writer, no readers during recovery,
+    whole-batch apply) — M18/M24. Timing re-measure owed by the M7 report (non-blocking;
+    carried). 185 engine tests OK, syntax 46/46, behaviour 50/52, all tools green.**
     - `SCORE t1.4 (M4): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe index
       choice]` — plan-level evidence instead: `tools/plan_check.py` (Default re-ran from
       cold clone: full-scan 2000 examined before, index access 1 examined after, index
@@ -160,14 +178,19 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Build] M7 — write-ahead log and crash recovery (ordered, next). Acceptance:
-   crash-visible evidence per the spec's engineer-owned-evidence section — kill the
-   process mid-write, verify recovery — raw; corpus re-run; the M6 snapshot cost is what
-   WAL replaces, so the transaction_check numbers should be re-measured after.
-2. [Build] M8 — joins, aggregates, subqueries, after M7. Research's t1c lands against it.
-3. [Build] M9 — fuzzing against SQLite, after M8. Research's fuzzer spec + t1e seeds
-   land here. **Tier-1 gate is formally verified after M9** — see decision log for why
-   the arithmetic being met today does not close the tier.
+1. [Build] M8 — joins, aggregates, subqueries (ordered, next). Acceptance: corpus
+   differential (research's t1c tranche is authored against THIS milestone); raw output
+   on every new statement shape; the plan-check scenarios extended to at least one join
+   access path (M5's rule documents eligibility for tables — a join must not silently
+   full-scan-×-full-scan without the planner saying what it did).
+2. [Build] M9 — fuzzing against SQLite, after M8. Research's fuzzer spec + t1e seeds land
+   here. **Tier-1 gate is formally verified after M9** — the arithmetic (96.2% ≥ 90%) is
+   already cleared, but the tier closes only when milestones 1–9 are done AND the full
+   tranche set is in the denominator (decision log, Tier-1 gate timing).
+3. [Research + Default] **t1d (11 pre-drafted cases) + the two loader fixes land NEXT** —
+   one re-baseline event, before the M8 build: the transaction shapes all pass on M6
+   evidence, so landing them now moves the denominator to 63 at no risk, and the
+   tranche plan has t1d owned by M7, which is complete.
 
 ## Known failures
 
@@ -182,6 +205,7 @@ query history; hot-path rewrite in a faster language
 - Column DEFAULT evaluated without SQLite's constant-expression rules — untested against
   quirks, flagged rather than assumed correct.
 - No crash safety: writes are write-through, fsync only on clean close — M7 (WAL) owns.
+  → **CLOSED by M7** (WAL with CRC frames, crash sweep 5/5 commit positions correct).
 - Rows larger than a page raise `row too large` — M20 (overflow pages) owns.
 
 ## Known divergences
@@ -310,6 +334,16 @@ query history; hot-path rewrite in a faster language
   ANY comment as a directive marker; corrected to directive markers only), invariant
   asserts added in `9308de2`. Lesson: never chain a commit after piped test output —
   pipefail or separate turns.
+- 2026-10-30 (M7): M7 **accepted** — cold-clone reproduction (185 tests, syntax 46/46,
+  behaviour 50/52, crash_check 4/4). **Default's own probe initially produced a false
+  alarm** (first-commit crash → `no such table`) — the child had crashed inside the
+  header-initialisation commit, before CREATE was durable, so `no such table` was correct
+  behaviour, not data loss; logged rather than hidden. The subsequent sweep (crash at
+  every commit position, 1–5) verified recovery correctness at each, including the
+  headline case: kill during the INSERT's own commit, 0-byte main file + valid WAL → row
+  survives. M6's cost estimate (snapshot-per-transaction) formally superseded — rollback
+  is now O(1). Timing re-measure still owed by the M7 report (acceptance asked for it;
+  nothing arrived in the milestone report — non-blocking, carried as a review note).
 - 2026-10-30 (Tier-1 gate timing, precise): engineer's arithmetic is correct — 50/52 =
   96.2% ≥ 90% — but the charter defines Tier 1 as milestones 1–9, so the gate is the
   tier-COMPLETION gate, formally verified after M9 with the full tranche set (t1b/t1c/
