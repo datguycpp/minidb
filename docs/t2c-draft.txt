@@ -1,0 +1,168 @@
+-- t2c DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator stays 127 until ordered.
+-- Sequencing: authored BEFORE M12 starts (timing rule from t2b's slip:
+-- the milestone waits for this draft's delivery confirmation).
+-- src: authored   tier: t2 (tranche c: ORDER BY, LIMIT, OFFSET, DISTINCT,
+--      GROUP BY, HAVING — M12)
+-- GROUP BY/HAVING/DISTINCT partially exist from M8/M12-adjacent work, so
+-- several of these pass on arrival; ORDER BY/LIMIT/OFFSET are the real test.
+
+-- ORDER BY ascending and descending.
+
+CREATE TABLE t (id INTEGER, v TEXT);
+INSERT INTO t VALUES (3, 'c');
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, 'b');
+SELECT * FROM t ORDER BY id ASC;
+
+CREATE TABLE t (id INTEGER, v TEXT);
+INSERT INTO t VALUES (3, 'c');
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, 'b');
+SELECT * FROM t ORDER BY id DESC;
+
+-- ORDER BY multiple keys, mixed directions.
+
+CREATE TABLE t (a INTEGER, b INTEGER);
+INSERT INTO t VALUES (1, 2);
+INSERT INTO t VALUES (1, 1);
+INSERT INTO t VALUES (2, 1);
+SELECT * FROM t ORDER BY a ASC, b DESC;
+
+-- NULL ordering: SQLite sorts NULLs first in ASC.
+
+CREATE TABLE t (v INTEGER);
+INSERT INTO t VALUES (3);
+INSERT INTO t VALUES (NULL);
+INSERT INTO t VALUES (1);
+SELECT * FROM t ORDER BY v;
+
+-- ORDER BY an alias for a projection expression.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (5);
+SELECT id * 2 AS doubled FROM t ORDER BY doubled;
+
+-- ORDER BY a computed expression (not a column reference).
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (1);
+SELECT id FROM t ORDER BY id * -1;
+
+-- LIMIT alone, LIMIT larger than the table, LIMIT 0.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT id FROM t ORDER BY id LIMIT 2;
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+SELECT id FROM t LIMIT 100;
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT id FROM t ORDER BY id LIMIT 0;
+
+-- OFFSET keyword form and the SQLite comma form (offset, count).
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT id FROM t ORDER BY id LIMIT 2 OFFSET 1;
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT id FROM t ORDER BY id LIMIT 1, 2;
+
+-- Top-N through a WHERE filter: ORDER BY + LIMIT together.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (5);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (3);
+INSERT INTO t VALUES (2);
+SELECT id FROM t WHERE id > 2 ORDER BY id DESC LIMIT 1;
+
+-- DISTINCT over two columns including a NULL cell: the row (1, NULL)
+-- appears once.
+
+CREATE TABLE t (a INTEGER, b INTEGER);
+INSERT INTO t VALUES (1, NULL);
+INSERT INTO t VALUES (1, NULL);
+INSERT INTO t VALUES (1, 2);
+SELECT DISTINCT a, b FROM t;
+
+-- DISTINCT with ORDER BY restricted to a selected column.
+
+CREATE TABLE t (v INTEGER);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT DISTINCT v FROM t ORDER BY v;
+
+-- GROUP BY single key: groups come back ordered by group key with NULLs
+-- first (M8's sorted-structure behaviour, re-pinned here with ORDER BY off).
+
+CREATE TABLE t (k TEXT, v INTEGER);
+INSERT INTO t VALUES ('b', 1);
+INSERT INTO t VALUES ('a', 2);
+INSERT INTO t VALUES ('a', 3);
+SELECT k, COUNT(*), SUM(v) FROM t GROUP BY k;
+
+-- GROUP BY with NULL as its own group.
+
+CREATE TABLE t (k INTEGER, v INTEGER);
+INSERT INTO t VALUES (NULL, 1);
+INSERT INTO t VALUES (NULL, 2);
+INSERT INTO t VALUES (1, 3);
+SELECT k, COUNT(*) FROM t GROUP BY k;
+
+-- GROUP BY two keys.
+
+CREATE TABLE t (a INTEGER, b INTEGER, v INTEGER);
+INSERT INTO t VALUES (1, 1, 10);
+INSERT INTO t VALUES (1, 1, 5);
+INSERT INTO t VALUES (1, 2, 7);
+INSERT INTO t VALUES (2, 1, 3);
+SELECT a, b, SUM(v) FROM t GROUP BY a, b;
+
+-- HAVING filtering groups on an aggregate condition.
+
+CREATE TABLE t (k TEXT, v INTEGER);
+INSERT INTO t VALUES ('x', 1);
+INSERT INTO t VALUES ('x', 2);
+INSERT INTO t VALUES ('y', 9);
+SELECT k, COUNT(*) FROM t GROUP BY k HAVING COUNT(*) > 1;
+
+-- HAVING with an aggregate over no grouping: one implicit group.
+
+CREATE TABLE t (v INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT SUM(v) FROM t HAVING SUM(v) > 10;
+
+-- GROUP BY + ORDER BY + LIMIT: sorted groups, first group only.
+
+CREATE TABLE t (k TEXT, v INTEGER);
+INSERT INTO t VALUES ('b', 1);
+INSERT INTO t VALUES ('a', 2);
+INSERT INTO t VALUES ('a', 3);
+SELECT k, SUM(v) FROM t GROUP BY k ORDER BY k LIMIT 1;
+
+-- Swing: DISTINCT + ORDER BY on a NON-selected column. SQLite restricts
+-- this; its exact error text is whatever the reference says at run time.
+-- If our engine omits the restriction or words it differently: fail, owned
+-- by M12.
+
+CREATE TABLE t (v INTEGER, w INTEGER);
+INSERT INTO t VALUES (1, 10);
+INSERT INTO t VALUES (1, 20);
+SELECT DISTINCT v FROM t ORDER BY w;

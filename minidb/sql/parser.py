@@ -350,9 +350,37 @@ class Parser:
         if self.accept_keyword("HAVING"):
             having = self.parse_expression()
 
+        order_by = []
+        if self.accept_keyword("ORDER"):
+            self.expect_keyword("BY")
+            while True:
+                expression = self.parse_expression()
+                descending = False
+                if self.accept_keyword("DESC"):
+                    descending = True
+                else:
+                    self.accept_keyword("ASC")
+                order_by.append((expression, descending))
+                if not self.accept_punct(","):
+                    break
+
+        limit = None
+        offset = None
+        if self.accept_keyword("LIMIT"):
+            first = self.parse_additive()
+            if self.accept_punct(","):
+                # SQLite's LIMIT <offset>, <count> form.
+                offset = first
+                limit = self.parse_additive()
+            else:
+                limit = first
+                if self.accept_keyword("OFFSET"):
+                    offset = self.parse_additive()
+
         return ast.Select(items=items, table=table, where=where, distinct=distinct,
                           alias=alias, base_select=base_select, joins=joins,
-                          group_by=group_by, having=having)
+                          group_by=group_by, having=having, order_by=order_by,
+                          limit=limit, offset=offset)
 
     def parse_source(self):
         """A table name or a derived table: `FROM t`, `FROM t AS x`, `FROM (SELECT ...) AS x`."""

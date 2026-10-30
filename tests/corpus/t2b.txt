@@ -57,8 +57,12 @@ SELECT typeof(1), typeof(1.5), typeof('a'), typeof(NULL);
 
 SELECT coalesce(NULL, NULL, 3), ifnull(NULL, 5), nullif(1, 1), nullif(1, 2);
 
--- [t] Scalar min/max ignore NULL unless ALL args are NULL (the arity rule
--- that distinguishes them from the aggregate forms).
+-- [t] Scalar min/max: ANY NULL argument makes the result NULL (SQLite's
+-- documented rule for the multi-argument scalar forms). The AGGREGATE
+-- forms over rows are the NULL-ignoring ones — the reverse of what this
+-- comment originally said here, which the engine faithfully implemented
+-- and the landed run caught (case failure at 124/127). Comment-only
+-- correction; expected score delta 0.
 
 SELECT min(NULL, 2), max(NULL, 2), min(NULL, NULL);
 

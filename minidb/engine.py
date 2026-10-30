@@ -169,10 +169,11 @@ def call_function(name, args):
             raise ExecError("nullif() needs two arguments")
         return None if args[0] == args[1] else args[0]
     if name in ("MIN", "MAX"):
-        values = [value for value in args if value is not None]
-        if not values:
+        # Scalar min/max: any NULL argument makes the result NULL (SQLite's rule, and the
+        # opposite of the filtering behaviour the aggregate form uses).
+        if any(value is None for value in args):
             return None
-        return min(values) if name == "MIN" else max(values)
+        return min(args) if name == "MIN" else max(args)
     if name == "TYPEOF":
         value = args[0]
         if value is None:
@@ -247,6 +248,36 @@ def call_function(name, args):
         quantised = Decimal(str(value)).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
         result = float(quantised)
         return result if places > 0 else int(result)
+    if name in ("SQRT", "POW", "POWER", "FLOOR", "CEIL", "CEILING", "LOG", "LOG10", "LOG2",
+                "EXP", "PI", "MOD", "TRUNC"):
+        import math
+        if name == "PI":
+            return math.pi
+        numbers = [float(to_number(value)) for value in args]
+        if name == "SQRT":
+            return math.sqrt(numbers[0]) if numbers[0] >= 0 else None
+        if name in ("POW", "POWER"):
+            return math.pow(numbers[0], numbers[1])
+        if name == "FLOOR":
+            return int(math.floor(numbers[0]))
+        if name in ("CEIL", "CEILING"):
+            return int(math.ceil(numbers[0]))
+        if name == "LOG":
+            # SQLite's log(X) is base 10; log(X,Y) is base Y.
+            if len(numbers) == 1:
+                return math.log10(numbers[0]) if numbers[0] > 0 else None
+            return math.log(numbers[0], numbers[1]) if numbers[0] > 0 else None
+        if name == "LOG10":
+            return math.log10(numbers[0]) if numbers[0] > 0 else None
+        if name == "LOG2":
+            return math.log2(numbers[0]) if numbers[0] > 0 else None
+        if name == "EXP":
+            return math.exp(numbers[0])
+        if name == "MOD":
+            return numbers[0] % numbers[1] if numbers[1] else None
+        if name == "TRUNC":
+            return int(numbers[0])
+
     if name == "INSTR":
         return text_of(args[0]).find(text_of(args[1])) + 1
     if name in ("DATE", "TIME", "DATETIME", "JULIANDAY", "STRFTIME", "UNIXEPOCH"):
@@ -257,6 +288,8 @@ def call_function(name, args):
 def _parse_datetime(value):
     import datetime as _dt
     text = text_of(value).strip()
+    if not text:
+        return None
     if text.lower() == "now":
         return _dt.datetime.now()
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
@@ -267,16 +300,67 @@ def _parse_datetime(value):
     return None
 
 
+def apply_modifiers(moment, modifiers):
+    """SQLite date modifiers: ±N days/hours/minutes/seconds/months/years, start of X, unixepoch."""
+    import datetime as _dt
+    import calendar
+    for modifier in modifiers:
+        text = text_of(modifier).strip().lower()
+        if text in ("", "localtime", "utc"):
+            continue
+        if text.startswith("start of "):
+            unit = text[len("start of "):]
+            if unit == "day":
+                moment = moment.replace(hour=0, minute=0, second=0, microsecond=0)
+            elif unit == "month":
+                moment = moment.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            elif unit == "year":
+                moment = moment.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            else:
+                return None
+            continue
+        match = re.match(r"^([+-]?\d+)\s+(second|minute|hour|day|month|year)s?$", text)
+        if not match:
+            return None
+        amount = int(match.group(1))
+        unit = match.group(2)
+        if unit == "second":
+            moment += _dt.timedelta(seconds=amount)
+        elif unit == "minute":
+            moment += _dt.timedelta(minutes=amount)
+        elif unit == "hour":
+            moment += _dt.timedelta(hours=amount)
+        elif unit == "day":
+            moment += _dt.timedelta(days=amount)
+        elif unit == "month":
+            # SQLite normalises overflow instead of clamping: 2024-01-31 +1 month is 2024-03-02.
+            month_index = (moment.year * 12 + moment.month - 1) + amount
+            year, month = divmod(month_index, 12)
+            month += 1
+            base = moment.replace(year=year, month=month, day=1)
+            moment = base + _dt.timedelta(days=moment.day - 1)
+        elif unit == "year":
+            base = moment.replace(year=moment.year + amount, day=1)
+            moment = base + _dt.timedelta(days=moment.day - 1)
+    return moment
+
+
 def datetime_function(name, args):
+    modifiers = args[1:] if name != "STRFTIME" else args[2:]
     if name == "STRFTIME":
         if len(args) < 2:
             raise ExecError("strftime() needs a format and a time value")
-        fmt = text_of(args[0]).replace("%Y", "%Y").replace("%m", "%m")
         moment = _parse_datetime(args[1])
         if moment is None:
             return None
-        return moment.strftime(fmt)
+        moment = apply_modifiers(moment, modifiers)
+        if moment is None:
+            return None
+        return moment.strftime(text_of(args[0]))
     moment = _parse_datetime(args[0])
+    if moment is None:
+        return None
+    moment = apply_modifiers(moment, modifiers)
     if moment is None:
         return None
     if name == "DATE":
@@ -834,8 +918,6 @@ class Database:
 
     def _select_simple(self, node: ast.Select):
         table = self.table(node.table)
-        # Column headings are a property of the statement, not of the rows: an empty result
-        # still has to report the columns it would have returned.
         items = []
         for item in node.items:
             if isinstance(item, ast.Star):
@@ -854,7 +936,7 @@ class Database:
         examined = len(candidates)
         index_name = decision["candidate"]["index"].name if access == "index" else None
 
-        rows = []
+        prepared = []
         for _, row in candidates:
             if row is None:
                 continue
@@ -866,6 +948,27 @@ class Database:
                 env[f"{table.name.lower()}.{column.name.lower()}"] = value
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 continue
+            prepared.append((env, row))
+
+        def alias_values(env):
+            values = {}
+            for item in node.items:
+                if item.alias and not isinstance(item.expr, ast.Star):
+                    values[item.alias.lower()] = self._eval(item.expr, table, env)
+            return values
+
+        for expression, descending in reversed(node.order_by):
+            def key(pair, expression=expression):
+                env = pair[0]
+                if isinstance(expression, ast.ColumnRef):
+                    aliased = alias_values(env)
+                    if expression.name.lower() in aliased:
+                        return _order_sort_key(aliased[expression.name.lower()])
+                return _order_sort_key(self._eval(expression, table, env))
+            prepared.sort(key=key, reverse=descending)
+
+        rows = []
+        for env, row in prepared:
             projected = []
             for item in node.items:
                 if isinstance(item, ast.Star):
@@ -874,14 +977,16 @@ class Database:
                     projected.append(self._eval(item.expr, table, env))
             rows.append(tuple(projected))
 
+        # DISTINCT before LIMIT: LIMIT counts distinct rows, not source rows.
+        if node.distinct:
+            rows = _distinct(rows)
+        rows = self._apply_limit(node, rows)
+
         self.last_plan = {"table": table.name, "access": access, "index": index_name,
                           "rows_examined": examined, "rows_matched": len(rows),
                           "reason": decision["reason"],
                           "estimated_rows": decision["estimated_rows"],
                           "candidates": decision["candidates"]}
-
-        if node.distinct:
-            rows = _distinct(rows)
         return items, rows
 
     def _select_complex(self, node: ast.Select):
@@ -927,14 +1032,36 @@ class Database:
                 # on row order alone.
                 order.sort(key=_group_sort_key)
 
+            grouped = []
             for key in order:
                 group = groups[key]
                 if node.having is not None and not truthy(self._eval(node.having, None, group[0], group)):
                     continue
+                grouped.append((group[0] if group else {}, group))
+
+            for expression, descending in reversed(node.order_by):
+                def key(entry, expression=expression):
+                    env, group = entry
+                    aliased = {}
+                    for item in projection:
+                        if item.alias and not isinstance(item.expr, ast.Star):
+                            aliased[item.alias.lower()] = self._eval(item.expr, None, env, group)
+                    if isinstance(expression, ast.ColumnRef) and expression.name.lower() in aliased:
+                        return _order_sort_key(aliased[expression.name.lower()])
+                    return _order_sort_key(self._eval(expression, None, env, group))
+                grouped.sort(key=key, reverse=descending)
+
+            for env, group in self._apply_limit(node, grouped):
                 rows.append(tuple(self._project(item, group) for item in projection))
         else:
-            for env in envs:
-                rows.append(tuple(self._project(item, [env]) for item in projection))
+            prepared = [(env, [env]) for env in envs]
+            for expression, descending in reversed(node.order_by):
+                def key(entry, expression=expression):
+                    env, group = entry
+                    return _order_sort_key(self._eval(expression, None, env, group))
+                prepared.sort(key=key, reverse=descending)
+            for env, group in self._apply_limit(node, prepared):
+                rows.append(tuple(self._project(item, group) for item in projection))
 
         if node.distinct:
             rows = _distinct(rows)
@@ -952,6 +1079,26 @@ class Database:
             "candidates": [],
         }
         return items, rows
+
+    def _order_value(self, expr, env, aliases=None):
+        if isinstance(expr, ast.ColumnRef) and aliases and expr.name.lower() in aliases:
+            return aliases[expr.name.lower()]
+        return self._eval(expr, None, env)
+
+    def _apply_limit(self, node, items):
+        limit = None
+        offset = 0
+        if node.limit is not None:
+            limit = int(to_number(self._eval(node.limit, None, {})))
+            if limit < 0:
+                limit = None
+        if node.offset is not None:
+            offset = int(to_number(self._eval(node.offset, None, {})))
+        if offset:
+            items = items[offset:]
+        if limit is not None:
+            items = items[:limit]
+        return items
 
     def _project(self, item, group):
         env = group[0] if group else {}
@@ -1094,6 +1241,13 @@ class Database:
             result = value is None
             return (not result) if node.negated else result
         raise ExecError(f"cannot evaluate {type(node).__name__}")
+
+
+def _order_sort_key(value):
+    """SQLite ordering: NULLs first, then numbers, text, blobs."""
+    if value is None:
+        return (0, 0)
+    return (_RANK.get(type(value), 9), value)
 
 
 def _group_sort_key(key):

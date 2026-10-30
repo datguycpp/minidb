@@ -172,3 +172,6 @@ class Select(Node):
     joins: list = field(default_factory=list)
     group_by: list = field(default_factory=list)
     having: "Node | None" = None
+    order_by: list = field(default_factory=list)      # [(expr, descending)]
+    limit: "Node | None" = None
+    offset: "Node | None" = None
