@@ -169,10 +169,10 @@ class TestSelect(unittest.TestCase):
         where = parse("SELECT * FROM t WHERE t.a = 1").where
         self.assertEqual(where.left, ast.ColumnRef("a", table="t"))
 
-    def test_missing_from(self):
-        with self.assertRaises(ParseError) as ctx:
-            parse("SELECT 1")
-        self.assertIn("expected FROM", ctx.exception.detail)
+    def test_from_is_optional(self):
+        # SQLite allows a FROM-less SELECT; M10 made that explicit.
+        self.assertEqual(parse("SELECT 1").table, None)
+        self.assertEqual(parse("SELECT 1, 2").table, None)
 
     def test_reserved_word_cannot_be_a_table_name(self):
         with self.assertRaises(ParseError) as ctx:
@@ -202,7 +202,7 @@ class TestErrorWording(unittest.TestCase):
     def test_our_diagnostic_survives_in_detail(self):
         with self.assertRaises(ParseError) as ctx:
             parse("SELECT * FRM t")
-        self.assertIn("expected FROM", ctx.exception.detail)
+        self.assertIn("FRM", ctx.exception.detail)
 
 
 class TestStatementFraming(unittest.TestCase):

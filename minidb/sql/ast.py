@@ -112,9 +112,11 @@ class Insert(Node):
 
 @dataclass
 class Join(Node):
-    table: str
-    alias: "str | None"
+    table: "str | None" = None
+    alias: "str | None" = None
     on: "Node | None" = None
+    kind: str = "inner"        # inner | cross | left | right | full
+    select: "Select | None" = None   # derived table: FROM (SELECT ...) AS x
 
 
 @dataclass
@@ -139,10 +141,11 @@ class InSubquery(Node):
 @dataclass
 class Select(Node):
     items: list            # list[SelectItem] or [Star]
-    table: str
+    table: "str | None"
     where: "Node | None" = None
     distinct: bool = False
     alias: "str | None" = None
+    base_select: "Select | None" = None      # derived table in FROM
     joins: list = field(default_factory=list)
     group_by: list = field(default_factory=list)
     having: "Node | None" = None

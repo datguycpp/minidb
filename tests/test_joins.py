@@ -153,6 +153,46 @@ class TestInPredicates(unittest.TestCase):
         self.assertEqual(self.db.run("SELECT t.a FROM t WHERE t.a = 2")[1], [(2,)])
 
 
+class TestJoinForms(unittest.TestCase):
+    """LEFT/RIGHT/FULL/comma joins and derived tables — the t1c scope that M10 closed."""
+
+    def setUp(self):
+        self.db = Database()
+        self.db.run("CREATE TABLE a (id INTEGER, x TEXT)")
+        self.db.run("CREATE TABLE b (id INTEGER, y TEXT)")
+        self.db.run("INSERT INTO a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3')")
+        self.db.run("INSERT INTO b VALUES (2, 'b2'), (3, 'b3'), (4, 'b4')")
+
+    def test_comma_join(self):
+        rows = self.db.run("SELECT a.id, b.id FROM a, b WHERE a.id = b.id")[1]
+        self.assertEqual(rows, [(2, 2), (3, 3)])
+
+    def test_left_join_pads_missing_right(self):
+        rows = self.db.run("SELECT a.id, b.y FROM a LEFT JOIN b ON a.id = b.id")[1]
+        self.assertEqual(rows, [(1, None), (2, "b2"), (3, "b3")])
+
+    def test_right_join_pads_missing_left(self):
+        rows = self.db.run("SELECT a.id, b.id FROM a RIGHT JOIN b ON a.id = b.id")[1]
+        self.assertEqual(rows, [(2, 2), (3, 3), (None, 4)])
+
+    def test_full_outer_join_pads_both_sides(self):
+        rows = self.db.run("SELECT a.id, b.id FROM a FULL OUTER JOIN b ON a.id = b.id")[1]
+        self.assertEqual(rows, [(1, None), (2, 2), (3, 3), (None, 4)])
+
+    def test_derived_table(self):
+        rows = self.db.run("SELECT x.id FROM (SELECT id FROM a WHERE id > 1) AS x")[1]
+        self.assertEqual(rows, [(2,), (3,)])
+
+    def test_from_less_select(self):
+        self.assertEqual(self.db.run("SELECT 1, 2")[1], [(1, 2)])
+
+    def test_from_less_aggregate(self):
+        self.assertEqual(self.db.run("SELECT count(*)")[1], [(1,)])
+
+    def test_scalar_subquery_with_alias(self):
+        self.assertEqual(self.db.run("SELECT (SELECT max(id) FROM a) AS top")[1], [(3,)])
+
+
 class DifferentialM8(unittest.TestCase):
     """Same statements, both engines, identical outcome."""
 
@@ -178,6 +218,18 @@ class DifferentialM8(unittest.TestCase):
          "SELECT a FROM t WHERE a NOT IN (SELECT b FROM u)"],
         ["CREATE TABLE t (a INTEGER)", "INSERT INTO t VALUES (1), (2)",
          "SELECT t.a FROM t WHERE t.a = 2"],
+        ["CREATE TABLE a (id INTEGER)", "CREATE TABLE b (id INTEGER)",
+         "INSERT INTO a VALUES (1), (2), (3)", "INSERT INTO b VALUES (2), (3), (4)",
+         "SELECT a.id, b.id FROM a LEFT JOIN b ON a.id = b.id"],
+        ["CREATE TABLE a (id INTEGER)", "CREATE TABLE b (id INTEGER)",
+         "INSERT INTO a VALUES (1), (2)", "INSERT INTO b VALUES (2), (9)",
+         "SELECT a.id, b.id FROM a FULL OUTER JOIN b ON a.id = b.id"],
+        ["CREATE TABLE a (id INTEGER)", "INSERT INTO a VALUES (1), (2), (3)",
+         "SELECT x.id FROM (SELECT id FROM a WHERE id < 3) AS x"],
+        ["SELECT 7, 'x'"],
+        ["CREATE TABLE a (id INTEGER, x INTEGER)", "CREATE TABLE b (id INTEGER, y INTEGER)",
+         "INSERT INTO a VALUES (1, 10), (2, 20)", "INSERT INTO b VALUES (1, 100), (3, 300)",
+         "SELECT a.id, b.id FROM a, b WHERE a.id = b.id"],
     ]
 
     def test_cases_match_sqlite(self):

@@ -186,8 +186,14 @@ def run_minidb(phases):
                 db = Database(path)
         columns, rows = result
         keys = list(columns)
-        return {"columns": keys,
-                "rows": normalise_values([dict(zip(keys, row)) for row in rows])}
+        payload = normalise_values([dict(zip(keys, row)) for row in rows])
+        # SQLite's -json output cannot represent duplicate column names either, so the compared
+        # heading list is the de-duplicated one that both sides actually produce.
+        if payload:
+            keys = list(payload[0].keys())
+        else:
+            keys = list(dict.fromkeys(keys))
+        return {"columns": keys, "rows": payload}
     finally:
         if path:
             db.close()

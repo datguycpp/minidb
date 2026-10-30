@@ -487,53 +487,84 @@ class Database:
         return False
 
     def _is_complex(self, node):
-        return bool(node.joins or node.group_by or node.having
+        return bool(node.table is None or node.base_select is not None
+                    or node.joins or node.group_by or node.having
                     or any(self._contains_aggregate(item.expr)
                            for item in node.items if not isinstance(item, ast.Star)))
 
-    def _source_tables(self, node):
-        sources = [(node.table, node.alias or node.table)]
+    def _sources(self, node):
+        """Source list: base table or derived table, then one entry per JOIN."""
+        out = []
+        if node.base_select is not None:
+            columns, rows = self._select(node.base_select)
+            out.append({"alias": (node.alias or "subquery").lower(),
+                        "columns": columns, "rows": rows, "kind": "base", "on": None})
+        elif node.table is not None:
+            table = self.table(node.table)
+            out.append({"alias": (node.alias or node.table).lower(),
+                        "columns": table.column_names,
+                        "rows": [row for _, row in self._rows_with_ids(table)],
+                        "kind": "base", "on": None})
         for join in node.joins:
-            sources.append((join.table, join.alias or join.table))
-        return sources
+            alias = (join.alias or join.table or "subquery").lower()
+            if join.select is not None:
+                columns, rows = self._select(join.select)
+            else:
+                table = self.table(join.table)
+                columns = table.column_names
+                rows = [row for _, row in self._rows_with_ids(table)]
+            out.append({"alias": alias, "columns": columns, "rows": rows,
+                        "kind": join.kind, "on": join.on})
+        return out
 
     def _scan_sources(self, node):
-        """Expand FROM + JOIN into row environments, applying each ON condition in place."""
-        sources = self._source_tables(node)
-        tables = [self.table(name) for name, _ in sources]
-        per_column = {}
-        for table in tables:
-            for column in table.column_names:
-                per_column[column.lower()] = per_column.get(column.lower(), 0) + 1
-
-        envs = []
+        """Nested loop over the sources, honouring INNER/LEFT/RIGHT/FULL join semantics."""
+        sources = self._sources(node)
         examined = 0
+        if not sources:
+            return [{}], 1                     # FROM-less SELECT: one empty row
 
-        def make_env(rows):
+        counts = {}
+        for source in sources:
+            for column in source["columns"]:
+                counts[column.lower()] = counts.get(column.lower(), 0) + 1
+
+        def build_env(parts):
             env = {}
-            for (_, alias), table, (_, row) in zip(sources, tables, rows):
-                prefix = alias.lower()
-                for column, value in zip(table.column_names, row):
-                    env[f"{prefix}.{column.lower()}"] = value
-                    if per_column[column.lower()] == 1:
+            for (alias, values), source in zip(parts, sources):
+                for position, column in enumerate(source["columns"]):
+                    value = None if values is None else values[position]
+                    env[f"{alias}.{column.lower()}"] = value
+                    if counts[column.lower()] == 1:
                         env[column.lower()] = value
             return env
 
-        def walk(index, rows):
-            nonlocal examined
-            if index == len(tables):
-                examined += 1
-                env = make_env(rows)
-                for join in node.joins:
-                    if join.on is not None and not truthy(self._eval(join.on, None, env)):
-                        return
-                envs.append(env)
-                return
-            for _, row in self._rows_with_ids(tables[index]):
-                walk(index + 1, rows + [(index, row)])
+        states = [[(sources[0]["alias"], row)] for row in sources[0]["rows"]]
+        for index in range(1, len(sources)):
+            source = sources[index]
+            kind = source["kind"]
+            join = source["on"]
+            new_states = []
+            matched_right = set()
+            for state in states:
+                matched = False
+                for right_index, row in enumerate(source["rows"]):
+                    examined += 1
+                    candidate = state + [(source["alias"], row)]
+                    if join is None or truthy(self._eval(join, None, build_env(candidate))):
+                        matched = True
+                        matched_right.add(right_index)
+                        new_states.append(candidate)
+                if not matched and kind in ("left", "full"):
+                    new_states.append(state + [(source["alias"], None)])
+            if kind in ("right", "full"):
+                for right_index, row in enumerate(source["rows"]):
+                    if right_index not in matched_right:
+                        new_states.append([(s["alias"], None) for s in sources[:index]]
+                                          + [(source["alias"], row)])
+            states = new_states
 
-        walk(0, [])
-        return envs, examined
+        return [build_env(state) for state in states], examined
 
     def _select(self, node: ast.Select):
         if self._is_complex(node):
@@ -598,13 +629,21 @@ class Database:
         if node.where is not None:
             envs = [env for env in envs if truthy(self._eval(node.where, None, env))]
 
-        sources = self._source_tables(node)
+        source_list = self._sources(node)
+        if any(isinstance(item, ast.Star) for item in node.items) and not source_list:
+            raise ExecError("no tables specified")
+
+        projection = []
         items = []
         for item in node.items:
             if isinstance(item, ast.Star):
-                for name, alias in sources:
-                    items.extend(self.table(name).column_names)
+                for source in source_list:
+                    for column in source["columns"]:
+                        ref = ast.ColumnRef(name=column, table=source["alias"])
+                        projection.append(ast.SelectItem(expr=ref))
+                        items.append(column)
             else:
+                projection.append(item)
                 items.append(item.alias or _heading(item))
 
         rows = []
@@ -631,20 +670,20 @@ class Database:
                 group = groups[key]
                 if node.having is not None and not truthy(self._eval(node.having, None, group[0], group)):
                     continue
-                rows.append(tuple(self._project(item, group) for item in node.items))
+                rows.append(tuple(self._project(item, group) for item in projection))
         else:
             for env in envs:
-                rows.append(tuple(self._project(item, [env]) for item in node.items))
+                rows.append(tuple(self._project(item, [env]) for item in projection))
 
         if node.distinct:
             rows = _distinct(rows)
 
         self.last_plan = {
             "table": node.table,
-            "tables": [alias for _, alias in sources],
+            "tables": [source["alias"] for source in source_list],
             "access": "nested-loop",
-            "sources": [{"table": self.table(name).name, "rows": self._row_count(self.table(name))}
-                        for name, _ in sources],
+            "sources": [{"table": source["alias"], "rows": len(source["rows"])}
+                        for source in source_list],
             "rows_examined": examined,
             "rows_matched": len(rows),
             "reason": "join" if node.joins else "aggregate",

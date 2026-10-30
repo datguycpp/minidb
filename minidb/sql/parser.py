@@ -320,21 +320,20 @@ class Parser:
             while self.accept_punct(","):
                 items.append(self.parse_select_item())
 
-        self.expect_keyword("FROM")
-        table = self.parse_identifier("table name")
-        alias = self.parse_optional_alias()
-
+        table = None
+        alias = None
         joins = []
-        while self.at_keyword("JOIN") or self.at_keyword("INNER"):
-            if self.at_keyword("INNER"):
-                self.advance()
-            self.expect_keyword("JOIN")
-            join_table = self.parse_identifier("table name")
-            join_alias = self.parse_optional_alias()
-            on = None
-            if self.accept_keyword("ON"):
-                on = self.parse_expression()
-            joins.append(ast.Join(table=join_table, alias=join_alias, on=on))
+        base_select = None
+        if self.accept_keyword("FROM"):
+            table, alias, base_select = self.parse_source()
+            while True:
+                kind = self.parse_join_kind()
+                if kind:
+                    joins.append(self.parse_join_body(kind))
+                elif self.accept_punct(","):
+                    joins.append(self.parse_join_body("cross"))
+                else:
+                    break
 
         where = None
         if self.accept_keyword("WHERE"):
@@ -352,7 +351,53 @@ class Parser:
             having = self.parse_expression()
 
         return ast.Select(items=items, table=table, where=where, distinct=distinct,
-                          alias=alias, joins=joins, group_by=group_by, having=having)
+                          alias=alias, base_select=base_select, joins=joins,
+                          group_by=group_by, having=having)
+
+    def parse_source(self):
+        """A table name or a derived table: `FROM t`, `FROM t AS x`, `FROM (SELECT ...) AS x`."""
+        if self.at_punct("("):
+            self.advance()
+            if not self.at_keyword("SELECT"):
+                raise ParseError("expected a subquery after ( in FROM", self.tok)
+            select = self.parse_select()
+            self.expect_punct(")")
+            alias = self.parse_optional_alias()
+            return None, alias, select
+        name = self.parse_identifier("table name")
+        alias = self.parse_optional_alias()
+        return name, alias, None
+
+    def parse_join_kind(self):
+        if self.at_keyword("JOIN"):
+            self.advance()
+            return "inner"
+        if self.at_keyword("INNER"):
+            self.advance()
+            self.expect_keyword("JOIN")
+            return "inner"
+        for word, kind in (("LEFT", "left"), ("RIGHT", "right"), ("FULL", "full")):
+            if self.at_keyword(word):
+                self.advance()
+                self.accept_keyword("OUTER")
+                self.expect_keyword("JOIN")
+                return kind
+        return None
+
+    def parse_join_body(self, kind):
+        if self.at_punct("("):
+            self.advance()
+            select = self.parse_select()
+            self.expect_punct(")")
+            alias = self.parse_optional_alias()
+            join = ast.Join(select=select, alias=alias, kind=kind)
+        else:
+            join_table = self.parse_identifier("table name")
+            join_alias = self.parse_optional_alias()
+            join = ast.Join(table=join_table, alias=join_alias, kind=kind)
+        if self.accept_keyword("ON"):
+            join.on = self.parse_expression()
+        return join
 
     def parse_optional_alias(self):
         if self.accept_keyword("AS"):

@@ -39,10 +39,10 @@ class TestReferenceClassification(unittest.TestCase):
         self.assertTrue(any(w in note.lower() for w in ("syntax", "incomplete input")), note)
 
     def test_harness_detects_disagreement(self):
-        # `SELECT 1` is valid SQLite and outside the milestone-1 subset: the disagreement must
-        # surface rather than be swallowed as agreement.
-        sqlite_ok, _ = sc.sqlite_syntax_ok("SELECT 1")
-        minidb_ok, _ = sc.minidb_syntax_ok("SELECT 1")
+        # CASE is valid SQLite and still outside the supported subset (milestone 10), so the
+        # disagreement must surface rather than be swallowed as agreement.
+        sqlite_ok, _ = sc.sqlite_syntax_ok("SELECT CASE WHEN 1 THEN 2 END")
+        minidb_ok, _ = sc.minidb_syntax_ok("SELECT CASE WHEN 1 THEN 2 END")
         self.assertTrue(sqlite_ok)
         self.assertFalse(minidb_ok)
 
