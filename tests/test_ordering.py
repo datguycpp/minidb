@@ -66,6 +66,11 @@ class TestStarSafety(unittest.TestCase):
     def test_star_with_order_and_limit(self):
         self.assertEqual(self.db.run("SELECT * FROM t ORDER BY v LIMIT 1")[1], [(1, "a")])
 
+    def test_star_with_window_function(self):
+        rows = self.db.run("SELECT *, ROW_NUMBER() OVER (ORDER BY v) AS rn "
+                           "FROM t ORDER BY v")[1]
+        self.assertEqual(rows, [(1, "a", 1), (2, "b", 2)])
+
 
 class TestLimit(unittest.TestCase):
     def setUp(self):

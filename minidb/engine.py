@@ -1259,11 +1259,18 @@ class Database:
 
     def _select_simple(self, node: ast.Select):
         table = self.table(node.table)
+        # Invariant: after this loop `projection` holds only SelectItem nodes. `SELECT *` is
+        # expanded here once, so no later pass has to branch on Star (the M12 crash was a pass
+        # that assumed every entry was a SelectItem).
+        projection = []
         items = []
         for item in node.items:
             if isinstance(item, ast.Star):
-                items.extend(table.column_names)
+                for name in table.column_names:
+                    projection.append(ast.SelectItem(expr=ast.ColumnRef(name=name)))
+                    items.append(name)
             else:
+                projection.append(item)
                 items.append(item.alias or _heading(item))
 
         decision = self._choose_access(table, node.where)
@@ -1292,15 +1299,15 @@ class Database:
             prepared.append((env, row))
 
         window_values = {}
-        for position, item in enumerate(node.items):
-            if isinstance(item, ast.SelectItem) and isinstance(item.expr, ast.WindowFunc):
+        for position, item in enumerate(projection):
+            if isinstance(item.expr, ast.WindowFunc):
                 window_values[position] = self._window_values(item.expr, prepared, table)
 
         entries = []
         for index, (env, row) in enumerate(prepared):
             aliases = {}
-            for position, item in enumerate(node.items):
-                if not (isinstance(item, ast.SelectItem) and item.alias):
+            for position, item in enumerate(projection):
+                if not item.alias:
                     continue
                 if position in window_values:
                     aliases[item.alias.lower()] = window_values[position][index]
@@ -1320,10 +1327,8 @@ class Database:
         rows = []
         for entry in entries:
             projected = []
-            for position, item in enumerate(node.items):
-                if isinstance(item, ast.Star):
-                    projected.extend(entry["row"])
-                elif position in entry["window"]:
+            for position, item in enumerate(projection):
+                if position in entry["window"]:
                     projected.append(entry["window"][position])
                 else:
                     projected.append(self._eval(item.expr, table, entry["env"]))

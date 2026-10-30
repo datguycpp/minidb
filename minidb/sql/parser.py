@@ -400,8 +400,8 @@ class Parser:
             items = [ast.Star()]
         else:
             items = [self.parse_select_item()]
-            while self.accept_punct(","):
-                items.append(self.parse_select_item())
+        while self.accept_punct(","):
+            items.append(self.parse_select_item())
 
         table = None
         alias = None
