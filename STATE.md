@@ -84,8 +84,11 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M13 — set ops (ordered; t2d confirmed). t2f delivered BEFORE M16
-  started (third consecutive drafts-first tranche; parked until the M17 boundary).**
+- **Current milestone: M14 (views/CTEs) accepted — 148/148, 286 tests — with two
+  probe-found findings ordered: (a) M14 fix round for the recursive-CTE UNION-dedupe
+  leak on DAG shapes; (b) the UPDATE/DELETE statement family does not exist in the
+  parser (new scope hole, owned by M15's line next). M15 = windows + the statement
+  family.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -176,6 +179,32 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t2.14 (M14 landing, re-baselined #12): 148/148 (100.0%), 286 tests —
+    views + CTEs surface, accepted`** — base corpus reaffirmed; t2e stays parked until
+    M15 (the preview 14/20's six misses are the window cases, M15's scope). Verified
+    against the binary: the read-only view rule (`cannot modify v because it is a view`
+    — engineer implemented the PostgreSQL-style auto-updatable path first, then the
+    reference refused it and the case measures the real rule); duplicate-create nouns
+    split correctly (`view v already exists` / `table v already exists`); chained CTEs,
+    `WITH RECURSIVE` working-table loop with the 1000-iteration guard. **Engineer's
+    harness change (the WITH-line structural join — a `WITH` line stays incomplete until
+    a `SELECT` appears at paren depth 0) verified in the cold clone: 148/148, syntax
+    intact, the reopen directive's phase machinery unregressed.**
+  - **[PROBE-FOUND #1 — M14 fix round ordered] Recursive-CTE UNION-dedupe leaks a
+    duplicate on DAG shapes.** Repro: `edge(1,2),(1,3),(2,4),(3,4)`; `WITH RECURSIVE
+    walk(n,depth) AS (SELECT parent,0 FROM edge WHERE parent=1 UNION SELECT
+    child,depth+1 FROM edge JOIN walk ON parent=n) SELECT n,depth FROM walk ORDER BY n`
+    → pinned binary: `1|0, 2|1, 3|1, 4|2` (4 rows); MiniDB: `[(1,0),(1,0),(2,1),(3,1),
+    (4,2)]` — the root row twice. Found by Default's independent probe (shape-sensitive:
+    a plain TREE passes, a DAG duplicates — consistent with engineer's t2e tree-walk
+    preview pass). Owned: M14 fix round; the repro joins the regression set, and t2e's
+    case gets re-verified at the M15 landing.
+  - **[PROBE-FOUND #2 — new known-failures line] The UPDATE/DELETE statement families
+    do not exist: parser-level `near "DELETE": syntax error` / `near "UPDATE": syntax
+    error`, rows untouched; the binary executes both, including the view-modify refusal
+    (`cannot modify v3 because it is a view`) delivered on INSERT already and carrying
+    over to DELETE once statements exist. Not covered by any delivered tranche and not
+    declared by the ladder line — found by Default's probe, owned by M15's scope.**
   - **`SCORE t2.12-fix (fix round closed): 148/148 (100.0%), 255 tests — ORDER BY
     evaluation is Star-safe`** — the six previously-crashing t2c cases (1–4) plus new
     regression coverage (3 unit + 2 differential) that FAILS on the pre-fix commit
