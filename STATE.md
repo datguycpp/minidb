@@ -84,10 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: t2c landed at 144/148 (97.3%) — the 4 fails are the Star+ORDER-BY
-  crash class (Build's M12 fix round, next). HARNESS catch-fixed: uncaught engine
-  exceptions now record as mismatches instead of aborting the run (rule parity with the
-  fuzzer).**
+- **Current milestone: M12 fix round closed (STAR fix verified, 148/148, 255 tests);
+  t2d delivery confirmed (19 cases, loader-clean) — M13 ordered (set ops, Tier 2
+  continues).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -178,6 +177,16 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t2.12-fix (fix round closed): 148/148 (100.0%), 255 tests — ORDER BY
+    evaluation is Star-safe`** — the six previously-crashing t2c cases (1–4) plus new
+    regression coverage (3 unit + 2 differential) that FAILS on the pre-fix commit
+    (engineer's own test design, confirmed in my cold-clone run: 148/148, syntax intact,
+    crash_check untouched). Root cause classified by verification: `SELECT *` puts a
+    bare `ast.Star` into `node.items` where the ORDER BY alias-scan assumed every entry
+    is a `SelectItem` — a TYPE-UNION hole, not a logic slip. Build tracked the
+    structural follow-up (annotation + `_headings()` helper, deferred to a milestone —
+    queued in this file's next-tasks as an owned hardening item for the post-Tier-2
+    milestone boundary).
   - **`SCORE t2.12 (M12 landing + t2b fix round + t2c, re-baselined #10): 144/148
     (97.3%) [Δ +21 cases, +17 passes, 4 fail — all ONE root cause]`** — old: 124/127
     (97.6%) at 9a575b4; new: 144/148 (97.3%) at 74d4274. **The t2b fix round is verified
@@ -318,18 +327,25 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Research] t2b functions tranche drafted BEFORE M11 starts (drafts-before-fixes,
-   Tier-2 edition is in force): `length`/`substr`/`abs`/date-time edges, incl. the two
-   value-pinned regressions from M10's spot-checks (`1 / 0 = NULL`,
-   `CAST('12abc' AS INTEGER) = 12`) — value-known post-M10, no prediction credit.
-2. [Build] M11 — built-in functions, after M10's review closes. Advance notice from
-   Default's probes: `chr()`/M11-category builtins are already exercised in t2b-adjacent
-   probes (the M10 probe false-alarm was exactly an unimplemented builtin); expect them
-   in the tranche's edge cases.
-3. [Build ✓ done note] M10 is the current build; the accepted M10 also closed the M2-era
-   known failures (SELECT-without-FROM) and landed `COUNT(DISTINCT x)` and
-   `execute(autocommit=False)`. Verify both stay unregressed across refactors (tests
-   exist for both).
+1. [Research] t2c designed BEFORE M12 started (drafts-before-fixes,
+   Tier-2 edition is in force): ORDER BY (asc/desc, multi-key mixed directions,
+   NULLs-first-in-ASC, alias, computed expression), LIMIT/OFFSET (keyword + comma
+   forms, `LIMIT 0`, LIMIT-over-table, top-N), DISTINCT (two-column with a NULL cell,
+   DISTINCT+ORDER BY on a selected column), GROUP BY (single/two keys, NULL as its own
+   group, the M8-sorted-groups pin), HAVING (aggregate condition + the no-GROUP-BY
+   quirk), and the GROUP+ORDER+LIMIT combination. **Pre-registered prediction:
+   20–21/21**, with named swing case 21 (DISTINCT + ORDER BY on a non-selected column —
+   the restriction-rule case).
+2. [Build] M13 — set ops (UNION/UNION ALL/INTERSECT/EXCEPT, precedence by rows, compound
+   ORDER-BY rules with reference-emitted error text). t2d delivered and confirmed
+   (19 cases); **Build's fix-round follow-up queued: the SelectItem|Star type-union
+   annotation + `_headings()` helper** — a hardening refactor deferred from M12's fix
+   round, belonging at the post-M13 milestone boundary rather than inside it.
+3. [Build ✓ done note] The accepted M12 also closed the ORDER BY surface
+   (Star-safe, mixed-direction multi-key, NULLs-last-DESC/first-ASC) and
+   landed `LIMIT`/`OFFSET` in both keyword and comma forms, plus the t2b fix round
+   (scalar min/max NULL rule, date modifiers, math functions) — all verified in-corpus
+   and unregressed per the cold-clone run above.
 
 ## Known failures
 
