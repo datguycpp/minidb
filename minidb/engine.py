@@ -17,6 +17,7 @@ import string
 from .sql import ast
 from .storage.disk import DiskStorage
 from .storage.pager import StorageError
+from .storage.sqlite_file import SQLiteFile, is_sqlite_file
 
 # SQLite's storage-class ordering, used when comparing values of different types.
 _RANK = {type(None): 0, int: 1, float: 1, str: 2, bytes: 3}
@@ -628,7 +629,8 @@ class Database:
 
     def __init__(self, path=None):
         self.path = path
-        self.storage = DiskStorage(path) if path else None
+        foreign = bool(path) and is_sqlite_file(path)
+        self.storage = None if foreign else (DiskStorage(path) if path else None)
         self.tables = {}
         self.views = {}
         self.triggers = {}
@@ -639,7 +641,13 @@ class Database:
         self._sql = None
         self.last_plan = None
         self.tx_snapshot = None
-        if self.storage is not None:
+        self.read_only = False
+        if foreign:
+            # A file the reference wrote is read-only by the M23 scope decision: MiniDB answers
+            # queries over SQLite's bytes and never writes them back.
+            self.read_only = True
+            self._load_sqlite_file(path)
+        elif self.storage is not None:
             self._load_schema()
 
     def _load_schema(self):
@@ -653,6 +661,31 @@ class Database:
             table = Table(entry["name"], columns, entry)
             self.tables[entry["name"].lower()] = table
             self._rebuild_indexes(table)
+
+    def _load_sqlite_file(self, path):
+        from .sql.parser import parse
+        source = SQLiteFile(path)
+        for obj in source.schema_objects():
+            sql = obj.get("sql")
+            if not sql:
+                continue
+            statement = parse(sql)
+            if isinstance(statement, ast.CreateTable):
+                columns = [Column(c) for c in statement.columns]
+                table = Table(statement.name, columns)
+                for _, values in source.table_rows(obj["root"]):
+                    table.rows.append(tuple(values))
+                table.next_rowid = len(table.rows) + 1
+                self.tables[statement.name.lower()] = table
+        for obj in source.schema_objects():
+            sql = obj.get("sql")
+            if not sql:
+                continue
+            statement = parse(sql)
+            if isinstance(statement, ast.CreateIndex):
+                self._create_index(statement)
+            elif isinstance(statement, ast.CreateView):
+                self.views[statement.name.lower()] = statement
 
     # -- transactions --------------------------------------------------------
     def _begin(self):
@@ -713,6 +746,9 @@ class Database:
         return result
 
     def _execute(self, statement):
+        if self.read_only and not isinstance(statement, (ast.Select, ast.Compound, ast.With,
+                                                         ast.Pragma, ast.Analyze, ast.Vacuum)):
+            raise ExecError("attempt to write a readonly database")
         if isinstance(statement, ast.CreateTable):
             return self._create(statement)
         if isinstance(statement, ast.Insert):
