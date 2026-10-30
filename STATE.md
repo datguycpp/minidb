@@ -179,6 +179,46 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t3.19 (dialect extension + REAL-affinity bug, re-baselined #19):
+    208/208 (100.0%), 331 tests — the queued [Build] item is closed`** — the
+    fuzzer's declared dialect is now **16 features** (the 12 Tier-1-era surfaces +
+    set-ops, windows, triggers, affinity — confirmed in the tool output's feature
+    line at draw 600). **The widening paid for itself on its first run: REAL
+    affinity left `'4'` as text instead of coercing to `4.0` (the numeric-string
+    REAL-coercion rule the `'3.0'`→integer-3 corpus case pinned on the OTHER
+    direction), hit 32 times in 600 queries, all one class, fixed with a
+    value-selected unit test.** Semantic rate at the widened dialect: 0/10k across
+    600-query draw (structured, features declared in the header). **[PROCESS
+    INCIDENT — the red push, verified live]: `c54d123` was pushed with
+    `test_affinity_collations` still red — the test file selected by `rowid`
+    (engine vs reference) and MiniDB didn't expose rowid; re-running unittest at
+    c54d123 reproduces:
+
+    ```
+    Ran 11 tests in 0.136s  — FAILED (errors=1)
+    ```
+    at exactly that commit) and the fix lands separately at `dcf2d16` selecting by
+    value. That's the commit-before-last-test-edit failure mode — second
+    occurrence this project (t2c's message-before-diff was the first), now at
+    two layers (commit message vs red test). **Ruling upgraded to protocol:
+    never commit after ANY piped filtered test output; run the affected test file
+    standalone immediately before the commit, then commit separately** — piped
+    `| tail -2` groups a live suite with the previous round's output and both
+    incidents were caused by trusting the tail of the prior round.
+  - **[T3a DELIVERY CONFIRMED WITH ONE CONDITION — research's own flagged risk is
+    real and stays real] docs/t3a-draft.txt loads clean: 8 cases, 5 multi-phase
+    (VACUUM + reopen directives present), no directives to create conflicts.
+    Research's proof-the-claim duty: `length(body) > 4096` asserted from the case's
+    own SELECT at landing — **it is NOT met: the current literal is 3939 chars
+    (engine: `[(1, 3939)]`) — case 1's overflow path is decorative until the
+    literal is raised**. This is not my edit to make (research-authored, committed
+    as-is): the fix is Research's to raise the literal by ~200 chars and re-deliver;
+    I've logged the exact number for the replacement. The pre-landing preview
+    (3/8, cases 4–8 failing on the to-come M19 features or the blob literals) is a
+    separate, honest statement: the tranche is aimed at M19's scope and does not
+    yet have an implementation to fail against. The M23 file-compat spec is also
+    delivered (the read-compat gate + F1–F10 fixture list); Research's scope-flag
+    rule is verified present in the spec and the what-not-claimed list is intact.**
   - **`SCORE t2.17 (M16 parts 2–3 + M17 landing, re-baselined #17): 187/187 (100.0%),
     330 tests — FK/PRAGMA, affinity/collations, table-level constraints — accepted`**
     Verified vs binary from the cold clone: PRAGMA foreign_keys reads back **0 by
