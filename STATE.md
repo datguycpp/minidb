@@ -24,6 +24,9 @@ SCORE <tier>.<n>: <passed>/<total> (<pct>%) [Δ <sign><change> vs <last reported
    *known divergence* (a consciously accepted behavioral divergence from SQLite, named
    here). Excluded tests stay in the denominator. Skips that hide missing features are
    rejected in review.
+- Scalar `min`/`max` with NULL args: engine ignores NULLs (returns 2/2),
+  reference returns NULL when ANY arg is NULL — found by t2b case 12;
+  Build's immediate fix owed.
 3. **Result normalization is harness-owned.** Row ordering, float formatting, NULL
    rendering — normalized identically on both sides, in a file owned by Research. Build
    never edits it. *Default amendment:* any normalization change must re-run the corpus
@@ -81,8 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M10 accepted (expression engine; t2a landed 20/20 — 106/106
-  total). Next: M11 — built-in functions, per ladder.**
+- **Current milestone: t2b landed at 124/127 (97.6%) with three engine-side fails (case
+  12 scalar-min/max NULL rule divergence — Build's; case 19 date modifiers + case 20
+  missing math functions — Build's declared-then-measured gaps). M11 needs a fix round.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -162,6 +166,27 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t2.11 (M11 landing + t2b, re-baselined #10): 124/127 (97.6%) [Δ +21 cases,
+    +18 passes, 3 fails]`** — old: 106/106 (100.0%) at 9a575b4; new: 124/127 (97.6%) at
+    477b5bb. M11 delivered the built-in list; **t2b's landing found 3 engine gaps (2
+    predicted-fail-by-declaration, 1 REAL divergence):** (a) **case 12: scalar min/max
+    NULL rule diverges from the reference** — the reference returns NULL when ANY
+    argument is NULL (documented SQLite semantics); the engine ignores NULLs (2, 2)
+    — the draft's own comment had the rule backwards and the engine implemented the
+    comment; **fix owned by Build immediately** (scalar min/max → any NULL → NULL; the
+    aggregate forms are correct and stay). (b) **case 19: date modifiers** — the
+    reference COMPUTES `'+1 day'` (→ '2024-01-16'); the engine's "return NULL rather
+    than guessing" design turns out to be divergence, not both-reject — modifier
+    support is a real gap, owned now. (c) **case 20: math functions** — the swing case
+    resolved: **the reference build HAS SQLite's optional math** (`sqrt(4)` → 2.0), so
+    the math-function set is a real gap. 239 engine tests OK, syntax 46/46.
+  - `HARNESS FIXES (Default, this round): the loader gained multi-line-statement
+    continuation join` — t2b case 17's two-line SELECT split per-line, producing a
+    broken trailing-comma statement on both sides ('near ";"' vs 'incomplete input';
+    case 17's engine strftime implementation was correct). Added post-commit, now
+    verified in the cold clone. Plus (from the M10 round) the counted-tolerance
+    implementation + my probe-error fix (a built-in gap, `chr()`, flagged as advance
+    notice for M11 — the M10 probe false-alarm was exactly an unimplemented builtin).
   - **`SCORE t2.10 (M10 landing + t2a, re-baselined #9): 106/106 (100.0%) [Δ +20 cases,
     +20 passes — engine accepted]** — old: 86/86 (100.0%) at 14c41e1; new: 106/106
     (100.0%) at 9a575b4. t2a: research's 20 pre-M10-authored cases (precedence,
@@ -588,6 +613,16 @@ query history; hot-path rewrite in a faster language
 - 2026-10-30 (t1e ownership confirmed): the fuzz seed scenarios (torn WAL frame,
   first-commit-on-empty-file — reusing `MINIDB_CRASH_POINT`) remain Research's authored
   deliverable per her spec; the fuzzer machinery is ready to consume them.
+- 2026-10-30 (M11): M11 **accepted with 3 engine-side gaps found by the t2b tranche
+  (scalar min/max NULL rule divergence — the draft comment had the SQLite rule
+  backwards and the engine followed the comment; date modifiers + math functions —
+  both are REAL reference-supported gaps, not both-reject; sqrt confirmed on the
+  pinned binary).** Fix round ordered. Harness: Default added multi-line-statement
+  continuation join (t2b case 17's two-line SELECT split per-line), post-commit+
+  cold-clone verified. **Fuzz reconciliation closed with numbers:** Default's exact
+  invocation for the 1 = commit `dd88d79`, default mode (structured), seed 21,
+  3000q; engineer's 3 = commit `3e44c2a`, `--mode all` — different streams, not
+  comparable, both correct; mode now permanently in every fuzz-line sentence.
 - 2026-10-30 (re-baseline event #8 — t1e landing): corpus 75 → 86 (+11 fuzz-seed cases),
   **86/86 (100.0%) at 14c41e1 — the complete Tier-1 denominator (t1a–e).** No normalizer
   changes this landing (counted-float rule already in force from event #5); no new
