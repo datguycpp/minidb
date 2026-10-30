@@ -11,6 +11,7 @@ compares, so they are produced here rather than reworded by a caller.
 
 import copy
 import re
+import string
 
 from .sql import ast
 from .storage.disk import DiskStorage
@@ -148,6 +149,150 @@ def cast_value(value, type_name):
         number = to_number(value)
         return number if number is not None else 0
     return to_text(value)
+
+
+def text_of(value):
+    return to_text(value) if value is not None else ""
+
+
+def call_function(name, args):
+    """Scalar built-ins (milestone 11). NULL handling follows SQLite, which is not uniform."""
+    if name == "COALESCE":
+        for value in args:
+            if value is not None:
+                return value
+        return None
+    if name == "IFNULL":
+        return args[0] if args[0] is not None else (args[1] if len(args) > 1 else None)
+    if name == "NULLIF":
+        if len(args) < 2:
+            raise ExecError("nullif() needs two arguments")
+        return None if args[0] == args[1] else args[0]
+    if name in ("MIN", "MAX"):
+        values = [value for value in args if value is not None]
+        if not values:
+            return None
+        return min(values) if name == "MIN" else max(values)
+    if name == "TYPEOF":
+        value = args[0]
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "integer"
+        if isinstance(value, int):
+            return "integer"
+        if isinstance(value, float):
+            return "real"
+        if isinstance(value, bytes):
+            return "blob"
+        return "text"
+
+    # Everything below treats NULL as NULL, like SQLite does for these functions.
+    if any(value is None for value in args):
+        return None
+
+    if name == "ABS":
+        value = to_number(args[0])
+        return abs(value)
+    if name == "LENGTH":
+        value = args[0]
+        if isinstance(value, bytes):
+            return len(value)
+        if isinstance(value, str):
+            return len(value)
+        return len(to_text(value))
+    if name == "UPPER":
+        # SQLite's case mapping is ASCII-only: 'héllo' becomes 'HéLLO', not 'HÉLLO'.
+        return text_of(args[0]).translate(str.maketrans(string.ascii_lowercase, string.ascii_uppercase))
+    if name == "LOWER":
+        return text_of(args[0]).translate(str.maketrans(string.ascii_uppercase, string.ascii_lowercase))
+    if name == "SUBSTR" or name == "SUBSTRING":
+        # SQLite's own rule set: 1-based, negative counts from the end, and Y=0 starts one
+        # character before the string (so substr('abcdef',0,3) is 'ab', not 'abc').
+        text = text_of(args[0])
+        start = int(to_number(args[1]))
+        if start > 0:
+            first = start
+        elif start < 0:
+            first = len(text) + start + 1
+        else:
+            first = 0
+        if len(args) >= 3:
+            end = first + int(to_number(args[2]))
+        else:
+            end = len(text) + 1
+        begin = max(1, first)
+        finish = min(len(text) + 1, end)
+        return text[begin - 1:max(begin - 1, finish - 1)]
+    if name in ("TRIM", "LTRIM", "RTRIM"):
+        text = text_of(args[0])
+        characters = text_of(args[1]) if len(args) > 1 else " "
+        if name == "TRIM":
+            return text.strip(characters)
+        if name == "LTRIM":
+            return text.lstrip(characters)
+        return text.rstrip(characters)
+    if name == "REPLACE":
+        if len(args) < 3:
+            raise ExecError("replace() needs three arguments")
+        haystack, needle, replacement = text_of(args[0]), text_of(args[1]), text_of(args[2])
+        if needle == "":
+            return haystack           # SQLite leaves the string alone for an empty pattern
+        return haystack.replace(needle, replacement)
+    if name == "ROUND":
+        value = float(to_number(args[0]))
+        places = int(to_number(args[1])) if len(args) > 1 else 0
+        # SQLite rounds half away from zero, Python rounds half to even.
+        from decimal import Decimal, ROUND_HALF_UP
+        quantised = Decimal(str(value)).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+        result = float(quantised)
+        return result if places > 0 else int(result)
+    if name == "INSTR":
+        return text_of(args[0]).find(text_of(args[1])) + 1
+    if name in ("DATE", "TIME", "DATETIME", "JULIANDAY", "STRFTIME", "UNIXEPOCH"):
+        return datetime_function(name, args)
+    raise ExecError(f"no such function: {name.lower()}")
+
+
+def _parse_datetime(value):
+    import datetime as _dt
+    text = text_of(value).strip()
+    if text.lower() == "now":
+        return _dt.datetime.now()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return _dt.datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def datetime_function(name, args):
+    if name == "STRFTIME":
+        if len(args) < 2:
+            raise ExecError("strftime() needs a format and a time value")
+        fmt = text_of(args[0]).replace("%Y", "%Y").replace("%m", "%m")
+        moment = _parse_datetime(args[1])
+        if moment is None:
+            return None
+        return moment.strftime(fmt)
+    moment = _parse_datetime(args[0])
+    if moment is None:
+        return None
+    if name == "DATE":
+        return moment.strftime("%Y-%m-%d")
+    if name == "TIME":
+        return moment.strftime("%H:%M:%S")
+    if name == "DATETIME":
+        return moment.strftime("%Y-%m-%d %H:%M:%S")
+    if name == "JULIANDAY":
+        import datetime as _dt
+        delta = moment - _dt.datetime(1970, 1, 1)
+        return 2440587.5 + delta.total_seconds() / 86400.0
+    if name == "UNIXEPOCH":
+        import datetime as _dt
+        return int((moment - _dt.datetime(1970, 1, 1)).total_seconds())
+    raise ExecError(f"no such function: {name.lower()}")
 
 
 def sql_and(a, b):
@@ -593,7 +738,7 @@ class Database:
 
     def _contains_aggregate(self, node):
         if isinstance(node, ast.FuncCall):
-            return node.name in self.AGGREGATES
+            return node.name in self.AGGREGATES and len(node.args or []) <= 1
         if isinstance(node, ast.BinaryOp):
             return self._contains_aggregate(node.left) or self._contains_aggregate(node.right)
         if isinstance(node, ast.UnaryOp):
@@ -875,11 +1020,14 @@ class Database:
         if isinstance(node, ast.InSubquery):
             return self._in_subquery(node, env, group)
         if isinstance(node, ast.FuncCall):
-            if node.name not in self.AGGREGATES:
-                raise ExecError(f"no such function: {node.name}")
-            if group is None:
-                raise ExecError(f"misuse of aggregate function {node.name}()")
-            return self._aggregate(node, group)
+            # Aggregates must be resolved before their arguments are evaluated: over an empty
+            # group there is no row to evaluate a column reference against.
+            if node.name in self.AGGREGATES and len(node.args or []) <= 1:
+                if group is None:
+                    raise ExecError(f"misuse of aggregate function {node.name}()")
+                return self._aggregate(node, group)
+            arguments = [self._eval(argument, table, env, group) for argument in (node.args or [])]
+            return call_function(node.name, arguments)
         if isinstance(node, ast.ColumnRef):
             key = (f"{node.table.lower()}.{node.name.lower()}" if node.table
                    else node.name.lower())

@@ -142,10 +142,11 @@ class Between(Node):
 
 @dataclass
 class FuncCall(Node):
-    name: str              # COUNT | SUM | AVG | MIN | MAX
+    name: str              # aggregate (COUNT/SUM/AVG/MIN/MAX) or scalar function
     arg: "Node | None" = None
     star: bool = False     # COUNT(*)
     distinct: bool = False # COUNT(DISTINCT x)
+    args: list = field(default_factory=list)   # all arguments, for scalar functions
 
 
 @dataclass

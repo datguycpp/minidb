@@ -572,18 +572,20 @@ class Parser:
             op = self.advance().value
             return ast.UnaryOp(op, self.parse_primary())
 
-        if tok.kind in ("IDENT", "KEYWORD") and tok.upper in ("COUNT", "SUM", "AVG", "MIN", "MAX") \
-                and self.peek().kind == "PUNCT" and self.peek().value == "(":
+        if tok.kind in ("IDENT", "KEYWORD") and self.peek().kind == "PUNCT" and self.peek().value == "(" \
+                and tok.upper not in RESERVED_IDENTIFIERS:
             name = self.advance().upper
             self.expect_punct("(")
             if self.at_punct("*"):
                 self.advance()
                 self.expect_punct(")")
-                return ast.FuncCall(name=name, arg=None, star=True)
+                return ast.FuncCall(name=name, arg=None, star=True, args=[])
             distinct = bool(self.accept_keyword("DISTINCT"))
-            argument = self.parse_expression()
+            arguments = [self.parse_expression()]
+            while self.accept_punct(","):
+                arguments.append(self.parse_expression())
             self.expect_punct(")")
-            return ast.FuncCall(name=name, arg=argument, distinct=distinct)
+            return ast.FuncCall(name=name, arg=arguments[0], distinct=distinct, args=arguments)
 
         if tok.kind in ("IDENT", "KEYWORD") and tok.upper not in RESERVED_IDENTIFIERS:
             name = self.advance().value
