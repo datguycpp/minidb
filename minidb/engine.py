@@ -204,7 +204,15 @@ def apply_affinity(value, affinity):
             return int(value)
         return value
     if affinity == "REAL":
-        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if re.fullmatch(r"[+-]?\d+", stripped) or \
+                    re.fullmatch(r"[+-]?(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?", stripped):
+                return float(stripped)
+            return value          # 'x' stays text even in a REAL column
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        return value
     return value
 
 

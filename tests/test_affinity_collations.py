@@ -44,6 +44,12 @@ class TestAffinityApplication(unittest.TestCase):
         self.assertEqual(self.db.run("SELECT typeof(d), d FROM t")[1], [("integer", 3)],
                          "'3.0' loses the dot and stores as integer")
 
+    def test_real_affinity_coerces_numeric_strings(self):
+        self.db.run("CREATE TABLE r (v REAL)")
+        self.db.run("INSERT INTO r VALUES ('4'), ('x')")
+        self.assertEqual(self.db.run("SELECT typeof(v), v FROM r ORDER BY rowid")[1],
+                         [("real", 4.0), ("text", "x")])
+
     def test_non_numeric_string_stays_text(self):
         self.db.run("CREATE TABLE n (v INTEGER)")
         self.db.run("INSERT INTO n VALUES ('12abc')")
