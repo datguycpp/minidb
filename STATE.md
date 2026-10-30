@@ -178,6 +178,54 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t3.21 (M21 landing, re-baselined #24): 216/216 (100.0%), 357 tests —
+    range-aware index access with a measured cost model — accepted`** Cold clone
+    verified. **M21's diagnosis correction is accepted and adopted (research's
+    re-wording is the ledger line now): the benchmark's W1/W5 exposure is the RANDOM
+    ROW FETCH (`_row_by_id` ≈ 250 µs vs ≈ 10 µs sequential), not index probing (the
+    hash probe is O(1)); the planner prices that with `RANDOM_ACCESS_COST = 20` as a
+    measurement, and the 'no ANALYZE — the hash index already knows' declaration is
+    noted under the M22 milestone-lines rule below.** My independent timing draws
+    confirm the cost rules are live and consistent (engineer's exact magnitudes are
+    his own dataset's claim): 30k rows, our own distribution — equality through the
+    index 32.5 ms (the O(distinct-keys) path), wide-range shapes correctly fallback
+    to scan (~320 ms; my dataset's `v >= 96` is 90% of rows so the 1/20 rule fires —
+    the designed behavior, not a reproduction of the engineer's dataset shape where
+    `v >= 96` stayed selective). The three planner rules encoded by the new tests
+    (selective range → index; wide range → scan with `index-not-selective`; fallback
+    beats the index on its own cost rule) are the acceptance's structural content.
+    **Two stated limits for the record: no `ANALYZE` pass (the hash index's exact
+    bucket count IS the equality row count — a declared-scope-out, not a silent
+    gap), and `BETWEEN` is still a scan (two-bounded range planning = a declared
+    follow-up).**
+  - **[SCOPE RULINGS — the system-surface conformance class, delivered as t3b) — my
+    opinion, delivered-as-recommendation-adopted per research's four asks]:**
+    1. **`sqlite_master` object listing IN conformance** (deterministic, cheap,
+       M29 inherits the shape if skipped).
+    2. **Declared PRAGMA list: `foreign_keys` + `table_info` ONLY** (open-ended
+       PRAGMA cases would poison the denominator).
+    3. **ANALYZE: statement accepted, results unchanged; `sqlite_stat1` contents
+       excluded** (engine-specific statistic values are the EXPLAIN class — not
+       diffable). **AND the milestone-level duty stays open**: the ladder's M22
+       line says "cost-based planner with table statistics (ANALYZE)" — the
+       corpus-level acceptance is a state-restoring statement; the milestone keeps
+       delivering the minimum implementation; the declared-out is NOT the
+       milestone's completion.
+    4. **AUTOINCREMENT / `sqlite_sequence`: the t3b swing stays IN the tranche** —
+       the hole keeps its corpus shape even when owned (holes are corpus-shaped;
+       the tranche carries the gap rather than parking it).
+    All four delivered as t3b's six cases with the pre-registered 3–5/6 band; the
+    near-certain pass is `foreign_keys` read-back (M16 built the ensemble).
+  - **[THE M19-PATTERN CLASS — formally named at the third instance] Unimplemented-
+    but-declared-out features being named at the milestone's review instead of
+    discovered by a later corpus** (M19 freelist; M21 ANALYZE + BETWEEN; the system
+    surface). Proto-rule: any ladder-line feature left unimplemented at its
+    milestone's review gets a named partial entry in the ledger, and the Tier-3
+    gate arithmetic computes over the recorded scope **only** — the fourth
+    instance never gets to be discovered by a tranche, it gets declared on the
+    milestone's own report. t3b's delivery stands as the fourth instance's
+    INSURANCE (the class is parked as the system-surface tranche and its landing
+    gate is M22's review per the sequencing rule).
   - **`SCORE t3.20 (M20 landing, re-baselined #22): 216/216 (100.0%), 354 tests —
     blobs keep their storage class; 'now' is UTC; harness renders bytes — accepted`**
     Cold clone verified. **PROBE-FOUND #3's shape is closed and verified live:** a
