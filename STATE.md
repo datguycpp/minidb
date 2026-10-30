@@ -178,7 +178,26 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
-  - **`SCORE t2.13 (M13 + t2d landing, re-baselined #15): 187/187 (100.0%) [Δ +19
+  - **`SCORE t2.16 (M16 part 1 landing, re-baselined #16): 187/187 (100.0%), 313
+    tests — ALTER TABLE + triggers + both carried debts closed — accepted`** (t2f stays
+    parked for M17's review per the plan). Verified vs binary from the cold clone:
+    **(a) view persistence closed** — the view catalog entry (kind:view) survives
+    reopen and DROP kills the ghost (`no such table: small` after re-open, confirmed);
+    **(b) disk-backed UPDATE/DELETE work via the row-tree rebuild** (the declared
+    M19-boundary B+tree delete gap — the O(n) cost is named, not discovered);
+    **(c) ALTER** — ADD-with-DEFAULT (old rows report 7), the NOT NULL refusal carries
+    the reference's sentence verbatim; **(d) triggers** — WHEN-gated body stays silent
+    (a WHEN that fires for zero log rows = the reference's answer), RAISE(ABORT)
+    surfaces the message verbatim (`custom-failure` confirmed), no recursive firing,
+    and the trigger's sink runs the write; a probe-vs-engine divergence flagged and
+    cleared: MiniDB REFUSES double-quoted literals in assignments (`"z"` → the
+    no-such-column hint about single quotes), an error form the reference also raises
+    (the DQS misfeature is off in the pinned build) — agreement, not divergence.
+  - **[PREDICTION TALLY CORRECTION (research's accounting)] t2d was OUT-OF-BAND in the
+    generous direction — 187/187 is one ABOVE the band's ceiling (my "top-of-band"
+    phrasing was gently wrong; the honest number is +1 over prediction). Running tally
+    at t2d: 6 hits, 2 conservative misses, 1 generous miss — the right bias direction
+    (slightly pessimistic on errors, slightly optimistic on scope).**
     cases, +19 passes, 0 fails]` — old: 168/168 at ae214bc; new: 187/187 at ce3546c.
     M13's report (against the named acceptance list) verified from the cold clone:
     INTERSECT precedence is FLAT LEFT-ASSOCIATIVE in SQLite — the reference overruled
