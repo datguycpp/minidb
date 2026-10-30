@@ -171,7 +171,16 @@ def sqlite_float(value):
 
 
 def normalise_values(rows):
-    return [{key: (sqlite_float(value) if isinstance(value, float) else value)
+    """Floats get the tolerance treatment; blobs are rendered as text.
+
+    The sqlite3 CLI's -json output cannot represent a blob distinctly — it prints the bytes as a
+    string — so a blob and the same text are indistinguishable in the oracle's own output. Rendering
+    MiniDB bytes the same way keeps the comparison honest about what can be compared; blob-ness
+    itself stays testable through typeof(), which the corpus uses.
+    """
+    return [{key: (sqlite_float(value) if isinstance(value, float)
+                   else (value.decode("utf-8", "surrogateescape") if isinstance(value, bytes)
+                         else value))
              for key, value in row.items()} for row in rows]
 
 

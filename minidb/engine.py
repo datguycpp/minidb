@@ -95,6 +95,8 @@ def to_text(value):
             mantissa, exponent = text.split("e")
             text = f"{mantissa}.0e{exponent}"
         return text
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "surrogateescape")
     return str(value)
 
 
@@ -148,6 +150,10 @@ def cast_value(value, type_name):
         return 0.0 if number is None else float(number)
     if type_name in ("TEXT", "CLOB", "VARCHAR", "CHAR"):
         return to_text(value)
+    if type_name in ("BLOB",):
+        if isinstance(value, bytes):
+            return value
+        return to_text(value).encode("utf-8", "surrogateescape")
     if type_name in ("NUMERIC", "DECIMAL", "BOOLEAN"):
         number = to_number(value)
         return number if number is not None else 0
@@ -186,8 +192,8 @@ def _numeric_prefix(text):
 
 def apply_affinity(value, affinity):
     """Column affinity applied on write, which is what makes typeof('5') report integer."""
-    if value is None or affinity == "BLOB":
-        return value
+    if value is None or isinstance(value, bytes) or affinity == "BLOB":
+        return value             # blobs keep their storage class in every column
     if affinity == "TEXT":
         return value if isinstance(value, str) else text_of(value)
     if affinity in ("INTEGER", "NUMERIC"):
@@ -240,6 +246,15 @@ def call_function(name, args):
         if any(value is None for value in args):
             return None
         return min(args) if name == "MIN" else max(args)
+    if name == "QUOTE":
+        value = args[0]
+        if value is None:
+            return "NULL"
+        if isinstance(value, bytes):
+            return "X'" + value.hex().upper() + "'"
+        if isinstance(value, str):
+            return "'" + value.replace("'", "''") + "'"
+        return to_text(value)
     if name == "TYPEOF":
         value = args[0]
         if value is None:
@@ -362,7 +377,8 @@ def _parse_datetime(value):
     if not text:
         return None
     if text.lower() == "now":
-        return _dt.datetime.now()
+        # SQLite's 'now' is UTC; using local time makes date('now') disagree for eight hours a day.
+        return _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
         try:
             return _dt.datetime.strptime(text, fmt)

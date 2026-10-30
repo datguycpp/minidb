@@ -9,6 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
+import behavior_conformance as bc  # noqa: E402
 import syntax_conformance as sc  # noqa: E402
 
 
@@ -46,6 +47,14 @@ class TestReferenceClassification(unittest.TestCase):
         minidb_ok, _ = sc.minidb_syntax_ok("VALUES (1)")
         self.assertTrue(sqlite_ok)
         self.assertFalse(minidb_ok)
+
+
+class TestBlobRendering(unittest.TestCase):
+    def test_bytes_compare_as_the_cli_would_print_them(self):
+        # The CLI cannot distinguish a blob from text in -json output, so the normalizer renders
+        # bytes as text; typeof() is what keeps blob-ness testable.
+        normalised = bc.normalise_values([{"v": b"abc"}])
+        self.assertEqual(normalised, [{"v": "abc"}])
 
 
 if __name__ == "__main__":
