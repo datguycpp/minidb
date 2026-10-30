@@ -404,13 +404,20 @@ class Parser:
             self.expect_keyword("NULL")
             node = ast.IsNull(node, negated=negated)
             return node
-        if self.accept_keyword("IN"):
+        in_predicate = self.at_keyword("IN") or (
+            self.at_keyword("NOT") and self.peek().kind == "KEYWORD" and self.peek().upper == "IN")
+        if in_predicate:
+            negated = False
+            if self.at_keyword("NOT"):
+                self.advance()
+                negated = True
+            self.expect_keyword("IN")
             self.expect_punct("(")
             if not self.at_keyword("SELECT"):
                 raise ParseError("only IN (SELECT ...) is supported", self.tok)
             inner = self.parse_select()
             self.expect_punct(")")
-            return ast.InSubquery(expr=node, select=inner)
+            return ast.InSubquery(expr=node, select=inner, negated=negated)
 
         if self.tok.kind == "PUNCT" and self.tok.value in COMPARISON_OPS:
             op = self.advance().value

@@ -566,7 +566,12 @@ class Database:
         for _, row in candidates:
             if row is None:
                 continue
-            env = dict(zip((c.name.lower() for c in table.columns), row))
+            # Both bare and qualified names: `SELECT t.a FROM t` is valid SQLite on a single
+            # table, and multi-table work made the qualified form obvious to write.
+            env = {}
+            for column, value in zip(table.columns, row):
+                env[column.name.lower()] = value
+                env[f"{table.name.lower()}.{column.name.lower()}"] = value
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 continue
             projected = []

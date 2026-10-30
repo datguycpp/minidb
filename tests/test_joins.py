@@ -126,6 +126,33 @@ class TestSubqueries(unittest.TestCase):
         self.assertEqual(self.db.last_plan["table"], "u")
 
 
+class TestInPredicates(unittest.TestCase):
+    """NOT IN and qualified columns on a single table: both surfaced as gaps after M8's review."""
+
+    def setUp(self):
+        self.db = Database()
+        self.db.run("CREATE TABLE t (a INTEGER)")
+        self.db.run("INSERT INTO t VALUES (1), (2), (3), (NULL)")
+        self.db.run("CREATE TABLE with_null (b INTEGER)")
+        self.db.run("INSERT INTO with_null VALUES (1), (NULL)")
+        self.db.run("CREATE TABLE clean (b INTEGER)")
+        self.db.run("INSERT INTO clean VALUES (1)")
+
+    def test_not_in_subquery(self):
+        rows = self.db.run("SELECT a FROM t WHERE a NOT IN (SELECT b FROM clean)")[1]
+        self.assertEqual(sorted(rows), [(2,), (3,)])
+
+    def test_not_in_null_trap_returns_nothing(self):
+        # A NULL in the subquery result makes NOT IN unknown for every row — SQLite returns none.
+        self.assertEqual(self.db.run("SELECT a FROM t WHERE a NOT IN (SELECT b FROM with_null)")[1], [])
+
+    def test_in_with_null_in_subquery(self):
+        self.assertEqual(self.db.run("SELECT a FROM t WHERE a IN (SELECT b FROM with_null)")[1], [(1,)])
+
+    def test_qualified_column_on_single_table(self):
+        self.assertEqual(self.db.run("SELECT t.a FROM t WHERE t.a = 2")[1], [(2,)])
+
+
 class DifferentialM8(unittest.TestCase):
     """Same statements, both engines, identical outcome."""
 
@@ -146,6 +173,11 @@ class DifferentialM8(unittest.TestCase):
          "SELECT t.a, u.b FROM t JOIN u ON t.a = u.b WHERE u.b > 1"],
         ["CREATE TABLE t (a INTEGER)", "INSERT INTO t VALUES (1), (2), (3)",
          "SELECT a, count(*) FROM t GROUP BY a HAVING count(*) >= 1"],
+        ["CREATE TABLE t (a INTEGER)", "CREATE TABLE u (b INTEGER)",
+         "INSERT INTO t VALUES (1), (2), (NULL)", "INSERT INTO u VALUES (1), (NULL)",
+         "SELECT a FROM t WHERE a NOT IN (SELECT b FROM u)"],
+        ["CREATE TABLE t (a INTEGER)", "INSERT INTO t VALUES (1), (2)",
+         "SELECT t.a FROM t WHERE t.a = 2"],
     ]
 
     def test_cases_match_sqlite(self):
