@@ -447,22 +447,47 @@ class Parser:
             return ast.UnaryOp("NOT", self.parse_not())
         return self.parse_comparison()
 
+    def parse_additive(self):
+        node = self.parse_multiplicative()
+        while self.tok.kind == "PUNCT" and self.tok.value in ("+", "-", "||"):
+            op = self.advance().value
+            node = ast.BinaryOp(op, node, self.parse_multiplicative())
+        return node
+
+    def parse_multiplicative(self):
+        node = self.parse_unary()
+        while self.tok.kind == "PUNCT" and self.tok.value in ("*", "/", "%"):
+            op = self.advance().value
+            node = ast.BinaryOp(op, node, self.parse_unary())
+        return node
+
+    def parse_unary(self):
+        if self.tok.kind == "PUNCT" and self.tok.value in ("-", "+"):
+            op = self.advance().value
+            return ast.UnaryOp(op, self.parse_unary())
+        return self.parse_primary()
+
     def parse_comparison(self):
-        node = self.parse_primary()
-        # IS [NOT] NULL
+        node = self.parse_additive()
+
         if self.accept_keyword("IS"):
             negated = bool(self.accept_keyword("NOT"))
-            self.expect_keyword("NULL")
-            node = ast.IsNull(node, negated=negated)
-            return node
-        in_predicate = self.at_keyword("IN") or (
-            self.at_keyword("NOT") and self.peek().kind == "KEYWORD" and self.peek().upper == "IN")
-        if in_predicate:
-            negated = False
-            if self.at_keyword("NOT"):
-                self.advance()
-                negated = True
-            self.expect_keyword("IN")
+            if self.accept_keyword("NULL"):
+                return ast.IsNull(node, negated=negated)
+            return ast.BinaryOp("IS NOT" if negated else "IS", node, self.parse_additive())
+
+        negated = False
+        if self.at_keyword("NOT") and self.peek().kind == "KEYWORD" and self.peek().upper in ("BETWEEN", "IN"):
+            self.advance()
+            negated = True
+
+        if self.accept_keyword("BETWEEN"):
+            low = self.parse_additive()
+            self.expect_keyword("AND")
+            high = self.parse_additive()
+            return ast.Between(expr=node, low=low, high=high, negated=negated)
+
+        if self.accept_keyword("IN"):
             self.expect_punct("(")
             if not self.at_keyword("SELECT"):
                 raise ParseError("only IN (SELECT ...) is supported", self.tok)
@@ -470,17 +495,50 @@ class Parser:
             self.expect_punct(")")
             return ast.InSubquery(expr=node, select=inner, negated=negated)
 
+        if negated:
+            raise ParseError("expected BETWEEN or IN after NOT", self.tok)
+
         if self.tok.kind == "PUNCT" and self.tok.value in COMPARISON_OPS:
             op = self.advance().value
             if op == "==":
                 op = "="
             elif op == "<>":
                 op = "!="
-            return ast.BinaryOp(op, node, self.parse_primary())
+            return ast.BinaryOp(op, node, self.parse_additive())
         return node
+
+    def parse_case(self):
+        self.expect_keyword("CASE")
+        operand = None
+        if not self.at_keyword("WHEN"):
+            operand = self.parse_expression()
+        whens = []
+        while self.accept_keyword("WHEN"):
+            condition = self.parse_expression()
+            self.expect_keyword("THEN")
+            whens.append((condition, self.parse_expression()))
+        if not whens:
+            raise ParseError("CASE needs at least one WHEN", self.tok)
+        else_expr = None
+        if self.accept_keyword("ELSE"):
+            else_expr = self.parse_expression()
+        self.expect_keyword("END")
+        return ast.Case(operand=operand, whens=whens, else_expr=else_expr)
 
     def parse_primary(self):
         tok = self.tok
+
+        if tok.kind == "KEYWORD" and tok.upper == "CASE":
+            return self.parse_case()
+
+        if tok.kind == "KEYWORD" and tok.upper == "CAST" and self.peek().kind == "PUNCT" and self.peek().value == "(":
+            self.advance()
+            self.expect_punct("(")
+            inner = self.parse_expression()
+            self.expect_keyword("AS")
+            type_name = self.parse_identifier("type name").upper()
+            self.expect_punct(")")
+            return ast.Cast(expr=inner, type_name=type_name)
 
         if tok.kind == "PUNCT" and tok.value == "(":
             self.advance()
@@ -522,9 +580,10 @@ class Parser:
                 self.advance()
                 self.expect_punct(")")
                 return ast.FuncCall(name=name, arg=None, star=True)
+            distinct = bool(self.accept_keyword("DISTINCT"))
             argument = self.parse_expression()
             self.expect_punct(")")
-            return ast.FuncCall(name=name, arg=argument)
+            return ast.FuncCall(name=name, arg=argument, distinct=distinct)
 
         if tok.kind in ("IDENT", "KEYWORD") and tok.upper not in RESERVED_IDENTIFIERS:
             name = self.advance().value

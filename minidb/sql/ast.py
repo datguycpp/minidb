@@ -120,10 +120,32 @@ class Join(Node):
 
 
 @dataclass
+class Case(Node):
+    operand: "Node | None" = None          # simple CASE x WHEN ...
+    whens: list = field(default_factory=list)   # [(when_expr, then_expr)]
+    else_expr: "Node | None" = None
+
+
+@dataclass
+class Cast(Node):
+    expr: Node = None
+    type_name: str = ""
+
+
+@dataclass
+class Between(Node):
+    expr: Node = None
+    low: Node = None
+    high: Node = None
+    negated: bool = False
+
+
+@dataclass
 class FuncCall(Node):
     name: str              # COUNT | SUM | AVG | MIN | MAX
     arg: "Node | None" = None
     star: bool = False     # COUNT(*)
+    distinct: bool = False # COUNT(DISTINCT x)
 
 
 @dataclass

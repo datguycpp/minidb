@@ -98,6 +98,22 @@ def corpus_revision():
         return "unknown"
 
 
+def parse_json_documents(text):
+    """`sqlite3 -json` prints one array per SELECT; the compared result is the last one."""
+    decoder = json.JSONDecoder()
+    index = 0
+    last = []
+    text = text.strip()
+    while index < len(text):
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text):
+            break
+        value, index = decoder.raw_decode(text, index)
+        last = value
+    return last
+
+
 def clean_error(text):
     """Strip the CLI's line-number framing; keep SQLite's actual complaint."""
     for line in (text or "").splitlines():
@@ -136,7 +152,7 @@ def run_sqlite(phases):
         if proc.returncode != 0 or proc.stderr.strip():
             return {"error": clean_error(proc.stderr)}
         result = proc.stdout.strip()
-    rows = json.loads(result) if result else []
+    rows = parse_json_documents(result or "")
     columns = list(rows[0].keys()) if rows else []
     return {"columns": columns, "rows": rows}
 

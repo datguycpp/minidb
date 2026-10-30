@@ -10,6 +10,7 @@ compares, so they are produced here rather than reworded by a caller.
 """
 
 import copy
+import re
 
 from .sql import ast
 from .storage.disk import DiskStorage
@@ -52,8 +53,108 @@ def sql_compare(left, right, op):
     raise ExecError(f"unsupported operator {op}")
 
 
+_NUMERIC_PREFIX = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
+
+
+def to_number(value):
+    """SQLite's numeric coercion: text takes its leading numeric prefix, everything else 0."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        match = _NUMERIC_PREFIX.match(value.strip())
+        if not match:
+            return 0
+        text = match.group(0)
+        if "." in text or "e" in text.lower():
+            return float(text)
+        return int(text)
+    return 0
+
+
+def to_text(value):
+    """Text conversion matching SQLite: integral floats keep a .0, exponents keep .0e."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value == int(value) and abs(value) < 1e16:
+            return f"{int(value)}.0"
+        text = f"{value:.15g}"
+        if "e" in text and "." not in text.split("e")[0]:
+            mantissa, exponent = text.split("e")
+            text = f"{mantissa}.0e{exponent}"
+        return text
+    return str(value)
+
+
+def truncating_divide(left, right):
+    """SQLite integer division truncates toward zero; Python's // floors."""
+    if right == 0:
+        return None
+    quotient = abs(left) // abs(right)
+    return -quotient if (left < 0) != (right < 0) else quotient
+
+
+def arithmetic(op, left, right):
+    if left is None or right is None:
+        return None
+    if op == "||":
+        return to_text(left) + to_text(right)
+    a, b = to_number(left), to_number(right)
+    if op == "+":
+        return a + b
+    if op == "-":
+        return a - b
+    if op == "*":
+        return a * b
+    if op == "/":
+        if isinstance(a, int) and isinstance(b, int):
+            return truncating_divide(a, b)
+        return None if b == 0 else a / b
+    if op == "%":
+        if isinstance(a, int) and isinstance(b, int):
+            quotient = truncating_divide(a, b)
+            return None if quotient is None else a - b * quotient
+        return None if b == 0 else a - b * int(a / b)
+    raise ExecError(f"unsupported operator {op}")
+
+
+def sql_is(left, right):
+    """IS is NULL-safe equality and never returns NULL."""
+    if left is None or right is None:
+        return left is None and right is None
+    return left == right
+
+
+def cast_value(value, type_name):
+    if value is None:
+        return None
+    if type_name in ("INTEGER", "INT", "BIGINT", "SMALLINT", "TINYINT"):
+        number = to_number(value)
+        return 0 if number is None else int(number)
+    if type_name in ("REAL", "DOUBLE", "FLOAT"):
+        number = to_number(value)
+        return 0.0 if number is None else float(number)
+    if type_name in ("TEXT", "CLOB", "VARCHAR", "CHAR"):
+        return to_text(value)
+    if type_name in ("NUMERIC", "DECIMAL", "BOOLEAN"):
+        number = to_number(value)
+        return number if number is not None else 0
+    return to_text(value)
+
+
 def sql_and(a, b):
-    if a is False or b is False:
+    """Three-valued AND: a false operand decides even when the other is unknown."""
+    if a is not None and not truthy(a):
+        return False
+    if b is not None and not truthy(b):
         return False
     if a is None or b is None:
         return None
@@ -61,7 +162,9 @@ def sql_and(a, b):
 
 
 def sql_or(a, b):
-    if a is True or b is True:
+    if a is not None and truthy(a):
+        return True
+    if b is not None and truthy(b):
         return True
     if a is None or b is None:
         return None
@@ -69,8 +172,16 @@ def sql_or(a, b):
 
 
 def truthy(value):
-    """WHERE keeps rows whose predicate is exactly true."""
-    return value is True
+    """SQLite truthiness: numbers are true when non-zero, text by its numeric prefix."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return to_number(value) != 0
+    return bool(value)
 
 
 class Column:
@@ -232,7 +343,19 @@ class Database:
         return self.storage.iter_rows(table.entry) if table.on_disk else table.rows
 
     # -- entry point ---------------------------------------------------------
-    def execute(self, statement):
+    def execute(self, statement, autocommit=False):
+        """Run one statement. `autocommit` is explicit because run() and execute() differ:
+
+        run() mirrors the sqlite3 CLI — every statement outside a transaction is durable when it
+        returns. execute() is the statement primitive and leaves that choice to the caller.
+        """
+        result = self._execute(statement)
+        if (autocommit and self.storage is not None and self.tx_snapshot is None
+                and not isinstance(statement, ast.Begin)):
+            self.storage.commit()
+        return result
+
+    def _execute(self, statement):
         if isinstance(statement, ast.CreateTable):
             return self._create(statement)
         if isinstance(statement, ast.Insert):
@@ -252,14 +375,7 @@ class Database:
     def run(self, sql):
         from .sql.parser import parse
         self._sql = sql
-        statement = parse(sql)
-        result = self.execute(statement)
-        # Autocommit: outside an explicit transaction every statement is durable when it
-        # returns, which is what SQLite does and what the crash tests assume.
-        if (self.storage is not None and self.tx_snapshot is None
-                and not isinstance(statement, ast.Begin)):
-            self.storage.commit()
-        return result
+        return self.execute(parse(sql), autocommit=True)
 
     # -- CREATE --------------------------------------------------------------
     def _create(self, node: ast.CreateTable):
@@ -703,6 +819,14 @@ class Database:
             return len(group)
         values = [self._eval(node.arg, None, env, group) for env in group]
         values = [value for value in values if value is not None]
+        if getattr(node, "distinct", False):
+            seen, unique = set(), []
+            for value in values:
+                key = (type(value).__name__, value)
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(value)
+            values = unique
         if node.name == "COUNT":
             return len(values)
         if not values:
@@ -769,7 +893,38 @@ class Database:
                     )
                 raise ExecError(f"no such column: {display}")
             return env[key]
+        if isinstance(node, ast.Case):
+            if node.operand is not None:
+                base = self._eval(node.operand, table, env, group)
+                for when, then in node.whens:
+                    if sql_is(base, self._eval(when, table, env, group)):
+                        return self._eval(then, table, env, group)
+            else:
+                for when, then in node.whens:
+                    if truthy(self._eval(when, table, env, group)):
+                        return self._eval(then, table, env, group)
+            return self._eval(node.else_expr, table, env, group) if node.else_expr is not None else None
+
+        if isinstance(node, ast.Cast):
+            return cast_value(self._eval(node.expr, table, env, group), node.type_name)
+
+        if isinstance(node, ast.Between):
+            value = self._eval(node.expr, table, env, group)
+            low = self._eval(node.low, table, env, group)
+            high = self._eval(node.high, table, env, group)
+            if value is None or low is None or high is None:
+                return None
+            inside = sql_compare(value, low, ">=") and sql_compare(value, high, "<=")
+            return (not inside) if node.negated else inside
+
         if isinstance(node, ast.BinaryOp):
+            if node.op in ("+", "-", "*", "/", "%", "||"):
+                return arithmetic(node.op, self._eval(node.left, table, env, group),
+                                  self._eval(node.right, table, env, group))
+            if node.op in ("IS", "IS NOT"):
+                result = sql_is(self._eval(node.left, table, env, group),
+                                self._eval(node.right, table, env, group))
+                return (not result) if node.op == "IS NOT" else result
             if node.op == "AND":
                 return sql_and(self._eval(node.left, table, env, group),
                                self._eval(node.right, table, env, group))
