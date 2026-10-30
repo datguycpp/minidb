@@ -143,6 +143,14 @@ def run_minidb(phases):
 
     Single phase: one in-memory Database (the pre-directive behaviour). Multiple phases:
     Database(path) → execute → close → Database(path) again, once per phase, same file.
+
+    Statements go through `db.run`, the engine's documented statement path, NOT
+    `db.execute`: run() carries the autocommit rule (every statement outside an explicit
+    transaction is durable when it returns) that matches the sqlite3 CLI's default
+    behaviour, which is what the differential design assumes. Found by the t1d landing:
+    execute() left pre-transaction statements uncommitted, so a phase that ended in
+    ROLLBACK discarded more than SQLite's side did — harness semantics, not engine
+    semantics, diverged. The engine was right.
     """
     result = ([], [])
     path = None if len(phases) == 1 else os.path.join(REOPEN_TMPDIR, "minidb.db")  # type: ignore[arg-type]
@@ -153,7 +161,7 @@ def run_minidb(phases):
             last = index == len(phases) - 1
             try:
                 for statement in statements:
-                    result = db.execute(parse(statement))
+                    result = db.run(statement)
             except (ExecError, ParseError) as exc:
                 return {"error": str(exc)}
             if not last:
