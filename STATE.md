@@ -178,6 +178,40 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **[TIER-4 PREWORK COMMITTED as-is at afa9b83; Default's scope ratifications folded
+    in] M25–M27 acceptance shapes are now on paper** (M25 snapshot isolation = reader
+    starting before a writer commits must finish seeing the pre-write state; the
+    single-writer scope is Stated for Default and I ratify it: SQLite's own model;
+    multi-writer is a ladder amendment, not a surprise with a different name;
+    **acceptance is invariant-shaped (concurrency is timing-dependent) so the corpus
+    stays free of it** — two M25-competing facts: the corpus's `SELECT` output is
+    still one sequential read of committed rows, and the observed observable stays
+    "reader sees the pre-write state"; M26 wait-or-fail with the `database is locked`
+    text differentially checkable in a constructed two-handle scenario, scope-flag
+    if our model makes that shape unreachable, plus the no-wedge invariant and
+    claimed only per the recorded M25/M26 scope note; **M27 integrity_check returns
+    `ok` matching the reference on a healthy file (deterministic, differential-fair)
+    + corruption fixtures must be DETECTED with a typed, replayable error — silent
+    wrong data fails, crash-only counts only if typed**). Zero corpus-side movement:
+    the prework deliberately removes concurrency from the observable so it stays in
+    stated invariants instead.++
+  - **[TIER-5 PREWORK COMMITTED as-is at afa9b83 with one core ruling adopted]
+    EXPLAIN is NOT a conformance surface: bytecode is SQLite's VM vocabulary; the
+    corpus never diff plan output (a future need for plan assertions requires a
+    directives-roadmap spec edit first — property assertions like "uses index",
+    never raw rows). Plan correctness stays with `plan_check.py` (the M4/M5 evidence
+    pattern). Also fixed pre-milestone: M33's data-runner contract (fenced sql
+    blocks with fixture headers, expected-output lines, missing metadata = failure
+    not skip — the inert-directive lesson applied to docs; counts of blocks-checked/
+    blocks-found both printed; run-before-commit under the red-push protocol); M29's
+    declared dot-command subset (conformance is the SQL, sqlite3's dot-commands
+    aren't a standard); M30's plain statement that SQLite has no wire protocol to be
+    compatible with — acceptance is N clients getting answers identical to local
+    in-process runs, inheriting M25's semantics (the single-writer scope included);
+    M31 bound to the docs runner plus typed error propagation. Research's authored
+    queue now runs complete through Tier 5 — the stretch specs (M34–38) plus
+    milestone-close predictions are the remaining authored items, registered per
+    tranche as always.**
   - **`SCORE t3.19-2 (M19 landing, re-baselined #21): 216/216 [Δ +8 cases, +8 passes,
     0 fails]`** — old: 208/208 at 714f4ed; new: 216/216 at bf6ca82 — **research's
     pre-registered band 6–8/8 hits its ceiling (the third ceiling-touch: gentle
