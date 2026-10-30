@@ -81,8 +81,8 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M8 — joins, aggregates, subqueries (M7 WAL/crash recovery
-  accepted). Build's round.**
+- **Current milestone: M9 accepted (fuzzer + spec delivered); Tier-1 gate verification
+  pending — requires t1c AND t1e in the denominator first (see decision log). M10 next.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -162,6 +162,15 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+   - `SCORE t1.9 (M9): fuzz pipeline delivered; gate metric measured raw — see decision
+    log` — **the Tier-1 conformance score is unchanged (61/63, 96.8%); this milestone
+    measures a different quantity.** Engineer's published gate run: 25/10k
+    (22 rejection-position + 2 float + 1 FROM-less). **Default's independent re-run on
+    the same seed AFTER the two pre-filing fixes: 7/10k, all float-last-digit**
+    (`avg(v)` differing in the 15th significant digit only) — the rejection-position
+    class was eliminated by the fixes, confirming both the defect reading and the float
+    ruling's necessity. The published gate number was pre-fix; post-fix is the honest
+    current rate.
     - `SCORE t1.4 (M4): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe index
       choice]` — plan-level evidence instead: `tools/plan_check.py` (Default re-ran from
       cold clone: full-scan 2000 examined before, index access 1 examined after, index
@@ -422,3 +431,40 @@ query history; hot-path rewrite in a faster language
   wording): the directive must ship with a negative control — a harness test that breaks
   the reopen step and asserts the constraints-survive case FAILS — or four corpus cases
   can silently no-op forever.**
+- 2026-10-30 (M9): M9 **accepted** — cold-clone reproduction (210 tests, syntax 46/46,
+  behaviour 61/63, corpus revision 4e29319; fuzz.py re-run by Default: seed 3, 10k
+  queries → **7 mismatches, all float-last-digit**). Fuzzer implements the spec:
+  structured/mutation/rejection generators, seed-logged, comparison through the harness
+  normalizer only (no second comparator), minimization on every hit, MiniDB tracebacks
+  counted as mismatches regardless of SQLite's answer. **Engineer's published 25/10k was
+  pre-fix** — the two fidelity fixes it found (reserved-word split for identifiers
+  vs keywords; no trailing semicolon on the reference script) belonged to the rejection
+  class; Default's post-fix re-run shows that class gone on the same seed, leaving the
+  float class — which is exactly the input the float ruling needed.
+- 2026-10-30 (M9 ratifications — both rulings verified by Default's own post-fix data,
+  one flagged to Steven per the standing rule): (1) **Tier-2 gate metric becomes the
+  semantic rate** (dialect-valid mismatches); rejection-position rate stays printed raw
+  forever and monotonic non-increasing between gates; edit-distance-of-valid-syntax
+  repros become ordinary corpus cases, pure soup stays diagnostic. **FLAGGED: Steven, a
+  charter requirement ("<1 fuzzer mismatch per 10k" unqualified) is unreachable as
+  literally worded (22/25 were error-token placement on random soup — no user value) and
+  this redefines the metric BEFORE Tier 2 rather than working around it silently; one
+  word rejects the split and restores the literal gate.** (2) **Float comparison: 1e-12
+  relative tolerance, COUNTED per comparison and reported raw every run** — the
+  reference's 15-sig-digit JSON loses digits (SQLite's serialization, not a MiniDB bug:
+  exact-after-round-trip was unsatisfiable against the tool framing the normalizer
+  exists to strip). Counts stop the tolerance from becoming an unmonitored softer
+  failure mode. **Zero-delta re-baseline entry required for the normalizer amendment**
+  (any normalizer change → entry — see below).
+- 2026-10-30 (re-baseline event #5 — zero delta): the spec's "exact equality after
+  round-trip" normalizer replaced by the counted 1e-12 relative tolerance **before**
+  any scored re-run against new floats: corpus floats (1.5, 2) are untouched, verified
+  corpora identical, scores unchanged → Δ0 recorded here. Counts reported with every
+  fuzz line henceforth.
+- 2026-10-30 (Tier-1 gate correction — responding to Build's "the Tier-1 gate
+  verification is yours and the number is 61/63"): 61/63 (96.8%) is the CURRENT
+  denominator, not the gate number. Per the recorded ruling (and twice already), the
+  gate is verified with t1a–e in the denominator — that requires t1c (+12, predicted
+  69/75 = 92.0%) and t1e (research-owned seed tranche due at this milestone) to land
+  first. Margin status going in: 2.0 points of headroom at 12/13 milestones; **the
+  verified gate report follows those two landings, and the 90% line decides it.**
