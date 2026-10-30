@@ -145,6 +145,10 @@ class Parser:
             stmt = self.parse_with()
         elif self.at_keyword("DROP"):
             stmt = self.parse_drop()
+        elif self.at_keyword("UPDATE"):
+            stmt = self.parse_update()
+        elif self.at_keyword("DELETE"):
+            stmt = self.parse_delete()
         elif self.at_keyword("SELECT"):
             stmt = self.parse_compound()
         else:
@@ -233,6 +237,27 @@ class Parser:
         select = self.parse_compound()
         return ast.CreateView(name=name, columns=columns, select=select,
                               if_not_exists=if_not_exists, sql=getattr(self, 'source', None))
+
+    def parse_update(self):
+        self.expect_keyword("UPDATE")
+        table = self.parse_identifier("table name")
+        self.expect_keyword("SET")
+        assignments = []
+        while True:
+            column = self.parse_identifier("column name")
+            self.expect_punct("=")
+            assignments.append((column, self.parse_expression()))
+            if not self.accept_punct(","):
+                break
+        where = self.parse_expression() if self.accept_keyword("WHERE") else None
+        return ast.Update(table=table, assignments=assignments, where=where)
+
+    def parse_delete(self):
+        self.expect_keyword("DELETE")
+        self.expect_keyword("FROM")
+        table = self.parse_identifier("table name")
+        where = self.parse_expression() if self.accept_keyword("WHERE") else None
+        return ast.Delete(table=table, where=where)
 
     def parse_drop(self):
         self.expect_keyword("DROP")
@@ -519,6 +544,54 @@ class Parser:
             return self.advance().value
         return None
 
+    def parse_window(self, name, arguments):
+        self.expect_punct("(")
+        partition_by = []
+        order_by = []
+        frame = None
+        if self.accept_keyword("PARTITION"):
+            self.expect_keyword("BY")
+            partition_by.append(self.parse_expression())
+            while self.accept_punct(","):
+                partition_by.append(self.parse_expression())
+        if self.accept_keyword("ORDER"):
+            self.expect_keyword("BY")
+            while True:
+                expression = self.parse_expression()
+                descending = False
+                if self.accept_keyword("DESC"):
+                    descending = True
+                else:
+                    self.accept_keyword("ASC")
+                order_by.append((expression, descending))
+                if not self.accept_punct(","):
+                    break
+        if self.at_keyword("ROWS") or self.at_keyword("RANGE"):
+            mode = self.advance().upper.lower()
+            self.expect_keyword("BETWEEN")
+            start = self.parse_frame_bound()
+            self.expect_keyword("AND")
+            end = self.parse_frame_bound()
+            frame = (mode, start, end)
+        self.expect_punct(")")
+        return ast.WindowFunc(name=name, args=arguments, partition_by=partition_by,
+                              order_by=order_by, frame=frame)
+
+    def parse_frame_bound(self):
+        if self.accept_keyword("UNBOUNDED"):
+            if self.accept_keyword("PRECEDING"):
+                return ("unbounded", "preceding")
+            self.expect_keyword("FOLLOWING")
+            return ("unbounded", "following")
+        if self.accept_keyword("CURRENT"):
+            self.expect_keyword("ROW")
+            return ("current", None)
+        value = self.parse_additive()
+        if self.accept_keyword("PRECEDING"):
+            return ("preceding", value)
+        self.expect_keyword("FOLLOWING")
+        return ("following", value)
+
     def parse_select_item(self):
         # table.* shorthand
         if self.tok.kind in ("IDENT", "KEYWORD") and self.peek().kind == "PUNCT" and self.peek().value == "." \
@@ -693,12 +766,19 @@ class Parser:
                 self.advance()
                 self.expect_punct(")")
                 return ast.FuncCall(name=name, arg=None, star=True, args=[])
-            distinct = bool(self.accept_keyword("DISTINCT"))
-            arguments = [self.parse_expression()]
-            while self.accept_punct(","):
+            arguments = []
+            distinct = False
+            if not self.at_punct(")"):
+                distinct = bool(self.accept_keyword("DISTINCT"))
                 arguments.append(self.parse_expression())
+                while self.accept_punct(","):
+                    arguments.append(self.parse_expression())
             self.expect_punct(")")
-            return ast.FuncCall(name=name, arg=arguments[0], distinct=distinct, args=arguments)
+            if self.at_keyword("OVER"):
+                self.advance()
+                return self.parse_window(name, arguments)
+            return ast.FuncCall(name=name, arg=arguments[0] if arguments else None,
+                                distinct=distinct, args=arguments)
 
         if tok.kind in ("IDENT", "KEYWORD") and tok.upper not in RESERVED_IDENTIFIERS:
             name = self.advance().value

@@ -603,6 +603,10 @@ class Database:
             return self._select(statement)
         if isinstance(statement, ast.Compound):
             return self._compound(statement)
+        if isinstance(statement, ast.Update):
+            return self._update(statement)
+        if isinstance(statement, ast.Delete):
+            return self._delete(statement)
         if isinstance(statement, ast.CreateView):
             return self._create_view(statement)
         if isinstance(statement, ast.DropView):
@@ -724,8 +728,14 @@ class Database:
             raise ExecError("recursive CTE must use UNION or UNION ALL")
         columns, base_rows = self._select_node(body.left)
         names = cte.columns or columns
-        accumulated = [tuple(row) for row in base_rows]
-        seen = {tuple(_value_key(value) for value in row) for row in accumulated}
+        accumulated = []
+        seen = set()
+        for row in base_rows:
+            marker = tuple(_value_key(value) for value in row)
+            if body.op == "UNION" and marker in seen:
+                continue          # UNION dedupes the seed rows too, not just the recursive ones
+            seen.add(marker)
+            accumulated.append(tuple(row))
         working = list(accumulated)
         for _ in range(1000):
             table = Table(cte.name, [SimpleNamespace(name=name) for name in names])
@@ -860,6 +870,64 @@ class Database:
             for index in table.indexes.values():
                 index.add(rowid, values)
         return len(node.rows)
+
+    # -- UPDATE / DELETE -----------------------------------------------------
+    def _row_env(self, table, row):
+        env = {}
+        for column, value in zip(table.columns, row):
+            env[column.name.lower()] = value
+            env[f"{table.name.lower()}.{column.name.lower()}"] = value
+        return env
+
+    def _modified_table(self, node):
+        if node.table.lower() in self.views and node.table.lower() not in self.tables:
+            raise ExecError(f"cannot modify {node.table} because it is a view")
+        table = self.table(node.table)
+        if table.on_disk:
+            raise ExecError("UPDATE/DELETE on disk-backed tables lands with milestone 16")
+        return table
+
+    def _update(self, node: ast.Update):
+        table = self._modified_table(node)
+        positions = []
+        for column, _ in node.assignments:
+            position = table.index_of.get(column.lower())
+            if position is None:
+                raise ExecError(f"no such column: {column}")
+            positions.append(position)
+        changed = 0
+        for index, row in enumerate(list(table.rows)):
+            env = self._row_env(table, row)
+            if node.where is not None and not truthy(self._eval(node.where, table, env)):
+                continue
+            values = list(row)
+            # All assignments read the OLD row, so `SET a = b, b = a` swaps rather than copies.
+            for (_, expression), position in zip(node.assignments, positions):
+                values[position] = self._eval(expression, table, env)
+            table.rows[index] = tuple(values)
+            changed += 1
+        self._reindex(table)
+        return changed
+
+    def _delete(self, node: ast.Delete):
+        table = self._modified_table(node)
+        kept = []
+        changed = 0
+        for row in table.rows:
+            env = self._row_env(table, row)
+            if node.where is not None and not truthy(self._eval(node.where, table, env)):
+                kept.append(row)
+            else:
+                changed += 1
+        table.rows = kept
+        self._reindex(table)
+        return changed
+
+    def _reindex(self, table):
+        for index in table.indexes.values():
+            index.map = {}
+            for rowid, values in enumerate(table.rows, start=1):
+                index.add(rowid, values)
 
     # -- SELECT --------------------------------------------------------------
     def _row_by_id(self, table, rowid):
@@ -1036,6 +1104,94 @@ class Database:
             return self._select_complex(node)
         return self._select_simple(node)
 
+    def _window_values(self, window, prepared, table):
+        """Compute one window function over the prepared rows, in original row order."""
+        count = len(prepared)
+        if count == 0:
+            return []
+        partitions = {}
+        for index, (env, _) in enumerate(prepared):
+            key = tuple(_value_key(self._eval(expression, table, env))
+                        for expression in window.partition_by)
+            partitions.setdefault(key, []).append(index)
+
+        values = [None] * count
+        for indices in partitions.values():
+            ordered = list(indices)
+            for expression, descending in reversed(window.order_by):
+                ordered.sort(key=lambda i, e=expression: _order_sort_key(
+                    self._eval(e, table, prepared[i][0])), reverse=descending)
+            order_keys = {
+                index: tuple(_order_sort_key(self._eval(expression, table, prepared[index][0]))
+                             for expression, _ in window.order_by)
+                for index in ordered
+            }
+            rank = 0
+            dense = 0
+            previous_key = None
+            for position, index in enumerate(ordered):
+                name = window.name
+                if name in ("RANK", "DENSE_RANK"):
+                    current_key = order_keys[index]
+                    if position == 0 or current_key != previous_key:
+                        rank = position + 1
+                        dense += 1
+                        previous_key = current_key
+                    values[index] = rank if name == "RANK" else dense
+                elif name == "ROW_NUMBER":
+                    values[index] = position + 1
+                elif name == "LAG":
+                    offset = int(to_number(self._eval(window.args[1], table, prepared[index][0]))) \
+                        if len(window.args) > 1 else 1
+                    default = self._eval(window.args[2], table, prepared[index][0]) \
+                        if len(window.args) > 2 else None
+                    source = position - offset
+                    values[index] = (self._eval(window.args[0], table, prepared[ordered[source]][0])
+                                     if 0 <= source < len(ordered) else default)
+                else:
+                    start, end = self._frame_bounds(window, position, len(ordered))
+                    values[index] = self._window_aggregate(window, prepared, table,
+                                                           ordered[start:end + 1])
+        return values
+
+    def _frame_bounds(self, window, position, length):
+        if window.frame is None:
+            if window.order_by:
+                return 0, position
+            return 0, length - 1
+        _, start, end = window.frame
+
+        def resolve(bound, default):
+            kind, value = bound
+            if kind == "unbounded":
+                return 0 if value == "preceding" else length - 1
+            if kind == "current":
+                return position
+            offset = int(to_number(self._eval(value, None, {})))
+            return position - offset if value is not None and kind == "preceding" else position + offset
+
+        first = resolve(start, 0)
+        last = resolve(end, length - 1)
+        return max(0, first), min(length - 1, last)
+
+    def _window_aggregate(self, window, prepared, table, indices):
+        name = window.name
+        if name == "COUNT" and (window.args == [] or window.arg is None):
+            return len(indices)
+        values = [self._eval(window.args[0], table, prepared[index][0]) for index in indices]
+        if name == "COUNT":
+            return sum(1 for value in values if value is not None)
+        values = [value for value in values if value is not None]
+        if name == "SUM":
+            return sum(values) if values else None
+        if name == "AVG":
+            return (sum(values) / len(values)) if values else None
+        if name == "MIN":
+            return min(values) if values else None
+        if name == "MAX":
+            return max(values) if values else None
+        raise ExecError(f"no such window function: {name.lower()}")
+
     def _compound(self, node: ast.Compound):
         left_items, left_rows = self._select_node(node.left)
         right_items, right_rows = self._select_node(node.right)
@@ -1135,31 +1291,42 @@ class Database:
                 continue
             prepared.append((env, row))
 
-        def alias_values(env):
-            values = {}
-            for item in node.items:
-                if isinstance(item, ast.SelectItem) and item.alias and not isinstance(item.expr, ast.Star):
-                    values[item.alias.lower()] = self._eval(item.expr, table, env)
-            return values
+        window_values = {}
+        for position, item in enumerate(node.items):
+            if isinstance(item, ast.SelectItem) and isinstance(item.expr, ast.WindowFunc):
+                window_values[position] = self._window_values(item.expr, prepared, table)
+
+        entries = []
+        for index, (env, row) in enumerate(prepared):
+            aliases = {}
+            for position, item in enumerate(node.items):
+                if not (isinstance(item, ast.SelectItem) and item.alias):
+                    continue
+                if position in window_values:
+                    aliases[item.alias.lower()] = window_values[position][index]
+                else:
+                    aliases[item.alias.lower()] = self._eval(item.expr, table, env)
+            entries.append({"env": env, "row": row, "aliases": aliases,
+                            "window": {position: window_values[position][index]
+                                       for position in window_values}})
 
         for expression, descending in reversed(node.order_by):
-            def key(pair, expression=expression):
-                env = pair[0]
-                if isinstance(expression, ast.ColumnRef):
-                    aliased = alias_values(env)
-                    if expression.name.lower() in aliased:
-                        return _order_sort_key(aliased[expression.name.lower()])
-                return _order_sort_key(self._eval(expression, table, env))
-            prepared.sort(key=key, reverse=descending)
+            def key(entry, expression=expression):
+                if isinstance(expression, ast.ColumnRef) and expression.name.lower() in entry["aliases"]:
+                    return _order_sort_key(entry["aliases"][expression.name.lower()])
+                return _order_sort_key(self._eval(expression, table, entry["env"]))
+            entries.sort(key=key, reverse=descending)
 
         rows = []
-        for env, row in prepared:
+        for entry in entries:
             projected = []
-            for item in node.items:
+            for position, item in enumerate(node.items):
                 if isinstance(item, ast.Star):
-                    projected.extend(row)
+                    projected.extend(entry["row"])
+                elif position in entry["window"]:
+                    projected.append(entry["window"][position])
                 else:
-                    projected.append(self._eval(item.expr, table, env))
+                    projected.append(self._eval(item.expr, table, entry["env"]))
             rows.append(tuple(projected))
 
         # DISTINCT before LIMIT: LIMIT counts distinct rows, not source rows.

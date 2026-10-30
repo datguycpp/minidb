@@ -171,6 +171,28 @@ class CreateView(Node):
 
 
 @dataclass
+class Update(Node):
+    table: str
+    assignments: list      # [(column, expression)]
+    where: "Node | None" = None
+
+
+@dataclass
+class Delete(Node):
+    table: str
+    where: "Node | None" = None
+
+
+@dataclass
+class WindowFunc(Node):
+    name: str
+    args: list = field(default_factory=list)
+    partition_by: list = field(default_factory=list)
+    order_by: list = field(default_factory=list)      # [(expr, descending)]
+    frame: "tuple | None" = None                     # ('rows'|'range', start, end)
+
+
+@dataclass
 class DropView(Node):
     name: str
     if_exists: bool = False
