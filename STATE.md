@@ -81,9 +81,8 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: TIER-1 GATE VERIFIED PASS (86/86 = 100.0%, complete t1a–e
-  denominator, cold-clone-verified) — Tier 1 CLOSED. Next: M10 — expression engine
-  (Tier 2 begins).**
+- **Current milestone: M10 accepted (expression engine; t2a landed 20/20 — 106/106
+  total). Next: M11 — built-in functions, per ladder.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -163,6 +162,18 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t2.10 (M10 landing + t2a, re-baselined #9): 106/106 (100.0%) [Δ +20 cases,
+    +20 passes — engine accepted]** — old: 86/86 (100.0%) at 14c41e1; new: 106/106
+    (100.0%) at 9a575b4. t2a: research's 20 pre-M10-authored cases (precedence,
+    C-semantics division/modulo with sign-follows-dividend, REAL promotion, `||` with
+    SQLite float formatting, CASE all three forms, CAST with the
+    non-numeric-text→0 quirk, NULL propagation, three-valued logic truth tables,
+    IS/IS NOT, BETWEEN, arithmetic-in-WHERE, unary minus on columns) — **19–20/20
+    predicted; actual 20/20: every case M10's report spot-checked landed, and the
+    truthy() fix (`WHERE 1` matched nothing before) is exactly what cases 1–6's
+    FROM-less regression net was designed to catch.** Default's probes vs binary:
+    WHERE 1 / 'abc'+1 / NULL / NOT NULL / CAST('12abc') / division-trio — all exact.
+    230 engine tests + harness suite OK.
   - **`SCORE t1.9+ (t1e landing, re-baselined #8): 86/86 (100.0%) [Δ +11 cases, +11 passes
     — ALL GREEN]`** — old: 75/75 (100.0%) at 9ece60d; new: 86/86 (100.0%) at 14c41e1.
     Cases added: 11 fuzz-seed-shaped cases (NULL join keys, join-aggregates over empty
@@ -244,28 +255,34 @@ query history; hot-path rewrite in a faster language
 
 ## Next three tasks
 
-1. [Steven — GATE REMEDY DECISION] Choose A / B / C for the Tier-1 gate (see decision
-   log: A = FROM-less fix only, 93.3%; B = A + join-scope support, 98.7%; C = full,
-   100%). **Default recommends B.** Ties to the ladder's own wording ("Joins,
-   aggregates, subqueries" — unqualified) and the corpus's five join-scope cases stand
-   as the factual record of what Tier-1 joins currently mean. **Ladder holds for M10
-   (Tier 2) until resolved per charter** — but the chosen remedy is Tier-1 remediation,
-   orderable immediately without tier-boundary ambiguity.
-2. [Research] t1e seed scenarios (torn WAL frame, first-commit-on-empty-file, reusing
-   `MINIDB_CRASH_POINT`) — the last outstanding Tier-1 tranche; fuzzer machinery ready
-   to consume them.
-3. [Build] M10 — expression engine (Tier 2), starts after the gate outcome is resolved.
+1. [Research] t2b functions tranche drafted BEFORE M11 starts (drafts-before-fixes,
+   Tier-2 edition is in force): `length`/`substr`/`abs`/date-time edges, incl. the two
+   value-pinned regressions from M10's spot-checks (`1 / 0 = NULL`,
+   `CAST('12abc' AS INTEGER) = 12`) — value-known post-M10, no prediction credit.
+2. [Build] M11 — built-in functions, after M10's review closes. Advance notice from
+   Default's probes: `chr()`/M11-category builtins are already exercised in t2b-adjacent
+   probes (the M10 probe false-alarm was exactly an unimplemented builtin); expect them
+   in the tranche's edge cases.
+3. [Build ✓ done note] M10 is the current build; the accepted M10 also closed the M2-era
+   known failures (SELECT-without-FROM) and landed `COUNT(DISTINCT x)` and
+   `execute(autocommit=False)`. Verify both stay unregressed across refactors (tests
+   exist for both).
 
 ## Known failures
 
-- `SELECT 1` (no FROM) is valid SQLite; our parser rejects it — in Research's t1a corpus
-  (cases 4–5, now erroring `incomplete input` in SQLite's wording); **expected to fail**
-  until implemented. M10.
+- `SELECT 1` (no FROM) — **CLOSED by M10** (cases 4–5 of t1a and t1c case 9 now pass;
+  M10's expression engine includes FROM-less SELECT).
 - No type affinity — `'5'` into an INTEGER column stores text. M17.
-- Arithmetic in expressions (`a + 1 > 2`, `id + 1`) unparsed. M10.
-- No ORDER BY / LIMIT / OFFSET / DISTINCT / GROUP BY / HAVING. M12.
+- Arithmetic in expressions beyond simple scalar forms — **largely CLOSED by M10**
+  (arithmetic in WHERE and unary minus on columns now parse per t2a); residual edgeforms
+  (exponent, hex numeric literals) owned by M10 follow-up or M11.
+- No ORDER BY / LIMIT / OFFSET / DISTINCT — GROUP BY/HAVING **landed with M8** (with
+  M8's sorted-structure ordering); the rest M12.
 - No DELETE / UPDATE / DROP; table-level `CHECK` rejected. M16.
-- No joins or aggregates. M8.
+- Joins — **INNER (+ comma/cross/LEFT/RIGHT/FULL via the Tier-1 remediation) CLOSED at
+  M8; subqueries in WHERE/select items landed M8; correlated subqueries and
+  FROM-subquery derivation remain owned (M8 report's stated limits)**. M8 follow-up or
+  M12+.
 - Column DEFAULT evaluated without SQLite's constant-expression rules — untested against
   quirks, flagged rather than assumed correct.
 - No crash safety: writes are write-through, fsync only on clean close — M7 (WAL) owns.
@@ -530,7 +547,19 @@ query history; hot-path rewrite in a faster language
   round-trip" normalizer replaced by the counted 1e-12 relative tolerance **before**
   any scored re-run against new floats: corpus floats (1.5, 2) are untouched, verified
   corpora identical, scores unchanged → Δ0 recorded here. Counts reported with every
-  fuzz line henceforth.
+  fuzz line henceforth. **IMPLEMENTED in the M10 round** (`rows_equal` in the harness
+  compare path, after `normalise_numbers`; equality-first ordering so identical floats
+  never fire the tolerance). Landing honesty: two defects in Default's first
+  implementation, caught before posting — identical values were counted as
+  tolerance-fired, and the corpus glob was still `t1*.txt` (the spec says `t*.txt`) so
+  t2a was invisible to the first run; both fixed, tolerance_count now reports raw with
+  every run (first corpus landing: 0 fired on 106 comparisons — all floats exact).
+  **Reproducibility finding ledgered the same round: engineer's M10 fuzz line
+  (seed 21, 3000q: 4 mismatches, "all rejection-position") does not reproduce on the
+  same commit/seed/count — Default's runs (3× pinned hashseed, 2× free) give exactly
+  1 mismatch, float-last-digit (`avg`), which the counted tolerance now absorbs.
+  25-vs-7 on seed 3 remains explained by the two pre-filing fixes; seed-21's 4-vs-1
+  is unexplained and unexplained-by-me counts as a defect at this project's standard.**
 - 2026-10-30 (t1c landing — re-baseline event #6, executed by Default): corpus 63 → 75
   (@12 research-authored cases). **Landed at 67/75 (89.3%) — BOTH predictions missed and
   loaded raw before any fix: research pre-registered 68–69/75, engineer 69/75, actual
