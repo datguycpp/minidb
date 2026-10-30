@@ -84,10 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: t2d LANDED after M13's report — 187/187 (100%) verified
-  cold-clone; the whole t2a–e literal slice is in-corpus. Tier-2's remaining scope:
-  M16 (ALTER/DDL: view persistence, disk-backed UPDATE/DELETE) and M17
-  (affinity/collations), closing at the gate the slice ruling recorded pre-gate.**
+- **Current milestone: M16 part 2 (FK/PRAGMA) next, then M17 (affinity/collations),
+  closing Tier 2 at the pre-registered gate plan (docs/tier2-gate-plan.md, arithmetic
+  verified against the loader at cdd8735). t2f stays parked until M17's review.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -178,6 +177,30 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **[GATE PLAN COMMITTED — research-authored as-is] docs/tier2-gate-plan.md landed at
+    cdd8735, written BEFORE M17's review.** The arithmetic is verified against the
+    loader, not accepted from the doc: current corpus 187 + t2f's 21 = **208** at gate;
+    the t2a–f slice = **122**; the threshold ≥116/122; **the 86-line (t1a–e +
+    behavior) stays explicitly green beside the verdict** — slice arithmetic computed
+    twice from the printed per-file lines, never off a tool summary. **Fuzz gate
+    spec:** ≥10k semantic-class queries, rejection-class run-and-reported but excluded
+    per the ratified split; header must declare seed/mode/dialect features/commit;
+    non-increasing rejection binding starts from the NEXT gate (this is its first
+    baseline); **Steven's ratification is the only open human item — absent it at
+    M17, the run runs, files provisional, and the literal-wording total prints beside
+    the split rate.** The not-allowed-at-this-gate list is adopted into the gate
+    checklist (no edits between run and verdict; no baseline-by-observation; no
+    percentage without per-file lines + revision; no slice without the full corpus
+    beside it). **Pre-registered predictions carried verbatim: slice 119–122/122;
+    full 205–208/208 with the 86-line intact; fuzz semantic 0/10k** with the named
+    risk class being the post-M15 generator surfaces (triggers, affinity edges,
+    window frames). After the gate: Tier 3 opens (M18) and the benchmark's **first
+    full run** triggers my pre-registered multiple.
+  - **[ZERO-DELTA re-baseline #17 (comment-only correction, research's second lesson)]
+    The landed t2d.txt's case-7 comment went from "encode the SQL standard" to honest
+    flat-left-associative prose, per research's delivery; the ledger stands at 187/187
+    — comment-only, expected value computed at run time, the builder was the only
+    possible victim. Two-deliverer comment-proofreading pattern now self-recorded.**
   - **`SCORE t2.16 (M16 part 1 landing, re-baselined #16): 187/187 (100.0%), 313
     tests — ALTER TABLE + triggers + both carried debts closed — accepted`** (t2f stays
     parked for M17's review per the plan). Verified vs binary from the cold clone:
