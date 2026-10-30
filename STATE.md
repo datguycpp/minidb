@@ -84,9 +84,10 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M11 fix round (3 t2b engine gaps) → then M12 (ORDER BY/LIMIT/
-  DISTINCT scope) against the delivered+verified t2c tranche. Standing directive
-  extended: ALL remaining milestones (12–38) pre-approved; gates verify-and-report.**
+- **Current milestone: t2c landed at 144/148 (97.3%) — the 4 fails are the Star+ORDER-BY
+  crash class (Build's M12 fix round, next). HARNESS catch-fixed: uncaught engine
+  exceptions now record as mismatches instead of aborting the run (rule parity with the
+  fuzzer).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -177,6 +178,32 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t2.12 (M12 landing + t2b fix round + t2c, re-baselined #10): 144/148
+    (97.3%) [Δ +21 cases, +17 passes, 4 fail — all ONE root cause]`** — old: 124/127
+    (97.6%) at 9a575b4; new: 144/148 (97.3%) at 74d4274. **The t2b fix round is verified
+    in-corpus (21/21):** scalar min/max → any NULL → NULL (the rule the draft's comment
+    had backwards, engine followed the comment); `date('2024-01-31','+1 month')` →
+    2024-03-02 (normalisation, not clamp — verified against the binary); math functions
+    alive (sqrt confirmed 2.0 on the binary). M12: ORDER BY (mixed directions,
+    NULLs-last-DESC/first-ASC verified vs binary), comma LIMIT, LIMIT 0/-1, the
+    LIMIT-after-DISTINCT ordering bug fixed pre-commit (3 distinct rows, not 2).
+    **t2c's 4 fails = ONE root cause: `SELECT * … ORDER BY …` crashes —
+    `AttributeError: 'Star' object has no attribute 'alias'` in the ORDER BY path**
+    (M12's own spot-checks used named expressions; the corpus cases 1–4 used Star +
+    ORDER BY — the exact class the drafts system keeps catching). **Build's fix round:
+    make ORDER BY evaluation Star-safe; the other 17 t2c cases pass, including the
+    rule-test case 21 (DISTINCT + ORDER BY non-selected column).** Research's
+    pre-registered 20–21/21 vs actual 17/21 — the miss is the crash class, not scope.
+- 2026-10-30 (process incident — t2b corpus commit gap + the sweep): engineer's `git
+  add -A` swept the UNTRACKED t2b.txt corpus file (and the parked t2c-draft) into the
+  M12 code commit — the t2b re-baseline (recorded in STATE before this) had been logged
+  with NO corpus commit of its own, so its corpus-revision anchor pointed at a code
+  commit. Recorded, not rewritten (the anchor stays — the corpus content at 74d4274 is
+  verified by the cold-clone run above). **Protocol ruling: in the shared working tree,
+  stage explicit paths only, never `-A`** — Default committed the t2c landing with
+  explicit paths (and still under-delivered once with a rename-only commit — the lesson
+  generalizes beyond who writes the commit: never write the message before measuring
+  the diff, second occurrence of that failure class this project).
   - **`SCORE t2.11 (M11 landing + t2b, re-baselined #10): 124/127 (97.6%) [Δ +21 cases,
     +18 passes, 3 fails]`** — old: 106/106 (100.0%) at 9a575b4; new: 124/127 (97.6%) at
     477b5bb. M11 delivered the built-in list; **t2b's landing found 3 engine gaps (2
