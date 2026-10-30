@@ -200,6 +200,11 @@ def run_minidb(phases):
                     result = db.run(statement)
             except (ExecError, ParseError) as exc:
                 return {"error": str(exc)}
+            except Exception as exc:
+                # Per the ratified fuzz rule the spec codified: any MiniDB traceback
+                # (AttributeError, IndexError, anything uncaught) is recorded as the
+                # engine's answer — never allowed to abort the corpus run itself.
+                return {"error": f"MiniDB internal error: {type(exc).__name__}: {exc}"}
             if not last:
                 db.close()
                 db = Database(path)
