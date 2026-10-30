@@ -198,6 +198,7 @@ query history; hot-path rewrite in a faster language
     phrasing was gently wrong; the honest number is +1 over prediction). Running tally
     at t2d: 6 hits, 2 conservative misses, 1 generous miss — the right bias direction
     (slightly pessimistic on errors, slightly optimistic on scope).**
+  - **`SCORE t2.13 (M13 + t2d landing, re-baselined #15): 187/187 (100.0%) [delta +19
     cases, +19 passes, 0 fails]` — old: 168/168 at ae214bc; new: 187/187 at ce3546c.
     M13's report (against the named acceptance list) verified from the cold clone:
     INTERSECT precedence is FLAT LEFT-ASSOCIATIVE in SQLite — the reference overruled
