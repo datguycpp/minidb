@@ -84,11 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M14 (views/CTEs) accepted — 148/148, 286 tests — with two
-  probe-found findings ordered: (a) M14 fix round for the recursive-CTE UNION-dedupe
-  leak on DAG shapes; (b) the UPDATE/DELETE statement family does not exist in the
-  parser (new scope hole, owned by M15's line next). M15 = windows + the statement
-  family.**
+- **Current milestone: M15 (windows + UPDATE/DELETE + DAG fix) accepted — 148/148, 299
+  tests, t2e preview 20/20. Tier-2 closes at M16/M17 (t2f parked); gate ruling recorded
+  (slice ≥95% AND full-corpus no-regression).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -179,6 +177,29 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t2.15 (M15 landing, re-baselined #13): 148/148 (100.0%), 299 tests —
+    windows, UPDATE/DELETE, the DAG fix — accepted`** (t2e lands after M15 per the
+    sequencing rule, so the numerator stays 148 in the ledger until then). Verified vs
+    binary: **(a) the DAG dedupe fix is root-caused and closed** — the SEED, not the
+    recursive step, was leaking (two outgoing edges from node 1 emitted `(1,0)` twice;
+    UNION filtered only the recursion), seed now deduped under UNION (4 rows matching
+    binary), UNION ALL preserved at 10 rows on BOTH engines (the operators provably
+    different, not accidentally similar); **(b) UPDATE/DELETE exist with old-row SET
+    reads** (`SET a = b, b = a` swaps — verified `[(2,1)]`), view-write refusal carries
+    the established wording for BOTH statements; **(c) windows** — RANK gap-after-tie /
+    DENSE_RANK no-gap verified against the binary on tie and gap shapes (probe verified
+    [(1,1,1),(2,2,2)] then [(1,1,1),(2,2,2),(5,3,3)]) including the aggregate-window,
+    PARTITION BY, LAG, and explicit frame surface engineer's report names (16/20+ of
+    t2e's preview covers these — final landing number at t2e's post-M15 commit).
+  - **[RULING — the Tier-2 gate denominator, recorded pre-gate per research's
+    recommendation] The Tier-2 gate = the t2a–f slice (122 cases ≥95%) AND the FULL
+    corpus reported with an explicit no-regression line at the same event.** Rationale:
+    symmetric with the Tier-1 ruling (the gate measures THAT tier's work), while the
+    full-corpus/care line catches aTier-1 regression a pure-slice number could hide —
+    the anti-gaming rule that forbids a gate passing while old cases rot. The fuzz
+    semantic-rate split's first LARGE run gets a deliberate gate-run plan from Build
+    (dialect features declared per spec; expressions/set-ops/windows/triggers all
+    exercised) at the same M17 boundary — not a reused smoke invocation.
   - **`SCORE t2.14 (M14 landing, re-baselined #12): 148/148 (100.0%), 286 tests —
     views + CTEs surface, accepted`** — base corpus reaffirmed; t2e stays parked until
     M15 (the preview 14/20's six misses are the window cases, M15's scope). Verified
