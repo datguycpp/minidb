@@ -1,0 +1,182 @@
+-- t2e DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator stays 148 until ordered.
+-- Sequencing: authored BEFORE M14 starts (drafts-first rule). Spans two
+-- milestones: views+CTEs are M14's scope, windows are M15's — Default may
+-- land this as one tranche after M15 or split it; the prediction below is
+-- for the whole file.
+-- src: authored   tier: t2 (tranche e: views, CTEs incl. recursive, windows)
+-- Determinism: every multi-row case carries an outer ORDER BY (rule from
+-- t2d); window cases carry ORDER BY inside OVER where the function needs it.
+
+-- VIEW: plain projection, rows from the view ordered outside.
+
+CREATE TABLE t (id INTEGER, v TEXT);
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, 'b');
+CREATE VIEW small AS SELECT id FROM t WHERE id > 1;
+SELECT * FROM small ORDER BY id;
+
+-- VIEW with a WHERE filter and an expression column.
+
+CREATE TABLE t (id INTEGER, v TEXT);
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, 'b');
+CREATE VIEW doubled AS SELECT id * 2 AS d FROM t WHERE id = 2;
+SELECT * FROM doubled;
+
+-- VIEW over a join.
+
+CREATE TABLE a (id INTEGER, name TEXT);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (1, 'x');
+INSERT INTO b VALUES (1, 10);
+CREATE VIEW joined AS SELECT a.name, b.score FROM a JOIN b ON a.id = b.aid;
+SELECT * FROM joined;
+
+-- VIEW column-name alias list overrides the underlying names.
+
+CREATE TABLE t (id INTEGER, v TEXT);
+INSERT INTO t VALUES (1, 'a');
+CREATE VIEW renamed (first, second) AS SELECT id, v FROM t;
+SELECT first, second FROM renamed;
+
+-- Nested view: view defined over a view.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+CREATE VIEW v1 AS SELECT id FROM t WHERE id < 2;
+CREATE VIEW v2 AS SELECT id FROM v1;
+SELECT * FROM v2;
+
+-- Creating a view twice without IF NOT EXISTS: exact reference error text.
+
+CREATE TABLE t (id INTEGER);
+CREATE VIEW v AS SELECT id FROM t;
+CREATE VIEW v AS SELECT id FROM t;
+
+-- CREATE VIEW IF NOT EXISTS on an existing view: no error, empty outcome.
+
+CREATE TABLE t (id INTEGER);
+CREATE VIEW IF NOT EXISTS v AS SELECT id FROM t;
+SELECT * FROM v;
+
+-- Updatable view (SQLite auto-updatable: single-table view): INSERT through
+-- the view must land in the base table. Scope question if it fails: owned
+-- by M14's "views" wording or flagged as SQLite-specific behaviour.
+
+CREATE TABLE t (id INTEGER);
+CREATE VIEW v AS SELECT id FROM t;
+INSERT INTO v VALUES (1);
+SELECT * FROM t;
+
+-- CTE: WITH clause feeding the main query.
+
+CREATE TABLE t (id INTEGER, v INTEGER);
+INSERT INTO t VALUES (1, 10);
+INSERT INTO t VALUES (2, 20);
+WITH big AS (SELECT id, v FROM t WHERE v > 15)
+SELECT * FROM big ORDER BY id;
+
+-- Multiple comma-separated CTEs, second referencing the first.
+
+CREATE TABLE t (id INTEGER, v INTEGER);
+INSERT INTO t VALUES (1, 10);
+INSERT INTO t VALUES (2, 20);
+WITH a AS (SELECT id, v FROM t),
+     b AS (SELECT id FROM a WHERE v > 15)
+SELECT * FROM b ORDER BY id;
+
+-- CTE referenced twice in one query: both reads agree.
+
+CREATE TABLE t (id INTEGER, v INTEGER);
+INSERT INTO t VALUES (1, 10);
+INSERT INTO t VALUES (2, 20);
+WITH c AS (SELECT v FROM t)
+SELECT (SELECT COUNT(*) FROM c) AS n1, (SELECT SUM(v) FROM c) AS n2;
+
+-- Recursive CTE: counter 1..5 via UNION ALL, ordered outside (recursive
+-- result order without ORDER BY is not a contract).
+
+WITH RECURSIVE n(i) AS (
+  SELECT 1
+  UNION ALL
+  SELECT i + 1 FROM n WHERE i < 5
+)
+SELECT i FROM n ORDER BY i;
+
+-- Recursive CTE whose base case matches nothing: empty result, no error.
+
+CREATE TABLE t (id INTEGER);
+WITH RECURSIVE n(i) AS (
+  SELECT id FROM t WHERE id < 0
+  UNION ALL
+  SELECT i + 1 FROM n WHERE i < 5
+)
+SELECT i FROM n ORDER BY i;
+
+-- Recursive CTE over an adjacency list (the tree-walk shape): depth order
+-- via outer ORDER BY on the computed depth column.
+
+CREATE TABLE node (id INTEGER, parent INTEGER);
+INSERT INTO node VALUES (1, NULL);
+INSERT INTO node VALUES (2, 1);
+INSERT INTO node VALUES (3, 1);
+INSERT INTO node VALUES (4, 2);
+WITH RECURSIVE walk(id, depth) AS (
+  SELECT id, 0 FROM node WHERE parent IS NULL
+  UNION ALL
+  SELECT node.id, walk.depth + 1 FROM node JOIN walk ON node.parent = walk.id
+)
+SELECT id, depth FROM walk ORDER BY depth, id;
+
+-- WINDOW: ROW_NUMBER over a total order.
+
+CREATE TABLE t (v INTEGER);
+INSERT INTO t VALUES (30);
+INSERT INTO t VALUES (10);
+INSERT INTO t VALUES (20);
+SELECT v, ROW_NUMBER() OVER (ORDER BY v) AS rn FROM t ORDER BY v;
+
+-- WINDOW: RANK vs DENSE_RANK on ties — the three answers that differ.
+
+CREATE TABLE t (v INTEGER);
+INSERT INTO t VALUES (10);
+INSERT INTO t VALUES (10);
+INSERT INTO t VALUES (20);
+SELECT v,
+       RANK() OVER (ORDER BY v) AS r,
+       DENSE_RANK() OVER (ORDER BY v) AS dr
+FROM t ORDER BY v;
+
+-- WINDOW: running aggregate without PARTITION.
+
+CREATE TABLE t (v INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT v, SUM(v) OVER (ORDER BY v ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS run
+FROM t ORDER BY v;
+
+-- WINDOW: PARTITION BY — numbering restarts per group.
+
+CREATE TABLE t (g TEXT, v INTEGER);
+INSERT INTO t VALUES ('a', 2);
+INSERT INTO t VALUES ('a', 1);
+INSERT INTO t VALUES ('b', 5);
+SELECT g, v, ROW_NUMBER() OVER (PARTITION BY g ORDER BY v) AS rn FROM t ORDER BY g, v;
+
+-- WINDOW: aggregate over a partition (per-group average).
+
+CREATE TABLE t (g TEXT, v INTEGER);
+INSERT INTO t VALUES ('a', 1);
+INSERT INTO t VALUES ('a', 3);
+INSERT INTO t VALUES ('b', 10);
+SELECT g, v, AVG(v) OVER (PARTITION BY g) AS pa FROM t ORDER BY g, v;
+
+-- WINDOW: LAG with default value on the first row.
+
+CREATE TABLE t (v INTEGER);
+INSERT INTO t VALUES (10);
+INSERT INTO t VALUES (20);
+SELECT v, LAG(v, 1, 0) OVER (ORDER BY v) AS prev FROM t ORDER BY v;
