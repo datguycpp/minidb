@@ -63,6 +63,18 @@ class TestCreateTable(unittest.TestCase):
         self.assertTrue(stmt.unique)
         self.assertEqual(stmt.columns, ["a", "b"])
 
+    def test_grouping_words_are_reserved_like_sqlite(self):
+        for word in ("join", "on", "group", "having", "order", "limit"):
+            with self.assertRaises(ParseError) as ctx:
+                parse(f"SELECT {word} FROM t")
+            self.assertEqual(str(ctx.exception), f'near "{word}": syntax error')
+
+    def test_by_and_inner_are_not_reserved(self):
+        # SQLite accepts these as identifiers: "no such column", not a syntax error.
+        for word in ("by", "inner"):
+            stmt = parse(f"SELECT {word} FROM t")
+            self.assertEqual(stmt.items[0].expr.name, word)
+
     def test_other_create_forms_are_rejected(self):
         with self.assertRaises(ParseError) as ctx:
             parse("CREATE VIEW v AS SELECT * FROM t")

@@ -121,7 +121,10 @@ def run_sqlite(phases):
     path = ":memory:" if len(phases) == 1 else None
     result = None
     for index, statements in enumerate(phases):
-        script = ";\n".join(statements) + ";\n"
+        # Join with ';' but do NOT append a trailing one: the last statement must reach SQLite
+        # terminated by EOF exactly as it reaches MiniDB, or an incomplete statement reports
+        # `near ";": syntax error` on one side and `incomplete input` on the other.
+        script = ";\n".join(statements) + "\n"
         db_path = path
         if db_path is None:
             assert REOPEN_TMPDIR is not None, "multi-phase case without a temp dir"
@@ -136,6 +139,20 @@ def run_sqlite(phases):
     rows = json.loads(result) if result else []
     columns = list(rows[0].keys()) if rows else []
     return {"columns": columns, "rows": rows}
+
+
+def sqlite_float(value):
+    """SQLite's -json output formats floats with 15 significant digits (`%!.15g`).
+
+    Comparing Python's repr (17 digits) against that is comparing serialisers, not values, so
+    our side is formatted the same way before comparison.
+    """
+    return float(f"{value:.15g}")
+
+
+def normalise_values(rows):
+    return [{key: (sqlite_float(value) if isinstance(value, float) else value)
+             for key, value in row.items()} for row in rows]
 
 
 def run_minidb(phases):
@@ -169,7 +186,8 @@ def run_minidb(phases):
                 db = Database(path)
         columns, rows = result
         keys = list(columns)
-        return {"columns": keys, "rows": [dict(zip(keys, row)) for row in rows]}
+        return {"columns": keys,
+                "rows": normalise_values([dict(zip(keys, row)) for row in rows])}
     finally:
         if path:
             db.close()
@@ -254,6 +272,18 @@ def sort_rows(result):
                                      key=lambda r: json.dumps(r, sort_keys=True))}
 
 
+def normalise_numbers(rows):
+    """Format floats identically on both sides before comparing.
+
+    SQLite's JSON writer emits 15 significant digits (`%!.15g`), which does not always
+    round-trip to the same binary value Python computes for AVG(). Comparing raw floats would
+    measure the two serialisers against each other, so both sides go through the same
+    formatting. This is a normalizer rule, owned by Research (docs/conformance-spec.md).
+    """
+    return [{key: (float(f"{value:.15g}") if isinstance(value, float) else value)
+             for key, value in row.items()} for row in rows]
+
+
 def compare(expected, actual):
     if "error" in expected:
         if "error" not in actual:
@@ -263,7 +293,9 @@ def compare(expected, actual):
         return False, f"SQLite returned rows, MiniDB errored: {actual['error']!r}"
     if expected["columns"] and actual["columns"] and expected["columns"] != actual["columns"]:
         return False, f"columns {expected['columns']} vs {actual['columns']}"
-    return expected["rows"] == actual["rows"], f"{expected['rows']} vs {actual['rows']}"
+    left = normalise_numbers(expected["rows"])
+    right = normalise_numbers(actual["rows"])
+    return left == right, f"{left} vs {right}"
 
 
 def main():

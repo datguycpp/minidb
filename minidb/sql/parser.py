@@ -16,6 +16,12 @@ RESERVED_IDENTIFIERS = RESERVED_STARTERS | {
     "BEGIN", "COMMIT", "ROLLBACK", "END", "TRANSACTION", "DEFERRED", "IMMEDIATE", "EXCLUSIVE",
     "FROM", "WHERE", "INTO", "VALUES", "TABLE", "AND", "OR", "NOT", "IS", "NULL",
     "PRIMARY", "KEY", "UNIQUE", "DEFAULT", "CHECK", "AS", "DISTINCT", "TRUE", "FALSE",
+    # Join and grouping words are reserved in SQLite's grammar; treating them as identifiers
+    # makes our error land on the *next* token, which is a byte-level rejection mismatch.
+    # SQLite reserves JOIN/ON/GROUP/HAVING/ORDER/LIMIT but still accepts BY and INNER as bare
+    # identifiers ("SELECT by FROM t" reports no such column, not a syntax error). Matching that
+    # split is what keeps rejection messages byte-identical.
+    "JOIN", "ON", "GROUP", "HAVING", "ORDER", "LIMIT",
 }
 
 
