@@ -148,6 +148,20 @@ query history; hot-path rewrite in a faster language
     owners:** redo log ≠ SQLite's WAL (single writer, no readers during recovery,
     whole-batch apply) — M18/M24. Timing re-measure owed by the M7 report (non-blocking;
     carried). 185 engine tests OK, syntax 46/46, behaviour 50/52, all tools green.**
+  - **`SCORE t1.7+ (t1d landing, re-baselined #4): 61/63 (96.8%) [Δ +11 cases, +11 passes,
+    harness fix]`** — old score on old corpus: 50/52 (96.2%) at d6d0ac6; new score on new
+    corpus: 61/63 (96.8%) at 4e29319. Cases added: 11 (transaction shapes from M6's
+    evidence + DDL-index rollback + two reopen combinations — all pass). **Research's
+    pre-registered prediction (61/63, posted before the run) confirmed exactly — 2 for 2
+    on falsifiable predictions.** The landing also caught a REAL harness defect
+    immediately: Default's t1b runner ran MiniDB statements through `db.execute()` instead
+    of `db.run()`, defeating the engine's autocommit rule — a phase ending in ROLLBACK
+    discarded pre-transaction statements (the CREATE never committed) while SQLite's side
+    committed them: different transaction semantics per side on the same case. **The
+    engine was right; the harness was wrong.** Landed raw at 60/63 with that FAIL visible
+    (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
+    (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
+    first run.
     - `SCORE t1.4 (M4): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe index
       choice]` — plan-level evidence instead: `tools/plan_check.py` (Default re-ran from
       cold clone: full-scan 2000 examined before, index access 1 examined after, index
@@ -161,8 +175,8 @@ query history; hot-path rewrite in a faster language
       probe). 133 unit tests, durability PASS, syntax 46/46.**
   The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
   honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
-- Tier-1 budget: **18 rounds after Steven's +6 top-up. Used: 16** (M6 build 15, Default
-  harness-fix round 16). Budget rule changed by
+- Tier-1 budget: **18 rounds after Steven's +6 top-up. Used: 18** (M7 build 17, M8
+  build+review 18). Budget rule changed by
   Steven's standing directive ("finish up all of the milestones"): the stop-and-ask cap is
   **suspended for the rest of the project** — round counts are still logged here for
   transparency, and Default still flags anything impossible or too slow per the charter's
@@ -349,6 +363,40 @@ query history; hot-path rewrite in a faster language
   tier-COMPLETION gate, formally verified after M9 with the full tranche set (t1b/t1c/
   t1d/t1e) in the denominator. Recording this now so nobody closes Tier 1 early on a
   partial denominator.
+- 2026-10-30 (t1d landing — re-baseline event #4): executed by Default after engineer
+  advanced to M8 build before the ordered landing — sequencing deviation logged; the
+  re-baseline stays attributable to one tranche. **Landed raw at 60/63 with ONE FAIL**
+  (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), investigated
+  live: manual probe through `db.run()` passed, runner probe through `db.execute()`
+  failed the same shape → root cause: the harness' MiniDB side never autocommitted, so a
+  phase ending in ROLLBACK discarded pre-transaction statements (the CREATE never
+  committed) while SQLite's side committed them. **Engine semantics correct throughout —
+  the CLI-autocommit parity is the harness's to carry.** Fixed (`db.run` in the runner;
+  second Default-authored harness defect caught by a tranche's first run), suite re-run:
+  **61/63 (96.8%), research's pre-registered prediction exact.** The two loader fixes
+  engineer proposed at the M6 review were verified already at HEAD. Budget cap consumed
+  (18/18) but suspended per the standing directive.
+- 2026-10-30 (M8): M8 **accepted** — cold-clone reproduction (204 tests, syntax 46/46,
+  behaviour 50/52 at the pre-t1d denominator, plan_check join scenario: nested-loop,
+  examined=40000 = scan×scan stated honestly, with a test now guarding that the reported
+  plan is the executed one). Default probes vs the pinned binary: GROUP BY ordering with
+  NULLs-first exact-match; empty-table aggregates exact (0 and four NULLs). **Two scope
+  findings: (a) `NOT IN (SELECT …)` is a parse-level gap (`near "NOT": syntax error`) —
+  research's t1c swing case settles at 68/75, not 69; (b) `SELECT t.a` (qualified
+  reference, single table, no alias) is an undeclared gap (`no such column: t.a`) —
+  ordered INTO M10's scope (cheap parser fix, needed by any future multi-table work).**
+  INNER-only join scope ruled acceptable as stated in the report (ladder wording
+  unqualified; OUTER/comma-join remain owned failures, tracked for the gate decision).
+- 2026-10-30 (gate-margin ruling — Default's answer to Research's flag before M9): the
+  Tier-1 gate is verified on the COMPLETE t1a–e denominator at M9 completion — that is
+  not revisitable, and no scope expansion happens to protect the number. Margin flag
+  accepted and will be reported at every landing between here and the gate: post-t1c
+  predicted ~68/75 = 90.7% (0.7 points of headroom), and t1e's seeds can move it either
+  way. **If the verified number lands below 90%, Tier-1 gate verification reports NOT
+  MET and the remedy options (e.g. a focused LEFT/OUTER-join milestone vs accepting the
+  miss) go to Steven — no corpus edits, no silent re-scoping.** Current owned failures
+  mapped to that decision: NOT IN (M10), the five join-scope cases (declared at M8),
+  FROM-subquery (M10-adjacent, owned), plus whatever t1e adds.
 - 2026-10-30 (t1b draft verification): Default ran Research's parked `docs/t1b-draft.txt`
   (9 cases, outside the runner glob — parking confirmed: main run still 41/43) through the
   CURRENT runner: **4/9**. The five index cases fail correctly per decision 2
