@@ -157,6 +157,12 @@ class Parser:
         elif self.at_keyword("VACUUM"):
             self.advance()
             stmt = ast.Vacuum()
+        elif self.at_keyword("ANALYZE"):
+            self.advance()
+            target = None
+            if self.tok.kind in ("IDENT", "KEYWORD"):
+                target = self.advance().value
+            stmt = ast.Analyze(target=target)
         elif self.at_keyword("SELECT"):
             stmt = self.parse_compound()
         else:
@@ -369,6 +375,13 @@ class Parser:
 
     def parse_drop(self):
         self.expect_keyword("DROP")
+        if self.at_keyword("TABLE"):
+            self.advance()
+            if_exists = False
+            if self.accept_keyword("IF"):
+                self.expect_keyword("EXISTS")
+                if_exists = True
+            return ast.DropTable(name=self.parse_identifier("table name"), if_exists=if_exists)
         if self.at_keyword("TRIGGER"):
             self.advance()
             if_exists = False
@@ -424,8 +437,9 @@ class Parser:
             columns.append(self.parse_identifier("column name"))
             self.accept_keyword("ASC") or self.accept_keyword("DESC")
         self.expect_punct(")")
+        where = self.parse_expression() if self.accept_keyword("WHERE") else None
         statement = ast.CreateIndex(name=name, table=table, columns=columns,
-                                    unique=unique, if_not_exists=if_not_exists)
+                                    unique=unique, if_not_exists=if_not_exists, where=where)
         statement.sql = self.source.strip() if self.source else None
         return statement
 
@@ -498,7 +512,10 @@ class Parser:
     def parse_column_constraint(self):
         if self.accept_keyword("PRIMARY"):
             self.expect_keyword("KEY")
-            return ast.Constraint("PRIMARY KEY")
+            constraint = ast.Constraint("PRIMARY KEY")
+            if self.accept_keyword("AUTOINCREMENT"):
+                constraint.text = "AUTOINCREMENT"
+            return constraint
         if self.accept_keyword("NOT"):
             self.expect_keyword("NULL")
             return ast.Constraint("NOT NULL")

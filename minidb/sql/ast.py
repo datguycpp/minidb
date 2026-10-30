@@ -62,6 +62,17 @@ class SelectItem(Node):
 
 
 @dataclass
+class Analyze(Node):
+    target: "str | None" = None
+
+
+@dataclass
+class DropTable(Node):
+    name: str
+    if_exists: bool = False
+
+
+@dataclass
 class Vacuum(Node):
     pass
 
@@ -131,6 +142,7 @@ class CreateIndex(Node):
     unique: bool = False
     if_not_exists: bool = False
     sql: "str | None" = None
+    where: "Node | None" = None     # partial index predicate
 
 
 @dataclass

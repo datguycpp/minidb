@@ -226,8 +226,9 @@ class TestStatementFraming(unittest.TestCase):
         self.assertIn("expected CREATE, INSERT or SELECT", ctx.exception.detail)
 
     def test_unknown_statement(self):
+        # DROP TABLE became valid at M22; the guard now names a statement still outside the subset.
         with self.assertRaises(ParseError):
-            parse("DROP TABLE t")
+            parse("REINDEX")
 
     def test_error_reports_position(self):
         with self.assertRaises(ParseError) as ctx:

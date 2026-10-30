@@ -502,7 +502,8 @@ def truthy(value):
 
 class Column:
     __slots__ = ("name", "type_name", "not_null", "unique", "primary_key", "default", "check",
-                 "check_text", "ref_table", "ref_column", "affinity", "collation")
+                 "check_text", "ref_table", "ref_column", "affinity", "collation",
+                 "auto_increment")
 
     def __init__(self, definition: ast.ColumnDef):
         self.name = definition.name
@@ -517,7 +518,10 @@ class Column:
         self.ref_column = None
         self.affinity = affinity_of(definition.type_name)
         self.collation = None
+        self.auto_increment = False
         for constraint in definition.constraints:
+            if constraint.kind == "PRIMARY KEY" and constraint.text == "AUTOINCREMENT":
+                self.auto_increment = True
             if constraint.kind == "COLLATE":
                 self.collation = (constraint.text or "").upper()
             elif constraint.kind == "REFERENCES":
@@ -550,7 +554,7 @@ class Index:
     rules, so rows containing a NULL key are indexed but exempt from the unique check.
     """
 
-    __slots__ = ("name", "table", "columns", "column_names", "unique", "map")
+    __slots__ = ("name", "table", "columns", "column_names", "unique", "map", "where")
 
     def __init__(self, name, table, columns, column_names, unique):
         self.name = name
@@ -559,6 +563,7 @@ class Index:
         self.column_names = column_names
         self.unique = unique
         self.map = {}                       # key tuple -> set of rowids
+        self.where = None                   # partial-index predicate (None = every row)
 
     def key_for(self, values):
         return tuple(values[i] for i in self.columns)
@@ -630,6 +635,7 @@ class Database:
         self.trigger_env = None
         self._in_trigger = False
         self.foreign_keys = False
+        self.sequences = {}
         self._sql = None
         self.last_plan = None
         self.tx_snapshot = None
@@ -725,6 +731,10 @@ class Database:
             return self._compound(statement)
         if isinstance(statement, ast.Vacuum):
             return self._vacuum()
+        if isinstance(statement, ast.Analyze):
+            return None          # accepted; results unchanged (sqlite_stat1 contents are out of scope)
+        if isinstance(statement, ast.DropTable):
+            return self._drop_table(statement)
         if isinstance(statement, ast.Pragma):
             return self._pragma(statement)
         if isinstance(statement, ast.CreateTrigger):
@@ -799,11 +809,44 @@ class Database:
 
     def table(self, name):
         key = name.lower()
+        if key == "sqlite_master":
+            return self._master_table()
+        if key == "sqlite_sequence":
+            return self._sequence_table()
         if key in self.tables:
             return self.tables[key]
         if key in self.views:
             return self._materialise_view(self.views[key])
         raise ExecError(f"no such table: {name}")
+
+    def _sequence_table(self):
+        table = Table("sqlite_sequence", [Column(ast.ColumnDef(name=name))
+                                          for name in ("name", "seq")])
+        table.rows = [(name, seq) for name, seq in self.sequences.items()]
+        return table
+
+    def _master_table(self):
+        """sqlite_master as a readable table: SQLite exposes its catalog this way, and M29's
+        .schema will read it, so the shape has to match rather than be invented later."""
+        table = Table("sqlite_master", [Column(ast.ColumnDef(name=name))
+                                        for name in ("type", "name", "tbl_name", "rootpage", "sql")])
+        rows = []
+        for name, obj in self.tables.items():
+            sql = obj.entry["sql"] if obj.entry else self._render_create(obj, obj.name)
+            rows.append(("table", obj.name, obj.name, obj.entry["root"] if obj.entry else 0, sql))
+            for index in obj.indexes.values():
+                columns = ", ".join(obj.columns[i].name for i in index.columns)
+                unique = "UNIQUE " if index.unique else ""
+                rows.append(("index", index.name, obj.name, 0,
+                             f"CREATE {unique}INDEX {index.name} ON {obj.name} ({columns})"))
+        for name, view in self.views.items():
+            rows.append(("view", view.name, view.name, 0,
+                         view.sql or f"CREATE VIEW {view.name} AS SELECT 1"))
+        for name, trigger in self.triggers.items():
+            rows.append(("trigger", trigger.name, trigger.table, 0,
+                         trigger.sql or f"CREATE TRIGGER {trigger.name}"))
+        table.rows = rows
+        return table
 
     # -- views ---------------------------------------------------------------
     def _create_view(self, node: ast.CreateView):
@@ -920,6 +963,70 @@ class Database:
         table.rows = accumulated
         return table
 
+    def _ast_columns(self, node, acc=None):
+        """Every column name an expression touches, for covering-index decisions."""
+        if acc is None:
+            acc = set()
+        if isinstance(node, ast.ColumnRef):
+            acc.add(node.name.lower())
+        elif isinstance(node, ast.BinaryOp):
+            self._ast_columns(node.left, acc)
+            self._ast_columns(node.right, acc)
+        elif isinstance(node, ast.UnaryOp):
+            self._ast_columns(node.operand, acc)
+        elif isinstance(node, ast.Collate):
+            self._ast_columns(node.expr, acc)
+        elif isinstance(node, ast.Between):
+            self._ast_columns(node.expr, acc)
+            self._ast_columns(node.low, acc)
+            self._ast_columns(node.high, acc)
+        elif isinstance(node, ast.IsNull):
+            self._ast_columns(node.expr, acc)
+        elif isinstance(node, ast.Case):
+            for child in [node.base, node.else_result] + [w[0] for w in getattr(node, "whens", [])] \
+                    + [w[1] for w in getattr(node, "whens", [])]:
+                if child is not None:
+                    self._ast_columns(child, acc)
+        elif isinstance(node, ast.FuncCall):
+            for argument in (node.args or []):
+                self._ast_columns(argument, acc)
+        elif isinstance(node, getattr(ast, "InList", ())) or isinstance(node, getattr(ast, "In", ())):
+            self._ast_columns(node.expr, acc)
+        elif isinstance(node, getattr(ast, "InSubquery", ())):
+            self._ast_columns(node.expr, acc)
+        return acc
+
+    def _covering_index(self, node, table, index):
+        """True when every column the query touches lives in the index.
+
+        Then the rows come out of the index keys themselves and nothing random-accesses the table —
+        the cost the M21 measurement identified as the dominant one.
+        """
+        if index.where is not None:
+            return False          # keep the partial path simple until it is measured
+        names = {name.lower() for name in index.column_names}
+        needed = set()
+        for item in node.items:
+            if isinstance(item, ast.Star):
+                needed |= {column.name.lower() for column in table.columns}
+            else:
+                needed |= self._ast_columns(item.expr)
+        if node.where is not None:
+            needed |= self._ast_columns(node.where)
+        for expression, _ in node.order_by:
+            needed |= self._ast_columns(expression)
+        return needed <= names
+
+    def _index_applies(self, index, table, values):
+        """Partial indexes only contain rows that satisfy their predicate."""
+        if index.where is None:
+            return True
+        env = {}
+        for column, value in zip(table.columns, values):
+            env[column.name.lower()] = value
+            env[f"{table.name.lower()}.{column.name.lower()}"] = value
+        return truthy(self._eval(index.where, table, env))
+
     def _create_index(self, node: ast.CreateIndex):
         table = self.table(node.table)
         key = node.name.lower()
@@ -938,10 +1045,12 @@ class Database:
             names.append(column)
 
         index = Index(node.name, table.name, positions, names, node.unique)
+        index.where = node.where
         # Build against existing rows first: a UNIQUE index over duplicate data must fail, and a
         # failed CREATE must leave no half-built index behind.
         for rowid, values in self._rows_with_ids(table):
-            index.add(rowid, values)
+            if self._index_applies(index, table, values):
+                index.add(rowid, values)
         table.indexes[key] = index
         if self.storage is not None:
             self._persist_indexes(table)
@@ -952,7 +1061,8 @@ class Database:
             return
         table.entry["indexes"] = [
             {"name": index.name, "columns": [table.columns[i].name for i in index.columns],
-             "unique": index.unique}
+             "unique": index.unique,
+             "where": _render_expression(index.where) if index.where is not None else None}
             for index in table.indexes.values()
         ]
         self.storage.save_catalog_entry(table.entry)
@@ -962,6 +1072,10 @@ class Database:
             names = definition["columns"]
             positions = [table.index_of[c.lower()] for c in names]
             index = Index(definition["name"], table.name, positions, names, definition["unique"])
+            if definition.get("where"):
+                from .sql.parser import parse
+                predicate = parse(f"SELECT 1 WHERE {definition['where']}")
+                index.where = predicate.where
             for rowid, values in self._rows_with_ids(table):
                 index.add(rowid, values)
             table.indexes[definition["name"].lower()] = index
@@ -999,11 +1113,22 @@ class Database:
             for i, column in enumerate(table.columns):
                 if i in supplied:
                     continue
+                if column.auto_increment:
+                    current = self.sequences.get(table.name.lower(), 0)
+                    highest = max([row[i] for row in self._rows(table)
+                                   if isinstance(row[i], int)], default=0)
+                    values[i] = max(current, highest) + 1
+                    continue
                 if column.default is not None:
                     values[i] = self._eval(column.default, table, None)
                 elif column.not_null:
                     raise ExecError(f"NOT NULL constraint failed: {table.name}.{column.name}")
             for i, column in enumerate(table.columns):
+                if column.auto_increment and values[i] is None:
+                    current = self.sequences.get(table.name.lower(), 0)
+                    highest = max([row[i] for row in self._rows(table)
+                                   if isinstance(row[i], int)], default=0)
+                    values[i] = max(current, highest) + 1
                 values[i] = apply_affinity(values[i], column.affinity)
                 if values[i] is None and column.not_null:
                     raise ExecError(f"NOT NULL constraint failed: {table.name}.{column.name}")
@@ -1028,7 +1153,8 @@ class Database:
             # Unique indexes are checked before the row lands, so a rejected insert leaves
             # neither a row nor a dangling index entry.
             for index in table.indexes.values():
-                index.check_unique(values)
+                if self._index_applies(index, table, values):
+                    index.check_unique(values)
             violation = self._foreign_key_violation(table, values)
             if violation:
                 raise ExecError(violation)
@@ -1043,9 +1169,29 @@ class Database:
                 rowid = table.next_rowid
                 table.next_rowid += 1
             for index in table.indexes.values():
-                index.add(rowid, values)
+                if self._index_applies(index, table, values):
+                    index.add(rowid, values)
+            for position, column in enumerate(table.columns):
+                if column.auto_increment and isinstance(values[position], int):
+                    self.sequences[table.name.lower()] = max(
+                        self.sequences.get(table.name.lower(), 0), values[position])
+                    if table.entry is not None:
+                        table.entry["seq"] = self.sequences[table.name.lower()]
+                        self.storage.save_catalog_entry(table.entry)
             self._fire(table, "INSERT", "AFTER", None, values)
         return len(node.rows)
+
+    # -- DROP TABLE ----------------------------------------------------------
+    def _drop_table(self, node: ast.DropTable):
+        key = node.name.lower()
+        if key in self.tables:
+            del self.tables[key]
+            if self.storage is not None:
+                self.storage.drop_entry(node.name)
+            return None
+        if node.if_exists:
+            return None
+        raise ExecError(f"no such table: {node.name}")
 
     # -- VACUUM --------------------------------------------------------------
     def _vacuum(self):
@@ -1092,6 +1238,22 @@ class Database:
     # -- PRAGMA / foreign keys ----------------------------------------------
     def _pragma(self, node: ast.Pragma):
         name = node.name.lower()
+        if name == "table_info":
+            if node.value is None:
+                raise ExecError("table_info requires a table name")
+            if isinstance(node.value, ast.ColumnRef):
+                target_name = node.value.name
+            elif isinstance(node.value, ast.Literal):
+                target_name = str(node.value.value)
+            else:
+                raise ExecError("table_info requires a table name")
+            target = self.table(target_name)
+            rows = []
+            for position, column in enumerate(target.columns):
+                default = _render_expression(column.default) if column.default is not None else None
+                rows.append((position, column.name, column.type_name or "", 1 if column.not_null else 0,
+                             default, 1 if column.primary_key else 0))
+            return (["cid", "name", "type", "notnull", "dflt_value", "pk"], rows)
         if name == "foreign_keys":
             if node.value is not None:
                 self.foreign_keys = truthy(self._eval(node.value, None, {}))
@@ -1371,7 +1533,8 @@ class Database:
         for index in table.indexes.values():
             index.map = {}
             for rowid, values in enumerate(table.rows, start=1):
-                index.add(rowid, values)
+                if self._index_applies(index, table, values):
+                    index.add(rowid, values)
 
     # -- SELECT --------------------------------------------------------------
     def _row_by_id(self, table, rowid):
@@ -1402,6 +1565,20 @@ class Database:
 
         collect(where)
         return equalities
+
+    def _predicate_texts(self, where):
+        texts = set()
+
+        def collect(node):
+            if isinstance(node, ast.BinaryOp) and node.op == "AND":
+                collect(node.left)
+                collect(node.right)
+            else:
+                texts.add(_render_expression(node))
+
+        if where is not None:
+            collect(where)
+        return texts
 
     def _ranges(self, table, where):
         """Range constraints usable by an index: conjunctions of `column OP literal`.
@@ -1452,7 +1629,10 @@ class Database:
         equalities = self._equalities(table, where)
         ranges = self._ranges(table, where)
         candidates = []
+        query_predicates = self._predicate_texts(where)
         for index in table.indexes.values():
+            if index.where is not None and _render_expression(index.where) not in query_predicates:
+                continue
             if all(position in equalities for position in index.columns):
                 key = tuple(equalities[position] for position in index.columns)
                 rowids = index.lookup(key)
@@ -1474,6 +1654,7 @@ class Database:
                         "rowids": rowids,
                         "estimated_rows": len(rowids),
                         "kind": "range",
+                        "range": (op, value),
                         "columns": [table.columns[i].name for i in index.columns],
                     })
 
@@ -1768,6 +1949,40 @@ class Database:
                 items.append(item.alias or _heading(item))
 
         decision = self._choose_access(table, node.where)
+        if decision["access"] == "index" and self._covering_index(node, table, decision["candidate"]["index"]):
+            chosen = decision["candidate"]
+            index = chosen["index"]
+            names = [name.lower() for name in index.column_names]
+            prepared = []
+            if chosen.get("key") is not None:
+                buckets = [(chosen["key"], index.map.get(chosen["key"], set()))]
+            else:
+                op, value = chosen["range"]
+                buckets = [(key, bucket) for key, bucket in index.map.items()
+                           if len(key) == 1 and sql_compare(key[0], value, op)]
+            for key, bucket in buckets:
+                for rowid in bucket:
+                    env = {}
+                    for name, value in zip(names, key):
+                        env[name] = value
+                        env[f"{table.name.lower()}.{name}"] = value
+                    if node.where is not None and not truthy(self._eval(node.where, table, env)):
+                        continue
+                    prepared.append((env, tuple(env.get(name) for name in table.column_names)))
+            prepared.sort(key=lambda pair: pair[1])
+            decision = dict(decision)
+            decision["reason"] = "covering-index"
+            self.last_plan = {"table": table.name, "access": "index", "index": index.name,
+                              "rows_examined": sum(len(b) for b in index.map.values()),
+                              "rows_matched": len(prepared), "reason": "covering-index",
+                              "estimated_rows": chosen["estimated_rows"], "candidates": decision["candidates"]}
+            rows = [tuple(self._eval(item.expr, table, env) for item in projection)
+                    for env, _ in prepared]
+            if node.distinct:
+                rows = _distinct(rows)
+            rows = self._apply_limit(node, rows)
+            return items, rows
+
         if decision["access"] == "index":
             chosen = decision["candidate"]
             rowids = chosen["rowids"]
