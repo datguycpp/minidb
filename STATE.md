@@ -84,10 +84,11 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M18 (page cache) accepted with an honest-reproduction finding
-  (lookups reproduce, the +46% scan claim does not); t3a's literal re-verified at 4209
-  chars (the proof-the-claim duty discharged), tree housekeeping committed. M19
-  (freelist/VACUUM/blob literals) next, with t3a's landing gate open after that review.**
+- **Current milestone: M22 (covering/partial indexes + the system surface) accepted;
+  t3b landed 222/222 [prediction top-of-band (+1)]. Tier-6 prework committed (the
+  authored queue is complete through Tier 6). M23 (file compat) is next — read-compat
+  is the gate per the M23 spec — and M23's close computes the Tier-3 gate arithmetic
+  over the recorded partials (M19 freelist remainder included).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -178,6 +179,46 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t3.22 (M22 landing + t3b, re-baselined #25): 222/222 (100.0%), 371 tests
+    — covering + partial indexes + the system surface — accepted`** (the t3b landing
+    pushes the corpus 216 → 222; per the recorded rule the TIER-3 GATE arithmetic
+    fires post-M23's review). Cold clone verified: **the covering-index rule's
+    STRUCTURAL claim verified** (rows come from the index when everything a query
+    touches lives in it — asserted by plan reason in the tests, so a future refactor
+    that silently returns to row fetches FAILS rather than slowing down); the
+    magnitude claims are **dataset-shape-dependent, recorded per the benchmark spec's
+    own rule** — at my 3,000-row-result draw the covering is ~18% faster (25.5 →
+    30.2 ms row-fetch control), at the engineer's selective 1-row shape the number
+    reproduces as 2.89 vs their 2.8, and no magnitude gets quoted outside the
+    benchmark's warm-up/alternating protocol (the M18 retraction's lesson, now on
+    the third incident-class instance). **The partial-index rule verified live:** a
+    non-matching query correctly takes the table scan (plan `no-eligible-index`; the
+    partial index silently unchosen — returned rows agree with the binary), and the
+    MATCHING query selects the partial (row 1 only). `table_info`'s DEFAULT render
+    matches the reference exactly; `DROP TABLE` removes the catalog row (view/trigger
+    survivors intact). **The system surface cases are built (t3b's 6/6) including the
+    AUTOINCREMENT swing research flagged (the persisted counter + the sqlite_sequence
+    floor all pass) — her pre-registered band 3–5/6 vs actual 6/6 = +1 over the
+    ceiling, her 4th consecutive generous miss (tally: 6 hits, 2 conservative, 3
+    generous).** Declared limits (no covering-for-partial; ORDER BY after projection
+    on covering scans) recorded, not hidden. engineer's own flagged future-draft
+    shape: composite PK's `pk` column starts not 1 (recorded for the next tranche's
+    writer).
+  - **[TIER-6 PREWORK COMMITTED as-is (research's authored queue now complete through
+    Tier 6)]** — the M11 ruling carried forward as METHOD (the runtime feature
+    inventory printed from the pinned build at every Tier-6 entry, recorded pre-
+    implementation — "which surface does the ladder mean" answered by probe, not by
+    scope talk); M34/M35 declared syntax subsets with the bad-path error text as the
+    rule-shaped swing; M36/M37 invariant acceptance (replication = scripted seeded
+    partitions on M24's replay discipline, with a DECLARED divergence policy chosen
+    before testing; learning planner = outputs conformance, choices not, with a
+    flagged recursion into M23's read-compat file question when learning state
+    persists); **M38's parity gate fixed mechanically: identical per-file lines
+    pre/post, same-seed fuzz runs producing the same mismatch counts at the same
+    count, W1–W10 ratios improved-or-equal per the ratified protocol, and declared
+    toolchain additions** (a rewrite that needs an absent toolchain trades one gate
+    for another). The prediction bands for M34–M38 register when approach, same
+    discipline.
   - **`SCORE t3.21 (M21 landing, re-baselined #24): 216/216 (100.0%), 357 tests —
     range-aware index access with a measured cost model — accepted`** Cold clone
     verified. **M21's diagnosis correction is accepted and adopted (research's
