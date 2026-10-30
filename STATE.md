@@ -178,6 +178,35 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t3.20 (M20 landing, re-baselined #22): 216/216 (100.0%), 354 tests —
+    blobs keep their storage class; 'now' is UTC; harness renders bytes — accepted`**
+    Cold clone verified. **PROBE-FOUND #3's shape is closed and verified live:** a
+    blob into a TEXT column stays a blob (`typeof`=blob, `hex`=0102, `length`=2 —
+    byte-identical to the binary), text into a BLOB column stays text, `CAST`
+    both directions carry the reference's output, `quote()` exists for the
+    blob/string/NULL/number shapes and `||` treats blobs as text. **[THE CLOCK BUG —
+    classified by shape, not by luck, because it caught the corpus case that would
+    have hidden it] MiniDB's `date/time(&date('now')` returned LOCAL time in
+    Singapore (+8), so corpus cases disagreed with the binary for 8 hours a
+    day — the worst possible shape: every gate run that crossed SGT 00:00–08:00
+    would have failed and every run in the other 16 hours passed.** The fix is
+    verified live against the binary (`date('now')` = `2026-10-30` both sides while
+    python-utc == the reference's output, python-local is the next day) — **a
+    silent timezone bug would have passed every correct corpus run except one
+    unlucky day.** The unseen lesson: FULL corpus runs hide a wrong answer only when
+    they cover the fragile span — the corpus's own case is the protection, and the
+    SGT-vs-UTC gap is the honest reason the gate's timing was rejected: a
+    time-of-day-dependent pass gate is a lying gate.
+  - **[NORMALIZER AMENDMENT — zero-delta re-baseline #23, per the standing ledger
+    rule] The harness now renders bytes identically to the sqlite3 CLI's own
+    representation of them, because **the oracle cannot distinguish a blob from the
+    same text in `-json` output (it prints them as the same string)** — blob-ness
+    stays testable through `typeof()`, which is how the corpus asserts it; the
+    change makes the comparison honest about what the pinned CLI can express, and
+    the score did not move. The corpus harness's own test file runs standalone (7
+    tests, OK).** The class is the counted-float re-baseline (#5) and the
+    round-ordering-relevance glob fix (#7): a change to the comparison floor that
+    changes neither the accepted case set nor the score.
   - **[TIER-4 PREWORK COMMITTED as-is at afa9b83; Default's scope ratifications folded
     in] M25–M27 acceptance shapes are now on paper** (M25 snapshot isolation = reader
     starting before a writer commits must finish seeing the pre-write state; the
