@@ -1,0 +1,166 @@
+-- t2f DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator stays 148 (168 once t2e lands) until ordered.
+-- Sequencing: authored BEFORE M16 starts (drafts-first rule). Spans M16
+-- (ALTER TABLE, constraints, foreign keys, triggers) and M17 (collations,
+-- type affinity) — Default may split it; prediction covers the whole file.
+-- src: authored   tier: t2 (tranche f)
+-- Multi-row cases carry outer ORDER BY (t2d rule).
+
+-- ALTER: ADD COLUMN — pre-existing rows read as NULL.
+
+CREATE TABLE t (id INTEGER, v TEXT);
+INSERT INTO t VALUES (1, 'a');
+ALTER TABLE t ADD COLUMN extra INTEGER;
+SELECT id, extra FROM t ORDER BY id;
+
+-- ALTER: ADD COLUMN with DEFAULT — pre-existing rows report the default.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+ALTER TABLE t ADD COLUMN n INTEGER DEFAULT 7;
+SELECT n FROM t;
+
+-- ALTER: RENAME TO, then query the new name.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+ALTER TABLE t RENAME TO u;
+SELECT * FROM u;
+
+-- ALTER: RENAME COLUMN (SQLite 3.25+), then project the new name.
+
+CREATE TABLE t (a INTEGER, b TEXT);
+INSERT INTO t VALUES (1, 'x');
+ALTER TABLE t RENAME COLUMN a TO first;
+SELECT first FROM t;
+
+-- ALTER: DROP COLUMN (SQLite 3.35+), then select what remains.
+
+CREATE TABLE t (a INTEGER, b TEXT, c TEXT);
+INSERT INTO t VALUES (1, 'x', 'y');
+ALTER TABLE t DROP COLUMN c;
+SELECT a, b FROM t;
+
+-- RULE: ADD NOT NULL column without a default — refusal text is the
+-- reference's wording.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+ALTER TABLE t ADD COLUMN n INTEGER NOT NULL;
+
+-- Composite PRIMARY KEY: duplicate pair is a violation with both columns
+-- named (reference's exact message).
+
+CREATE TABLE t (a INTEGER, b INTEGER, PRIMARY KEY (a, b));
+INSERT INTO t VALUES (1, 2);
+INSERT INTO t VALUES (1, 2);
+SELECT * FROM t;
+
+-- FOREIGN KEYS without the pragma: SQLite does NOT enforce by default —
+-- the violating insert SUCCEEDS. If MiniDB enforces anyway, that is a
+-- mismatch (decision 3: reference behaviour is ground truth).
+
+CREATE TABLE p (id INTEGER PRIMARY KEY);
+CREATE TABLE c (id INTEGER, pid INTEGER REFERENCES p(id));
+INSERT INTO p VALUES (1);
+INSERT INTO c VALUES (1, 999);
+SELECT * FROM c;
+
+-- FOREIGN KEYS with PRAGMA foreign_keys=ON: now enforced, error text is
+-- the reference's. Named risk: M16 must accept a PRAGMA statement for
+-- this case to run at all — unknown-statement refusal is a fail, owned.
+
+CREATE TABLE p (id INTEGER PRIMARY KEY);
+CREATE TABLE c (id INTEGER, pid INTEGER REFERENCES p(id));
+PRAGMA foreign_keys = ON;
+INSERT INTO c VALUES (1, 999);
+
+-- DEFAULT as a parenthesised constant expression.
+
+CREATE TABLE t (n INTEGER DEFAULT (2 * 3), label TEXT);
+INSERT INTO t (label) VALUES ('x');
+SELECT n, label FROM t;
+
+-- Trigger: AFTER INSERT writes a log row.
+
+CREATE TABLE t (v INTEGER);
+CREATE TABLE log (v INTEGER);
+CREATE TRIGGER t_ai AFTER INSERT ON t BEGIN INSERT INTO log VALUES (NEW.v); END;
+INSERT INTO t VALUES (7);
+INSERT INTO t VALUES (8);
+SELECT v FROM log ORDER BY v;
+
+-- Trigger: BEFORE UPDATE may modify NEW — the stored value changes.
+
+CREATE TABLE t (v INTEGER);
+INSERT INTO t VALUES (1);
+CREATE TRIGGER t_bu BEFORE UPDATE ON t BEGIN UPDATE t SET v = NEW.v + 10 WHERE v = OLD.v; END;
+UPDATE t SET v = 5;
+SELECT v FROM t;
+
+-- Trigger: WHEN clause gates firing — condition false means no log row.
+
+CREATE TABLE t (v INTEGER);
+CREATE TABLE log (v INTEGER);
+CREATE TRIGGER t_ai WHEN NEW.v > 0 AFTER INSERT ON t BEGIN INSERT INTO log VALUES (NEW.v); END;
+INSERT INTO t VALUES (-1);
+SELECT COUNT(*) FROM log;
+
+-- Trigger: RAISE(ABORT) surfaces the custom message as an error.
+
+CREATE TABLE t (v INTEGER);
+CREATE TRIGGER t_bi BEFORE INSERT ON t BEGIN SELECT RAISE(ABORT, 'no negatives'); END;
+INSERT INTO t VALUES (-5);
+
+-- DROP TRIGGER: the trigger stops firing.
+
+CREATE TABLE t (v INTEGER);
+CREATE TABLE log (v INTEGER);
+CREATE TRIGGER t_ai AFTER INSERT ON t BEGIN INSERT INTO log VALUES (NEW.v); END;
+DROP TRIGGER t_ai;
+INSERT INTO t VALUES (1);
+SELECT COUNT(*) FROM log;
+
+-- TYPE AFFINITY: INTEGER column converts a numeric-looking string on
+-- storage — typeof proves it, not just the printed value.
+
+CREATE TABLE t (n INTEGER);
+INSERT INTO t VALUES ('5');
+SELECT n, typeof(n) FROM t;
+
+-- TYPE AFFINITY: TEXT column keeps a number as text.
+
+CREATE TABLE t (s TEXT);
+INSERT INTO t VALUES (5);
+SELECT s, typeof(s) FROM t;
+
+-- TYPE AFFINITY quirk: '3.0' in an INTEGER column becomes integer 3 —
+-- the string that looks like a float loses its dot.
+
+CREATE TABLE t (n INTEGER);
+INSERT INTO t VALUES ('3.0');
+SELECT n, typeof(n) FROM t;
+
+-- COLLATE NOCASE in ORDER BY: case-insensitive order puts 'B' before 'a'.
+
+CREATE TABLE t (s TEXT);
+INSERT INTO t VALUES ('a');
+INSERT INTO t VALUES ('B');
+INSERT INTO t VALUES ('c');
+SELECT s FROM t ORDER BY s COLLATE NOCASE;
+
+-- Column-level COLLATE NOCASE feeding UNIQUE: 'A' and 'a' conflict.
+
+CREATE TABLE t (s TEXT COLLATE NOCASE UNIQUE);
+INSERT INTO t VALUES ('A');
+INSERT INTO t VALUES ('a');
+SELECT * FROM t;
+
+-- TEXT affinity keeps '10' as text, so ORDER BY sorts lexicographically:
+-- digits before letters. If the engine had coerced '10' to a number, the
+-- order and typeof would both move.
+
+CREATE TABLE t (s TEXT);
+INSERT INTO t VALUES ('b');
+INSERT INTO t VALUES ('10');
+SELECT s, typeof(s) FROM t ORDER BY s;
