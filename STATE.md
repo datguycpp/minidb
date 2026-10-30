@@ -81,8 +81,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: Tier-1 remediation accepted (75/75 = 100%); gate verification
-  held for t1e (research's, the last Tier-1 deliverable). M10 next.**
+- **Current milestone: TIER-1 GATE VERIFIED PASS (86/86 = 100.0%, complete t1a–e
+  denominator, cold-clone-verified) — Tier 1 CLOSED. Next: M10 — expression engine
+  (Tier 2 begins).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -162,6 +163,18 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t1.9+ (t1e landing, re-baselined #8): 86/86 (100.0%) [Δ +11 cases, +11 passes
+    — ALL GREEN]`** — old: 75/75 (100.0%) at 9ece60d; new: 86/86 (100.0%) at 14c41e1.
+    Cases added: 11 fuzz-seed-shaped cases (NULL join keys, join-aggregates over empty
+    results, bare aggregates over empty tables — M8's IndexError pinned as seed, both
+    halves of the IN/NOT-IN empty-truth-table, LEFT-join padding feeding AVG, DISTINCT
+    with NULLs, three-table join chain, scalar aggregates in WHERE and projection,
+    never-matching compound ON). **Research's pre-registered prediction (11/11 → 86/86
+    at gate verification) confirmed exactly — 3 for 3 on falsifiable predictions.**
+    Valid-input seeds only per the corrected spec: crash/torn-WAL scenarios correctly
+    NOT corpus cases (reference runs :memory:; no log to tear) — they live in the
+    fuzzer's stateful scenario mode against the proven seam, per the spec correction
+    research recorded in the file header.
   - **`SCORE t1.8+ (t1c landing, re-baselined #6): 67/75 (89.3%) [Δ +12 cases, +6 passes,
     −6 fails — BELOW THE TIER-1 GATE LINE]`** — old: 61/63 (96.8%) at 4e29319; new: 67/75
     (89.3%) at 4e29319+dirty (t1c.txt). Failures classified from the raw list: 5 declared
@@ -546,3 +559,38 @@ query history; hot-path rewrite in a faster language
 - 2026-10-30 (t1e ownership confirmed): the fuzz seed scenarios (torn WAL frame,
   first-commit-on-empty-file — reusing `MINIDB_CRASH_POINT`) remain Research's authored
   deliverable per her spec; the fuzzer machinery is ready to consume them.
+- 2026-10-30 (re-baseline event #8 — t1e landing): corpus 75 → 86 (+11 fuzz-seed cases),
+  **86/86 (100.0%) at 14c41e1 — the complete Tier-1 denominator (t1a–e).** No normalizer
+  changes this landing (counted-float rule already in force from event #5); no new
+  failures.
+- **TIER-1 GATE VERIFICATION REPORT — VERIFIED PASS, 2026-10-30 (Default, the full
+  per-charter reading applied):**
+  - **Result: PASS — 86/86 = 100.0% ≥ 90% gate**, complete t1a–e denominator in place
+    (86 cases across behavior/t1a/t1b/t1c/t1d/t1e), verified from a **cold public clone**
+    at corpus revision **14c41e1** — raw output posted in-thread before this entry.
+  - Verification method: every prior milestone's numbers were independently re-verified
+    on cold clones (scores, five evidence tools); the final gate run checks the complete
+    denominator plus syntax 46/46, durability 3/3, crash 4/4, transactions 8/8,
+    plan_check (incl. the guarded join-cost honesty), and an independent fuzz run
+    (2000 queries seed 11 → 0 mismatches, semantic class; per the ratified split, the
+    rejection-position rate stays printed and tracked, 0 on this seed).
+  - **Gate margin: 10.0 points of headroom on the complete denominator.** t1e's seed
+    count (11) was the variable — it landed at the top, 100.0%.
+  - The charter amendment ("finish up all of the milestones", advance approval for
+    verification-passing gates) was applied: this verification closes Tier 1 per the
+    recorded interpretation; the exit clause remains Steven's at any time.
+  - **Tier-1 RETROSPECTIVE (per charter — what broke, what surprised us):**
+    - *What broke:* the harness, twice (missing autocommit parity in the runner — the
+      seed-1 lesson; plus inert directive markers caught twice by the parked-draft
+      probe); the GROUP BY row-order assumption; the aggregate-empty-table IndexError;
+      the RIGHT-as-alias parser bug; and the t1c landing landing BELOW its predicted
+      floor — which is exactly what caught the undeclared FROM-less scalar-subquery
+      class. The remediation round that followed converted a 6.7-point gate miss into
+      a closed tier.
+    - *What surprised us:* how little the engine itself broke — every milestone's
+      differential evidence survived independent probing, and the two "data loss"
+      alarms both turned out to be probe errors or correct empty-DB semantics, not
+      engine bugs. The cost models flipped twice (rollback O(n)→O(1), remedy-C at
+      ~30 lines); and the falsifiable-prediction culture turned what could have been
+      silent drift (t1c's miss) into a classified finding with an owner.
+  - **Verdict: Tier 1 CLOSED. Tier 2 starts at M10 per the standing directive.**
