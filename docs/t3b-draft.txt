@@ -1,0 +1,53 @@
+-- t3b DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator stays 216 until ordered.
+-- Sequencing: authored BEFORE M22 starts (drafts-first).
+-- Subject: SYSTEM SURFACE — the conformance class nobody has tranched yet
+-- (opened by M21 declaring no-ANALYZE, which made the scope visible).
+-- src: authored   tier: t3 (tranche b: system catalog + pragma + declared
+--      scope-flag cases)
+
+-- sqlite_master: object names and types after CREATE + DROP, ordered for
+-- determinism. This is what .schema (M29) will read; if it isn't
+-- conformant now, M29 inherits the gap.
+
+CREATE TABLE alpha (id INTEGER);
+CREATE TABLE beta (id TEXT);
+CREATE INDEX idx_alpha ON alpha (id);
+DROP TABLE beta;
+SELECT type, name FROM sqlite_master ORDER BY type, name;
+
+-- sqlite_master rows for a view: type 'view', name, and the view's SQL.
+
+CREATE TABLE t (id INTEGER);
+CREATE VIEW v AS SELECT id FROM t;
+SELECT type, name FROM sqlite_master ORDER BY type, name;
+
+-- ANALYZE statement acceptance: the ladder's M21 line includes ANALYZE.
+-- Whatever MiniDB does internally, the statement must be accepted and
+-- must not change RESULTS (plans may change; rows may not).
+
+CREATE TABLE t (id INTEGER, v TEXT);
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, 'b');
+ANALYZE;
+SELECT id, v FROM t ORDER BY id;
+
+-- PRAGMA table_info: column metadata for a created table, the shape
+-- .schema and most tooling read. Deterministic as printed.
+
+CREATE TABLE t (id INTEGER NOT NULL PRIMARY KEY, name TEXT DEFAULT 'x');
+PRAGMA table_info (t);
+
+-- PRAGMA foreign_keys read-back: default is 0 (matches the t2f rule).
+
+PRAGMA foreign_keys;
+
+-- SWING / scope-flag for Default: AUTOINCREMENT and sqlite_sequence.
+-- The ladder never says AUTOINCREMENT; SQLite stores its counter in a
+-- sqlite_sequence system table. If AUTOINCREMENT is unsupported this
+-- fails and is owned-by-scope-decision, not by the parser.
+
+CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT seq FROM sqlite_sequence;
