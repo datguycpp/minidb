@@ -84,9 +84,11 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M16 part 2 (FK/PRAGMA) next, then M17 (affinity/collations),
-  closing Tier 2 at the pre-registered gate plan (docs/tier2-gate-plan.md, arithmetic
-  verified against the loader at cdd8735). t2f stays parked until M17's review.**
+- **Current milestone: TIER-2 GATE — VERIFIED PASS (208/208, slice 122/122, semantic
+  fuzz 0/10k on the declared 12-feature dialect, 86-line green, all tools green).
+  t2f landed 21/21. Tier 3 opens with M18 and the fuzzer's post-M15 feature-surface
+  extension queued as Build work; the benchmark's first full run still triggers the
+  pre-registered multiple.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -177,6 +179,76 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t2.17 (M16 parts 2–3 + M17 landing, re-baselined #17): 187/187 (100.0%),
+    330 tests — FK/PRAGMA, affinity/collations, table-level constraints — accepted`**
+    Verified vs binary from the cold clone: PRAGMA foreign_keys reads back **0 by
+    default and violations are accepted** (the surprising reference default is the
+    case's whole point, confirmed live); `= ON` enforces with
+    `FOREIGN KEY constraint failed`, NULL children stay exempt under ON, and the
+    parent-delete refusal fires. Affinity by `typeof`: TEXT/INTEGER/REAL coercions
+    match, `'3.0'` into NUMERIC gives integer 3 (the dot disappears), `'12abc'` stays
+    text under NUMERIC (the well-formedness rule, not the CAST prefix rule — a
+    distinction the corpus's `typeof` cases now pin). NOCASE on columns makes `'A'`
+    vs `'a'` a UNIQUE conflict while the same table without it keeps both; the
+    composite PK/UNIQUE message is the reference's composite wording
+    (`UNIQUE constraint failed: cp.a, cp.b`). The affinity work flushed out a real
+    bug: views and CTEs built materialised tables with bare `SimpleNamespace`
+    columns (no `.affinity`) — now real `Column` objects with BLOB affinity (no
+    coercion), the correct semantic for computed results. Engineer's own pre-fit
+    Ernest: case 7 failed at the parser before part 3 (`near "PRIMARY": syntax
+    error` — the raw line, recorded as the reason the part-3 slice exists).
+    **M16 part 2's remaining named surface — the FK PRAGMA on/off pair, plus M17's
+    affinity surface — are the t2f cases 8/9 slices now reachable end to end.**
+  - **`SCORE t2.18 (t2f landing, re-baselined #18): 208/208 (100.0%) [Δ +21 cases,
+    +21 passes, 0 fails]`** — old: 187/187 at cdd8735; new: 208/208 at 714f4ed.
+    t2f: 21/21 — **research's pre-registered band was 17–20/21; the actual is +1 over
+    the ceiling again (out-of-band in the generous direction, the second consecutive
+    generous miss). Running tally: 6 hits, 2 conservative, 2 generous.**
+  - **TIER-2 GATE — VERIFIED PASS, 2026-10-30 (executed per docs/tier2-gate-plan.md).
+    Per-file lines from the cold clone (name-the-commit rule: rev `714f4ed` (my
+    landing), built tree dbde248):**
+    - **behavior 21/21, t1a 22/22, t1b 9/9, t1c 12/12, t1d 11/11, t1e 11/11,
+      t2a 20/20, t2b 21/21, t2c 21/21, t2d 19/19, t2e 20/20, t2f 21/21**
+    - **Hand arithmetic PASS 1 (added as printed): 21+22+9+12+11+11+20+21+21+19+20+21
+      = 208/208.**
+    - **Hand arithmetic PASS 2 (slice, twice — shell then internal):
+      T1-line 21+22+9+12+11+11 = 86 (the no-Tier-1-regression line: 0 regressions);
+      T2-slice t2a–f 20+21+21+19+20+21 = 122, same via the second computation = 122.**
+    - **Slice verdict: 122/122 ≥ 116 threshold (95%) — PASS, and inside the
+      pre-registered band 119–122/122 at its top.**
+    - **Full-corpus verdict: 208/208 — inside the pre-registered 205–208/208 band.**
+    - **Fuzz gate run (declared per the split, headers quoted verbatim):
+      structured seed 1001, 10k queries, 0 mismatches, 0.00/10k, features
+      aggregates/and-or/distinct/group-by/having/in-subquery/index/inner-join/
+      is-null/not-in-subquery/select/where, mode structured; mutation seed 2002,
+      10k queries, 0 mismatches, 0.00/10k, same features, mode mutation.
+      Rejection class (run and reported, EXCLUDED per the split): seed 3003, 5k
+      queries, 11 mismatches, 22/10k — the FIRST rejection-gate baseline
+      (non-increasing binds from the next gate).**
+    - **Every mismatching class before the verdict: classified. Zero corpus failures
+      on the semantic side; the 11 rejection-position mismatches are the
+      rejection-class baseline (engine's known class, not new). The dual-harness
+      arithmetic passed at the plan's twice-computed rule.**
+    - **The gate verdict carries one HONEST SCOPING caveat, recorded per the
+      declared-features rule: the generator's dialect is the 12 Tier-1-era surfaces —
+      the post-M15 features (triggers, windows, set-op compounding, affinity edges)
+      are NOT emitted by the current fuzzer, so the 0/10k is valid only over its
+      declared dialect and says nothing about the new surfaces' fuzz-exposed
+      conformance. The plan's named risk class (mismatches in post-M15 features) is
+      thus UNREACHABLE rather than met — the risk becomes a [Build] item:
+      extend the generator to those features before the next gate, so the next
+      gate's 0/10k (if it is 0) is over a dialect that can actually reach the new
+      surface. The split itself prints as declared; the all-oracle raw count for
+      the record: 11 mismatches over 15k semantic+rejection combined.**
+    - **Steven's ratification of the fuzz split remains the one open human item —
+      filed per the plan's provisional rule, with the split and the raw count both
+      printed beside each other.**
+  - **[INFRA — push path fixed per the build's note] The remote now uses the
+    `github-datguycpp` SSH alias and a repo-local `core.sshCommand` pins the agent
+    (passing `-i ~/.ssh/id_ed25519_datguycpp -o IdentitiesOnly=yes`), so
+    `git push origin main` works without the per-invocation env (the
+    up-to-date no-op at this round confirmed the fix). Documented here; no history
+    rewrite.**
   - **[GATE PLAN COMMITTED — research-authored as-is] docs/tier2-gate-plan.md landed at
     cdd8735, written BEFORE M17's review.** The arithmetic is verified against the
     loader, not accepted from the doc: current corpus 187 + t2f's 21 = **208** at gate;
