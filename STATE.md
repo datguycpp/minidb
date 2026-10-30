@@ -84,9 +84,12 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M15 (windows + UPDATE/DELETE + DAG fix) accepted — 148/148, 299
-  tests, t2e preview 20/20. Tier-2 closes at M16/M17 (t2f parked); gate ruling recorded
-  (slice ≥95% AND full-corpus no-regression).**
+- **Current milestone: t2e LANDED (168/168 = 20/20 tranche, verified cold-clone);
+  benchmark-spec recorded with the first-run-then-multiple rule. M13 (set ops) stays
+  the ordered next build — surface verified live in probes (UNION dedups, INTERSECT,
+  EXCEPT, UNION ALL multiplicity kept) but the milestone report never landed; t2d's
+  19-case landing waits for that review. M16 (ALTER/DDL) after, the type-union
+  hardening first.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -177,6 +180,26 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t2.15-fix (t2e landing, re-baselined #14): 168/168 (100.0%) [Δ +20 cases,
+    +20 passes, 0 fails]` — old: 148/148 at 0f1219b; new: 168/168 at ae214bc. t2e
+    settled at 20/20 (matching Build's preview number — the landing verdict is
+    Default's, from a fresh cold clone at ae214bc: 168/168, syntax 46/46, suite OK).
+    Coverage: views (plain / column-aliased / over-join / view-over-view / IF-NOT-
+    EXISTS / DROP / duplicate-create noun split) + CTEs (chained, read-twice, WITH
+    RECURSIVE working-table loop with UNION dedupe + 1000-guard + empty-base +
+    adjacency-tree walk) + windows (RANK gap semantics / DENSE_RANK / ROW_NUMBER /
+    aggregate windows / PARTITION BY / LAG / explicit frames). The missing-observed
+    M13 residue carried into next-tasks as the [Build] item; the t2d slice landing
+    remains its own event (19 cases + 164–166/167 prediction).**
+  - **[GATE PRE-SET — benchmark spec ratified into STATE per Default's recording rule]
+    docs/benchmark-spec.md delivered BEFORE Tier 3 (research's authorship, committed
+    as-is): ten fixed workloads at fixed data sizes; N=7 median-of-ratios headline
+    with per-workload ceiling; output-OK-else-discard via the one-conformance-
+    normalizer rule; and the multiple for the gate is written by Default AFTER the
+    FIRST FULL RUN, not during — pre-registered before further milestones to close the
+    gaming hole. Tier-3's gate additionally awaits: the M23 file-format spec and
+    Tier-4's property-test corpus shape (both research's, authored before their
+    milestones).**
   - **`SCORE t2.15 (M15 landing, re-baselined #13): 148/148 (100.0%), 299 tests —
     windows, UPDATE/DELETE, the DAG fix — accepted`** (t2e lands after M15 per the
     sequencing rule, so the numerator stays 148 in the ledger until then). Verified vs
