@@ -190,13 +190,16 @@ class Database:
     def _begin(self):
         if self.tx_snapshot is not None:
             raise ExecError("cannot start a transaction within a transaction")
-        self.tx_snapshot = (self.storage.snapshot() if self.storage is not None
-                            else copy.deepcopy(self.tables))
+        # On disk, uncommitted pages simply stay in the pager's dirty buffer, so rollback needs
+        # no snapshot. In memory there is no log, so the copy *is* the rollback mechanism.
+        self.tx_snapshot = True if self.storage is not None else copy.deepcopy(self.tables)
         return None
 
     def _commit(self):
         if self.tx_snapshot is None:
             raise ExecError("cannot commit - no transaction is active")
+        if self.storage is not None:
+            self.storage.commit()
         self.tx_snapshot = None
         return None
 
@@ -204,7 +207,7 @@ class Database:
         if self.tx_snapshot is None:
             raise ExecError("cannot rollback - no transaction is active")
         if self.storage is not None:
-            self.storage.restore(self.tx_snapshot)
+            self.storage.rollback()
             self.tables = {}
             self._load_schema()
         else:
@@ -249,7 +252,14 @@ class Database:
     def run(self, sql):
         from .sql.parser import parse
         self._sql = sql
-        return self.execute(parse(sql))
+        statement = parse(sql)
+        result = self.execute(statement)
+        # Autocommit: outside an explicit transaction every statement is durable when it
+        # returns, which is what SQLite does and what the crash tests assume.
+        if (self.storage is not None and self.tx_snapshot is None
+                and not isinstance(statement, ast.Begin)):
+            self.storage.commit()
+        return result
 
     # -- CREATE --------------------------------------------------------------
     def _create(self, node: ast.CreateTable):

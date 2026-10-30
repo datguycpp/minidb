@@ -1,0 +1,112 @@
+-- t1c DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ so the glob can't see it — denominator stays 52 until the
+-- tranche is ordered (plan: lands after M8). Written BEFORE M8 is built, so
+-- any case M8's scope doesn't cover fails honestly and maps to a milestone.
+-- src: authored   tier: t1 (tranche c: joins, bare aggregates, subqueries M8)
+-- NOT here: GROUP BY / HAVING / ORDER BY / LIMIT — those are M12, tier-2
+-- suite (t2c), per the ladder. Bare aggregate functions only (M8).
+
+-- Inner join, filtered.
+
+CREATE TABLE a (id INTEGER, name TEXT);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (1, 'x');
+INSERT INTO a VALUES (2, 'y');
+INSERT INTO b VALUES (1, 10);
+INSERT INTO b VALUES (2, 20);
+SELECT a.name, b.score FROM a JOIN b ON a.id = b.aid WHERE b.score > 15;
+
+-- Cross join: cartesian product, order as returned by both engines.
+
+CREATE TABLE a (id INTEGER);
+CREATE TABLE b (id INTEGER);
+INSERT INTO a VALUES (1);
+INSERT INTO a VALUES (2);
+INSERT INTO b VALUES (10);
+SELECT a.id, b.id FROM a, b;
+
+-- Left join: unmatched left row produces NULLs.
+
+CREATE TABLE a (id INTEGER, name TEXT);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (1, 'x');
+INSERT INTO a VALUES (2, 'y');
+INSERT INTO b VALUES (1, 10);
+SELECT a.name, b.score FROM a LEFT JOIN b ON a.id = b.aid;
+
+-- Right join (SQLite >= 3.39): included for conformance; if M8's scope
+-- excludes it, this fails and stays failed until the scope closes.
+
+CREATE TABLE a (id INTEGER, name TEXT);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (1, 'x');
+INSERT INTO b VALUES (1, 10);
+INSERT INTO b VALUES (9, 90);
+SELECT a.name, b.score FROM a RIGHT JOIN b ON a.id = b.aid;
+
+-- Full outer join (SQLite >= 3.39): same policy as right join.
+
+CREATE TABLE a (id INTEGER, name TEXT);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (1, 'x');
+INSERT INTO a VALUES (2, 'y');
+INSERT INTO b VALUES (1, 10);
+INSERT INTO b VALUES (9, 90);
+SELECT a.name, b.score FROM a FULL OUTER JOIN b ON a.id = b.aid;
+
+-- COUNT(*) vs COUNT(col): the NULL-skipping difference is the whole test.
+
+CREATE TABLE t (id INTEGER, note TEXT);
+INSERT INTO t VALUES (1, 'a');
+INSERT INTO t VALUES (2, NULL);
+SELECT COUNT(*), COUNT(note) FROM t;
+
+-- Aggregate over all-NULL group inputs: SUM/AVG/MIN/MAX ignore NULLs;
+-- SUM of no non-NULL rows is NULL, not 0.
+
+CREATE TABLE t (v REAL);
+INSERT INTO t VALUES (NULL);
+INSERT INTO t VALUES (NULL);
+SELECT SUM(v), AVG(v), MIN(v), MAX(v) FROM t;
+
+-- Aggregate with values: exact numbers through JSON on both sides.
+
+CREATE TABLE t (v REAL);
+INSERT INTO t VALUES (1.5);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (NULL);
+SELECT SUM(v), AVG(v), MIN(v), MAX(v), COUNT(v) FROM t;
+
+-- Scalar subquery in the projection.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT (SELECT MAX(id) FROM t) AS top;
+
+-- IN (SELECT ...): membership via subquery.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+SELECT * FROM t WHERE id IN (SELECT id FROM t WHERE id > 1);
+
+-- Subquery in FROM.
+
+CREATE TABLE t (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO t VALUES (3);
+SELECT * FROM (SELECT id FROM t WHERE id < 3);
+
+-- NOT IN (SELECT ...): the NULL-behaviour trap — one NULL in the
+-- subquery result makes every row false. Ground truth via SQLite.
+
+CREATE TABLE t (id INTEGER);
+CREATE TABLE s (id INTEGER);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (2);
+INSERT INTO s VALUES (1);
+INSERT INTO s VALUES (NULL);
+SELECT * FROM t WHERE id NOT IN (SELECT id FROM s);

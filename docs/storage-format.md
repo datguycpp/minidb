@@ -62,12 +62,29 @@ INTEGER column stays TEXT until M17.
 
 | Not here | Why | Milestone |
 | --- | --- | --- |
-| Write-ahead log, crash recovery | writes are write-through; a clean `close()` is the only promise | 7 |
+| (resolved in M7) write-ahead log, crash recovery | implemented: dirty-page buffer, redo log, replay on open | 7 |
 | Page cache, dirty tracking | every modification rewrites the whole page | 18 |
 | Free-space management / freelist | pages are never freed; DELETE does not exist yet | 16, 19 |
 | Overflow pages | a row larger than a page raises "row too large" | 20 |
 | Deletes / rebalancing | no DELETE statement exists, so no merge-on-underflow code is written | 16 |
 | Type affinity | values are stored exactly as given | 17 |
+
+## Write-ahead log (milestone 7)
+
+Writes never touch the database file until commit. A commit appends the dirty pages to
+`<db>.wal` with one checksum per frame and one commit marker per batch, fsyncs, then applies
+them to the file, fsyncs again, and truncates the log.
+
+    frame    uint32 page_id | 4096-byte page | uint32 crc32(page)
+    commit   uint32 0xFFFFFFFF | uint32 frame_count | uint32 crc32(all frames in batch)
+
+Recovery on open replays every batch whose checksums and commit marker validate, and discards
+the rest — so a crash after the log is durable but before the file is written loses nothing, and
+a torn tail cannot be applied. `MINIDB_CRASH_POINT` / `MINIDB_CRASH_COMMIT` exist purely so the
+crash tests can kill a real process at exactly those points.
+
+What this is not: SQLite's WAL. One writer, no readers during recovery, no incremental
+checkpointing, no shared-memory index. Those arrive with M25 (concurrency) and M18 (page cache).
 
 ## Costs measured at this milestone
 

@@ -18,9 +18,13 @@ class DiskStorage:
         self.pager = Pager(path)
         self.tree = BTree(self.pager)
         self.catalog = {}          # lower(name) -> {"name", "sql", "root", "next_rowid", "key"}
+        self._ensure_catalog()
+        self._load_catalog()
+
+    def _ensure_catalog(self):
+        """A rolled-back transaction can leave the header pointing at no catalog at all."""
         if self.pager.catalog_root == 0:
             self.pager.set_catalog_root(self.tree.create())
-        self._load_catalog()
 
     # -- catalog ------------------------------------------------------------
     def _load_catalog(self):
@@ -88,25 +92,14 @@ class DiskStorage:
         return None if payload is None else record.decode(payload)
 
     # -- transactions -------------------------------------------------------
-    def snapshot(self):
-        """Whole-file image. Crude, but honest: M6 promises atomicity, not cheap rollback.
+    def commit(self):
+        self.pager.commit()
 
-        Copying the file also captures the header, so restoring cannot leave page_count or
-        catalog_root describing a file that no longer exists in that shape.
-        """
-        fh = self.pager.fh
-        fh.flush()
-        fh.seek(0)
-        return {"bytes": fh.read()}
-
-    def restore(self, snapshot):
-        fh = self.pager.fh
-        fh.seek(0)
-        fh.truncate()
-        fh.write(snapshot["bytes"])
-        fh.flush()
-        self.pager._read_header()
+    def rollback(self):
+        """Uncommitted work lives in the pager's dirty buffer; dropping it is the rollback."""
+        self.pager.rollback()
         self.catalog = {}
+        self._ensure_catalog()
         self._load_catalog()
 
     # -- lifecycle ----------------------------------------------------------
