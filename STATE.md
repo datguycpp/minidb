@@ -178,6 +178,41 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t3.19-2 (M19 landing, re-baselined #21): 216/216 [Δ +8 cases, +8 passes,
+    0 fails]`** — old: 208/208 at 714f4ed; new: 216/216 at bf6ca82 — **research's
+    pre-registered band 6–8/8 hits its ceiling (the third ceiling-touch: gentle
+    optimistic reading, the swings all passed)**, and the mid-air 3/8 preview recorded
+    as the baseline it cleared. 344 tests, syntax 46/46 (cold clone verified).
+  - **[M19 PARTIAL — the explicit accounting (research's flag accepted)] M19 lands as
+    `vacuum done, free-space management outstanding` (no freelist: DELETE/UPDATE leave
+    orphaned pages and overflow chains; VACUUM is a reclaim path, not a background
+    behaviour) and `M20 (oversized rows and blobs) largely pre-done in the same
+    commit`. The ladder milestone accounting stays whole-tranche honest: Tier-3's
+    gate must never be computed over a quietly-unfinished milestone — the ledger
+    records the M19 remainder as an owned item, to be closed at a future milestone
+    (M24's invariants see the freelist's file-level truth later). In-memory VACUUM
+    is a no-op, matching the reference (verified).**
+  - **[PROBE-FOUND #3 — the blob-literal TEXT-column divergence, real and owned]**
+    My independent probes at the M19 state: `X'0102'` works in EXPRESSION context and
+    in a BLOB-typed column (`typeof` → blob, hex() both sides match the reference —
+    the corpus cases 7/8 are correct), **but inserting the same blob literal into a
+    TEXT-affinity column diverges from the reference: the binary coerces it to a
+    blob attachment (`typeof(body) = blob`, `hex(body) = 0102`, `length(body) = 2`
+    — bytes-not-chars, and numeric-looking text is reinterpreted); MiniDB stores it
+    as TEXT with the ESCAPED-SOURCE bytes** (`hex` = the python repr of the
+    blob-as-string parse, length 11 = the repr's character count). The reference's
+    numeric-string-in-TEXT-vs-BLOB insert rule is DISTINCT from the number affinity
+    rules the corpus cases pinned: the not-yet-pinned rule is SQLite's literal-class
+    coercion at INSERT time into a TEXT column. Owned: M20 surface fix — the corpus
+    will pick the shape up either way once landed; the finding is on record BEFORE
+    the builder can claim the tranche it doesn't touch rules out.
+  - **[M19 file-size evidence — say the honest shape] My independent VACUUM probe:
+    a 6-row table with three 30,000-byte overflow chains, 4 rows deleted → file
+    471,040 bytes → after VACUUM: 16,384 bytes (96% reclaimed), rows intact across
+    reopen. The engineer's 40→45→12 KB shape reproduces in structure (grow on
+    delete, collapse on vacuum), magnitude at my own workloads.
+    In-memory VACUUM = no-op verified. All per-file lines and cold-clone
+    reproductions stay the acceptance basis.**
   - **`SCORE t3.18 (M18 landing — page cache — re-baselined #20): 208/208 (100.0%),
     336 tests — accepted with an honest-reproduction finding`** — the A/B harness
     (`tools/page_cache_check.py`) committed per the "numbers reproduce from the clone"
