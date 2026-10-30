@@ -28,11 +28,13 @@ Directives (ratified spec: docs/conformance-spec.md, Directives roadmap):
 import argparse
 import glob
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -42,11 +44,12 @@ from minidb.engine import Database, ExecError  # noqa: E402
 from minidb.sql.parser import ParseError, parse  # noqa: E402
 
 CORPUS_DIR = os.path.join(ROOT, "tests", "corpus")
-# The tier-1 suite is everything that uses the blank-line case format. `syntax.txt` deliberately
-# does NOT match this: it is one-statement-per-line with `#!` reject markers, consumed by
+# The tier suite is everything that uses the blank-line case format: behavior.txt plus
+# every `t*.txt` tranche (Tier 1: t1a–e; Tier 2: t2a…). `syntax.txt` deliberately does NOT
+# match: it is one-statement-per-line with `#!` reject markers, consumed by
 # tools/syntax_conformance.py, and feeding it to this runner would produce nonsense.
 DEFAULT_CORPORA = ["behavior.txt"] + sorted(
-    os.path.basename(p) for p in glob.glob(os.path.join(CORPUS_DIR, "t1*.txt"))
+    os.path.basename(p) for p in glob.glob(os.path.join(CORPUS_DIR, "t*.txt"))
 )
 PINNED = "3.54.0"
 
@@ -217,6 +220,32 @@ def run_minidb(phases):
 
 REOPEN_TMPDIR = None  # set per-case by main(); owned by the runner, deleted after the case
 
+# Ratified normalizer amendment (re-baseline #5, M9 round): floats compare with a relative
+# tolerance of 1e-12, because SQLite's JSON serialisation loses digits and that is tool
+# framing, not a MiniDB defect. Every tolerance-invoked comparison is COUNTED here and
+# reported raw with the fuzz line — an uncounted tolerance is an unmonitored softer
+# failure mode. Reset per fuzz run by main().
+TOLERANCE_HITS = []
+
+
+def rows_equal(left, right):
+    """Ordered, tolerant comparison of normalized row dicts (same keys per pair)."""
+    if len(left) != len(right):
+        return False
+    for row_l, row_r in zip(left, right):
+        if list(row_l.keys()) != list(row_r.keys()):
+            return False
+        for key, value in row_l.items():
+            other = row_r.get(key)
+            if value == other:
+                continue  # identical — NOT tolerance-fired, even for floats
+            if isinstance(value, float) and isinstance(other, float):
+                if math.isclose(value, other, rel_tol=1e-12, abs_tol=1e-12):
+                    TOLERANCE_HITS.append((value, other))
+                    continue
+            return False
+    return True
+
 
 def load_cases(path):
     """Return [(case_directives, phases), ...] in file order.
@@ -317,7 +346,7 @@ def compare(expected, actual):
         return False, f"columns {expected['columns']} vs {actual['columns']}"
     left = normalise_numbers(expected["rows"])
     right = normalise_numbers(actual["rows"])
-    return left == right, f"{left} vs {right}"
+    return rows_equal(left, right), f"{left} vs {right}"
 
 
 def main():
@@ -371,10 +400,13 @@ def main():
     passed = sum(1 for r in results if r["pass"])
     total = len(results)
     pct = 100.0 * passed / total if total else 0.0
+    tolerance_count = len(TOLERANCE_HITS)
 
     if args.json:
         print(json.dumps({"passed": passed, "total": total, "reference": version,
-                          "corpus_revision": corpus_revision(), "results": results}, indent=2))
+                          "corpus_revision": corpus_revision(),
+                          "tolerance_count": tolerance_count,
+                          "results": results}, indent=2))
         return 0 if passed == total else 1
 
     for r in results:
@@ -389,6 +421,9 @@ def main():
     for name, (ok, count) in per_corpus.items():
         print(f"  {name}: {ok}/{count}")
     print(f"BEHAVIOUR CONFORMANCE: {passed}/{total} ({pct:.1f}%)")
+    if tolerance_count:
+        print(f"float-ratio tolerance fired on {tolerance_count} comparisons "
+              f"(values: {TOLERANCE_HITS})")
     print(f"corpus: {' + '.join(sorted(per_corpus))}")
     print(f"corpus revision: {corpus_revision()}")
     print(f"reference: SQLite {version}" + ("" if version == PINNED else f"  *** PINNED IS {PINNED} ***"))
