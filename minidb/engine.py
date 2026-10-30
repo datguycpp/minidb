@@ -472,7 +472,75 @@ class Database:
         return {"access": "index", "reason": "smallest-estimate", "candidate": best,
                 "candidates": summary, "estimated_rows": best["estimated_rows"]}
 
+    # -- query execution -----------------------------------------------------
+    AGGREGATES = frozenset({"COUNT", "SUM", "AVG", "MIN", "MAX"})
+
+    def _contains_aggregate(self, node):
+        if isinstance(node, ast.FuncCall):
+            return node.name in self.AGGREGATES
+        if isinstance(node, ast.BinaryOp):
+            return self._contains_aggregate(node.left) or self._contains_aggregate(node.right)
+        if isinstance(node, ast.UnaryOp):
+            return self._contains_aggregate(node.operand)
+        if isinstance(node, ast.IsNull):
+            return self._contains_aggregate(node.expr)
+        return False
+
+    def _is_complex(self, node):
+        return bool(node.joins or node.group_by or node.having
+                    or any(self._contains_aggregate(item.expr)
+                           for item in node.items if not isinstance(item, ast.Star)))
+
+    def _source_tables(self, node):
+        sources = [(node.table, node.alias or node.table)]
+        for join in node.joins:
+            sources.append((join.table, join.alias or join.table))
+        return sources
+
+    def _scan_sources(self, node):
+        """Expand FROM + JOIN into row environments, applying each ON condition in place."""
+        sources = self._source_tables(node)
+        tables = [self.table(name) for name, _ in sources]
+        per_column = {}
+        for table in tables:
+            for column in table.column_names:
+                per_column[column.lower()] = per_column.get(column.lower(), 0) + 1
+
+        envs = []
+        examined = 0
+
+        def make_env(rows):
+            env = {}
+            for (_, alias), table, (_, row) in zip(sources, tables, rows):
+                prefix = alias.lower()
+                for column, value in zip(table.column_names, row):
+                    env[f"{prefix}.{column.lower()}"] = value
+                    if per_column[column.lower()] == 1:
+                        env[column.lower()] = value
+            return env
+
+        def walk(index, rows):
+            nonlocal examined
+            if index == len(tables):
+                examined += 1
+                env = make_env(rows)
+                for join in node.joins:
+                    if join.on is not None and not truthy(self._eval(join.on, None, env)):
+                        return
+                envs.append(env)
+                return
+            for _, row in self._rows_with_ids(tables[index]):
+                walk(index + 1, rows + [(index, row)])
+
+        walk(0, [])
+        return envs, examined
+
     def _select(self, node: ast.Select):
+        if self._is_complex(node):
+            return self._select_complex(node)
+        return self._select_simple(node)
+
+    def _select_simple(self, node: ast.Select):
         table = self.table(node.table)
         # Column headings are a property of the statement, not of the rows: an empty result
         # still has to report the columns it would have returned.
@@ -481,7 +549,7 @@ class Database:
             if isinstance(item, ast.Star):
                 items.extend(table.column_names)
             else:
-                items.append(item.alias or _describe(item.expr))
+                items.append(item.alias or _heading(item))
 
         decision = self._choose_access(table, node.where)
         if decision["access"] == "index":
@@ -516,37 +584,158 @@ class Database:
                           "candidates": decision["candidates"]}
 
         if node.distinct:
-            seen, unique = set(), []
-            for row in rows:
-                if row not in seen:
-                    seen.add(row)
-                    unique.append(row)
-            rows = unique
+            rows = _distinct(rows)
         return items, rows
 
+    def _select_complex(self, node: ast.Select):
+        """Joins, aggregates, GROUP BY/HAVING. Nested loop, planned and reported as such."""
+        envs, examined = self._scan_sources(node)
+        if node.where is not None:
+            envs = [env for env in envs if truthy(self._eval(node.where, None, env))]
+
+        sources = self._source_tables(node)
+        items = []
+        for item in node.items:
+            if isinstance(item, ast.Star):
+                for name, alias in sources:
+                    items.extend(self.table(name).column_names)
+            else:
+                items.append(item.alias or _heading(item))
+
+        rows = []
+        if node.group_by or any(self._contains_aggregate(i.expr) for i in node.items
+                                if not isinstance(i, ast.Star)):
+            groups = {}
+            order = []
+            for env in envs:
+                key = tuple(self._eval(expression, None, env) for expression in node.group_by)
+                if key not in groups:
+                    groups[key] = []
+                    order.append(key)
+                groups[key].append(env)
+            if not node.group_by:
+                order = [()]
+                groups = {(): envs}
+            else:
+                # SQLite groups through a sorted structure, so an unordered GROUP BY comes back
+                # ordered by group key (NULLs first). Match it or every differential case fails
+                # on row order alone.
+                order.sort(key=_group_sort_key)
+
+            for key in order:
+                group = groups[key]
+                if node.having is not None and not truthy(self._eval(node.having, None, group[0], group)):
+                    continue
+                rows.append(tuple(self._project(item, group) for item in node.items))
+        else:
+            for env in envs:
+                rows.append(tuple(self._project(item, [env]) for item in node.items))
+
+        if node.distinct:
+            rows = _distinct(rows)
+
+        self.last_plan = {
+            "table": node.table,
+            "tables": [alias for _, alias in sources],
+            "access": "nested-loop",
+            "sources": [{"table": self.table(name).name, "rows": self._row_count(self.table(name))}
+                        for name, _ in sources],
+            "rows_examined": examined,
+            "rows_matched": len(rows),
+            "reason": "join" if node.joins else "aggregate",
+            "index": None,
+            "candidates": [],
+        }
+        return items, rows
+
+    def _project(self, item, group):
+        env = group[0] if group else {}
+        if isinstance(item, ast.Star):
+            raise ExecError("SELECT * is expanded before projection")
+        return self._eval(item.expr, None, env, group)
+
+    def _aggregate(self, node, group):
+        if node.star:
+            return len(group)
+        values = [self._eval(node.arg, None, env, group) for env in group]
+        values = [value for value in values if value is not None]
+        if node.name == "COUNT":
+            return len(values)
+        if not values:
+            return None
+        if node.name == "SUM":
+            return sum(values)
+        if node.name == "AVG":
+            return sum(values) / len(values)
+        if node.name == "MIN":
+            return min(values)
+        if node.name == "MAX":
+            return max(values)
+        raise ExecError(f"unsupported aggregate {node.name}")
+
+    def _scalar_subquery(self, select):
+        saved = self.last_plan
+        try:
+            _, rows = self._select(select)
+        finally:
+            self.last_plan = saved
+        if not rows:
+            return None
+        return rows[0][0]
+
+    def _in_subquery(self, node, env, group):
+        value = self._eval(node.expr, None, env, group)
+        saved = self.last_plan
+        try:
+            _, rows = self._select(node.select)
+        finally:
+            self.last_plan = saved
+        values = {row[0] for row in rows}
+        if value is None:
+            return None
+        found = value in values
+        if not found and None in values:
+            return None
+        return (not found) if node.negated else found
+
     # -- expressions ---------------------------------------------------------
-    def _eval(self, node, table, env):
+    def _eval(self, node, table, env, group=None):
         if isinstance(node, ast.Literal):
             return node.value
+        if isinstance(node, ast.Subquery):
+            return self._scalar_subquery(node.select)
+        if isinstance(node, ast.InSubquery):
+            return self._in_subquery(node, env, group)
+        if isinstance(node, ast.FuncCall):
+            if node.name not in self.AGGREGATES:
+                raise ExecError(f"no such function: {node.name}")
+            if group is None:
+                raise ExecError(f"misuse of aggregate function {node.name}()")
+            return self._aggregate(node, group)
         if isinstance(node, ast.ColumnRef):
-            key = node.name.lower()
+            key = (f"{node.table.lower()}.{node.name.lower()}" if node.table
+                   else node.name.lower())
             if env is None or key not in env:
                 # SQLite adds the hint only for double-quoted identifiers, and prints the
                 # quotes back; bracket/backtick forms lose their quotes in the message.
-                if node.quote == '"':
+                display = f"{node.table}.{node.name}" if node.table else node.name
+                if node.quote == '"' and not node.table:
                     raise ExecError(
                         f'no such column: "{node.name}" - should this be a string literal in single-quotes?'
                     )
-                raise ExecError(f"no such column: {node.name}")
+                raise ExecError(f"no such column: {display}")
             return env[key]
         if isinstance(node, ast.BinaryOp):
             if node.op == "AND":
-                return sql_and(self._eval(node.left, table, env), self._eval(node.right, table, env))
+                return sql_and(self._eval(node.left, table, env, group),
+                               self._eval(node.right, table, env, group))
             if node.op == "OR":
-                return sql_or(self._eval(node.left, table, env), self._eval(node.right, table, env))
-            return sql_compare(self._eval(node.left, table, env), self._eval(node.right, table, env), node.op)
+                return sql_or(self._eval(node.left, table, env, group),
+                              self._eval(node.right, table, env, group))
+            return sql_compare(self._eval(node.left, table, env, group),
+                               self._eval(node.right, table, env, group), node.op)
         if isinstance(node, ast.UnaryOp):
-            value = self._eval(node.operand, table, env)
+            value = self._eval(node.operand, table, env, group)
             if node.op == "NOT":
                 return None if value is None else not truthy(value)
             if node.op == "-":
@@ -554,10 +743,31 @@ class Database:
             if node.op == "+":
                 return value
         if isinstance(node, ast.IsNull):
-            value = self._eval(node.expr, table, env)
+            value = self._eval(node.expr, table, env, group)
             result = value is None
             return (not result) if node.negated else result
         raise ExecError(f"cannot evaluate {type(node).__name__}")
+
+
+def _group_sort_key(key):
+    """SQLite's storage-class order: NULLs first, then numbers, text, blobs."""
+    return tuple((0, 0) if value is None else (_RANK.get(type(value), 9), value) for value in key)
+
+
+def _heading(item):
+    """SQLite names a plain column reference after the column; anything else after its text."""
+    if isinstance(item.expr, ast.ColumnRef):
+        return item.expr.name
+    return item.text or _describe(item.expr)
+
+
+def _distinct(rows):
+    seen, unique = set(), []
+    for row in rows:
+        if row not in seen:
+            seen.add(row)
+            unique.append(row)
+    return unique
 
 
 def _describe(expr):

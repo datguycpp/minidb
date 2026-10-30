@@ -316,12 +316,44 @@ class Parser:
 
         self.expect_keyword("FROM")
         table = self.parse_identifier("table name")
+        alias = self.parse_optional_alias()
+
+        joins = []
+        while self.at_keyword("JOIN") or self.at_keyword("INNER"):
+            if self.at_keyword("INNER"):
+                self.advance()
+            self.expect_keyword("JOIN")
+            join_table = self.parse_identifier("table name")
+            join_alias = self.parse_optional_alias()
+            on = None
+            if self.accept_keyword("ON"):
+                on = self.parse_expression()
+            joins.append(ast.Join(table=join_table, alias=join_alias, on=on))
 
         where = None
         if self.accept_keyword("WHERE"):
             where = self.parse_expression()
 
-        return ast.Select(items=items, table=table, where=where, distinct=distinct)
+        group_by = []
+        if self.accept_keyword("GROUP"):
+            self.expect_keyword("BY")
+            group_by.append(self.parse_expression())
+            while self.accept_punct(","):
+                group_by.append(self.parse_expression())
+
+        having = None
+        if self.accept_keyword("HAVING"):
+            having = self.parse_expression()
+
+        return ast.Select(items=items, table=table, where=where, distinct=distinct,
+                          alias=alias, joins=joins, group_by=group_by, having=having)
+
+    def parse_optional_alias(self):
+        if self.accept_keyword("AS"):
+            return self.parse_identifier("alias")
+        if self.tok.kind == "IDENT":
+            return self.advance().value
+        return None
 
     def parse_select_item(self):
         # table.* shorthand
@@ -332,13 +364,16 @@ class Parser:
             self.advance()  # *
             return ast.Star(table=table)
 
+        start = self.tok.pos
         expr = self.parse_expression()
+        last = self.tokens[self.i - 1]
+        text = self.source[start:last.pos + len(last.raw)].strip() if self.source else None
         alias = None
         if self.accept_keyword("AS"):
             alias = self.parse_identifier("alias")
         elif self.tok.kind == "IDENT":
             alias = self.advance().value
-        return ast.SelectItem(expr=expr, alias=alias)
+        return ast.SelectItem(expr=expr, alias=alias, text=text)
 
     # -- expressions -----------------------------------------------------------
     def parse_expression(self):
@@ -369,6 +404,14 @@ class Parser:
             self.expect_keyword("NULL")
             node = ast.IsNull(node, negated=negated)
             return node
+        if self.accept_keyword("IN"):
+            self.expect_punct("(")
+            if not self.at_keyword("SELECT"):
+                raise ParseError("only IN (SELECT ...) is supported", self.tok)
+            inner = self.parse_select()
+            self.expect_punct(")")
+            return ast.InSubquery(expr=node, select=inner)
+
         if self.tok.kind == "PUNCT" and self.tok.value in COMPARISON_OPS:
             op = self.advance().value
             if op == "==":
@@ -383,6 +426,10 @@ class Parser:
 
         if tok.kind == "PUNCT" and tok.value == "(":
             self.advance()
+            if self.at_keyword("SELECT"):
+                inner = self.parse_select()
+                self.expect_punct(")")
+                return ast.Subquery(inner)
             node = self.parse_expression()
             self.expect_punct(")")
             return node
@@ -408,6 +455,18 @@ class Parser:
         if tok.kind == "PUNCT" and tok.value in ("-", "+"):
             op = self.advance().value
             return ast.UnaryOp(op, self.parse_primary())
+
+        if tok.kind in ("IDENT", "KEYWORD") and tok.upper in ("COUNT", "SUM", "AVG", "MIN", "MAX") \
+                and self.peek().kind == "PUNCT" and self.peek().value == "(":
+            name = self.advance().upper
+            self.expect_punct("(")
+            if self.at_punct("*"):
+                self.advance()
+                self.expect_punct(")")
+                return ast.FuncCall(name=name, arg=None, star=True)
+            argument = self.parse_expression()
+            self.expect_punct(")")
+            return ast.FuncCall(name=name, arg=argument)
 
         if tok.kind in ("IDENT", "KEYWORD") and tok.upper not in RESERVED_IDENTIFIERS:
             name = self.advance().value

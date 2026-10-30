@@ -68,3 +68,23 @@ scores identically to one that is used.
 | `OR` never becomes an index union | M21 |
 | No covering indexes (index-only scans still fetch the row) | M22 |
 | Index choice is not cached; estimate recomputed per statement | M18 (page cache) |
+
+## Joins (milestone 8)
+
+Joins execute as a **nested loop**: every row of the left source is combined with every row of
+the right one, ON conditions are evaluated per combination, then WHERE filters the result. The
+plan says so rather than hiding it:
+
+```json
+{"access": "nested-loop", "tables": ["customers", "orders"], "rows_examined": 40000, "reason": "join"}
+```
+
+No index is probed on the inner side yet, so a 200×200 join really does examine 40,000 rows —
+that is the number shown, and `plan_check.py` fails if a join ever reports anything else. Making
+the inner side index-driven is M21's job (cost-based planning with statistics), and the
+alternative — claiming a plan we do not execute — would make every later planner number
+untrustworthy.
+
+GROUP BY without ORDER BY returns groups in key order (NULLs first), matching SQLite's sorted
+grouping. `AVG` returns a float; `SUM`/`MIN`/`MAX` return the stored type; aggregates over an
+empty table return `COUNT = 0` and NULL for the rest.

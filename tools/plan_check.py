@@ -27,9 +27,9 @@ def run_case(db, label, sql):
     elapsed = (time.perf_counter() - start) * 1000
     plan = db.last_plan or {}
     candidates = ", ".join(f"{c['name']}={c['estimated_rows']}" for c in plan.get("candidates", []))
-    print(f"{label:<28} access={plan.get('access'):<6} index={str(plan.get('index')):<10} "
-          f"reason={plan.get('reason'):<20} examined={plan.get('rows_examined'):<6} "
-          f"est={plan.get('estimated_rows'):<6} {elapsed:7.2f} ms")
+    print(f"{label:<28} access={plan.get('access'):<12} index={str(plan.get('index')):<10} "
+          f"reason={str(plan.get('reason')):<20} examined={plan.get('rows_examined'):<7} "
+          f"est={str(plan.get('estimated_rows', '-')):<6} {elapsed:7.2f} ms")
     if candidates:
         print(f"{'':28} candidates: {candidates}")
     print(f"{'':28} sql: {sql}")
@@ -69,6 +69,17 @@ def main():
 
     run_case(db, "5. no eligible index", "SELECT id FROM sales WHERE id > 0")
 
+    # Join access path: M8 executes joins as a nested loop, so the plan must say so and the
+    # examined count must equal the product. If a join ever claims otherwise, this is where it
+    # shows up.
+    db.run("CREATE TABLE customers (id INTEGER, name TEXT)")
+    db.run("CREATE TABLE orders (id INTEGER, customer_id INTEGER)")
+    for i in range(1, 201):
+        db.run(f"INSERT INTO customers VALUES ({i}, 'c{i}')")
+        db.run(f"INSERT INTO orders VALUES ({i}, {i})")
+    join_sql = "SELECT customers.name, orders.id FROM customers JOIN orders ON customers.id = orders.customer_id"
+    join_plan, join_rows = run_case(db, "6. join", join_sql)
+
     print()
     estimates = {c["name"]: c["estimated_rows"] for c in multi_plan.get("candidates", [])}
     checks = [
@@ -80,6 +91,9 @@ def main():
         ("multi-candidate picks smallest estimate",
          multi_plan.get("index") == "idx_amount"
          and estimates == {"idx_region": args.rows // 4, "idx_amount": 1}),
+        ("join reports nested-loop and its true cost",
+         join_plan.get("access") == "nested-loop" and join_plan.get("rows_examined") == 200 * 200),
+        ("join returns the matching rows", len(join_rows) == 200),
     ]
     for label, ok in checks:
         print(f"{label:<40} {'PASS' if ok else 'FAIL'}")

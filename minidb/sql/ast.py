@@ -52,6 +52,7 @@ class Star(Node):
 class SelectItem(Node):
     expr: Node
     alias: "str | None" = None
+    text: "str | None" = None   # expression source text; SQLite uses it as the column heading
 
 
 @dataclass
@@ -110,8 +111,38 @@ class Insert(Node):
 
 
 @dataclass
+class Join(Node):
+    table: str
+    alias: "str | None"
+    on: "Node | None" = None
+
+
+@dataclass
+class FuncCall(Node):
+    name: str              # COUNT | SUM | AVG | MIN | MAX
+    arg: "Node | None" = None
+    star: bool = False     # COUNT(*)
+
+
+@dataclass
+class Subquery(Node):
+    select: "Select"
+
+
+@dataclass
+class InSubquery(Node):
+    expr: Node
+    select: "Select"
+    negated: bool = False
+
+
+@dataclass
 class Select(Node):
     items: list            # list[SelectItem] or [Star]
     table: str
     where: "Node | None" = None
     distinct: bool = False
+    alias: "str | None" = None
+    joins: list = field(default_factory=list)
+    group_by: list = field(default_factory=list)
+    having: "Node | None" = None

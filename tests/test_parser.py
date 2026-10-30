@@ -103,7 +103,7 @@ class TestSelect(unittest.TestCase):
 
     def test_columns_with_alias(self):
         stmt = parse("SELECT a AS x, b FROM t")
-        self.assertEqual(stmt.items[0], ast.SelectItem(ast.ColumnRef("a"), "x"))
+        self.assertEqual(stmt.items[0], ast.SelectItem(ast.ColumnRef("a"), "x", text="a"))
         self.assertEqual(stmt.items[1].alias, None)
 
     def test_implicit_alias(self):
