@@ -415,7 +415,8 @@ def truthy(value):
 
 
 class Column:
-    __slots__ = ("name", "type_name", "not_null", "unique", "primary_key", "default", "check", "check_text")
+    __slots__ = ("name", "type_name", "not_null", "unique", "primary_key", "default", "check",
+                 "check_text", "ref_table", "ref_column")
 
     def __init__(self, definition: ast.ColumnDef):
         self.name = definition.name
@@ -426,8 +427,13 @@ class Column:
         self.default = None
         self.check = None
         self.check_text = None
+        self.ref_table = None
+        self.ref_column = None
         for constraint in definition.constraints:
-            if constraint.kind == "PRIMARY KEY":
+            if constraint.kind == "REFERENCES":
+                self.ref_table = constraint.ref_table
+                self.ref_column = constraint.ref_column
+            elif constraint.kind == "PRIMARY KEY":
                 self.primary_key = True
                 self.not_null = True
                 self.unique = True
@@ -438,9 +444,9 @@ class Column:
             elif constraint.kind == "UNIQUE":
                 self.unique = True
             elif constraint.kind == "DEFAULT":
-                self.default = constraint.value
+                self.default = constraint.expr
             elif constraint.kind == "CHECK":
-                self.check = constraint.value
+                self.check = constraint.expr
                 self.check_text = constraint.text
 
 
@@ -516,6 +522,7 @@ class Database:
         self.triggers = {}
         self.trigger_env = None
         self._in_trigger = False
+        self.foreign_keys = False
         self._sql = None
         self.last_plan = None
         self.tx_snapshot = None
@@ -609,6 +616,8 @@ class Database:
             return self._select(statement)
         if isinstance(statement, ast.Compound):
             return self._compound(statement)
+        if isinstance(statement, ast.Pragma):
+            return self._pragma(statement)
         if isinstance(statement, ast.CreateTrigger):
             return self._create_trigger(statement)
         if isinstance(statement, ast.DropTrigger):
@@ -874,6 +883,9 @@ class Database:
             # neither a row nor a dangling index entry.
             for index in table.indexes.values():
                 index.check_unique(values)
+            violation = self._foreign_key_violation(table, values)
+            if violation:
+                raise ExecError(violation)
             self._fire(table, "INSERT", "BEFORE", None, values)
             if table.on_disk:
                 try:
@@ -888,6 +900,60 @@ class Database:
                 index.add(rowid, values)
             self._fire(table, "INSERT", "AFTER", None, values)
         return len(node.rows)
+
+    # -- PRAGMA / foreign keys ----------------------------------------------
+    def _pragma(self, node: ast.Pragma):
+        name = node.name.lower()
+        if name == "foreign_keys":
+            if node.value is not None:
+                self.foreign_keys = truthy(self._eval(node.value, None, {}))
+                return (["foreign_keys"], [])
+            return (["foreign_keys"], [(1 if self.foreign_keys else 0,)])
+        raise ExecError(f"no such pragma: {node.name}")
+
+    def _foreign_key_violation(self, table, values):
+        """Only columns declared REFERENCES are checked; enforcement is off until the pragma
+        turns it on, which is the reference's surprising default."""
+        if not self.foreign_keys:
+            return None
+        for position, column in enumerate(table.columns):
+            if not column.ref_table:
+                continue
+            value = values[position]
+            if value is None:
+                continue
+            parent = self.tables.get(column.ref_table.lower())
+            if parent is None:
+                return None
+            ref_name = (column.ref_column or "rowid").lower()
+            ref_position = parent.index_of.get(ref_name)
+            if ref_position is None:
+                return None
+            if not any(row[ref_position] == value for row in self._rows(parent)):
+                return "FOREIGN KEY constraint failed"
+        return None
+
+    def _check_no_action(self, table, row):
+        if not self.foreign_keys:
+            return
+        for other, position, ref_column in self._dependent_rows(table):
+            key_position = table.index_of.get((ref_column or "rowid").lower())
+            if key_position is None:
+                continue
+            key = row[key_position]
+            if key is None:
+                continue
+            if any(other_row[position] == key for other_row in self._rows(other)):
+                raise ExecError("FOREIGN KEY constraint failed")
+
+    def _dependent_rows(self, table):
+        """Tables holding a REFERENCES to `table`, for NO ACTION checks on delete/update."""
+        dependents = []
+        for other in self.tables.values():
+            for position, column in enumerate(other.columns):
+                if column.ref_table and column.ref_table.lower() == table.name.lower():
+                    dependents.append((other, position, column.ref_column))
+        return dependents
 
     # -- triggers ------------------------------------------------------------
     def _create_trigger(self, node: ast.CreateTrigger):
@@ -1077,6 +1143,7 @@ class Database:
                 if node.where is not None and not truthy(self._eval(node.where, table, env)):
                     kept.append((rowid, row))
                 else:
+                    self._check_no_action(table, row)
                     changed += 1
             if changed:
                 self.storage.rewrite_rows(table.entry, kept)
@@ -1089,6 +1156,7 @@ class Database:
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 kept.append(row)
             else:
+                self._check_no_action(table, row)
                 self._fire(table, "DELETE", "BEFORE", row, None)
                 self._fire(table, "DELETE", "AFTER", row, None)
                 changed += 1

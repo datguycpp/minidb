@@ -151,6 +151,8 @@ class Parser:
             stmt = self.parse_update()
         elif self.at_keyword("DELETE"):
             stmt = self.parse_delete()
+        elif self.at_keyword("PRAGMA"):
+            stmt = self.parse_pragma()
         elif self.at_keyword("SELECT"):
             stmt = self.parse_compound()
         else:
@@ -291,6 +293,25 @@ class Parser:
         select = self.parse_compound()
         return ast.CreateView(name=name, columns=columns, select=select,
                               if_not_exists=if_not_exists, sql=getattr(self, 'source', None))
+
+    def parse_pragma(self):
+        self.expect_keyword("PRAGMA")
+        name = self.parse_identifier("pragma name")
+        value = None
+        if self.accept_punct("="):
+            if self.at_keyword("ON"):
+                self.advance()
+                value = ast.Literal(1, "number")
+            elif self.at_keyword("OFF"):
+                self.advance()
+                value = ast.Literal(0, "number")
+            else:
+                value = self.parse_expression()
+        elif self.at_punct("("):
+            self.advance()
+            value = self.parse_expression()
+            self.expect_punct(")")
+        return ast.Pragma(name=name, value=value)
 
     def parse_alter(self):
         self.expect_keyword("ALTER")
@@ -435,6 +456,13 @@ class Parser:
             return ast.Constraint("UNIQUE")
         if self.accept_keyword("DEFAULT"):
             return ast.Constraint("DEFAULT", self.parse_expression())
+        if self.accept_keyword("REFERENCES"):
+            ref_table = self.parse_identifier("table name")
+            ref_column = None
+            if self.accept_punct("("):
+                ref_column = self.parse_identifier("column name")
+                self.expect_punct(")")
+            return ast.Constraint("REFERENCES", ref_table=ref_table, ref_column=ref_column)
         if self.accept_keyword("CHECK"):
             open_paren = self.expect_punct("(")
             expr = self.parse_expression()

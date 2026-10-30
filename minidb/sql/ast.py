@@ -56,10 +56,18 @@ class SelectItem(Node):
 
 
 @dataclass
-class Constraint(Node):
-    kind: str              # PRIMARY KEY | NOT NULL | UNIQUE | DEFAULT | CHECK
+class Pragma(Node):
+    name: str
     value: "Node | None" = None
-    text: "str | None" = None   # source text, for CHECK: SQLite quotes it back in errors
+
+
+@dataclass
+class Constraint(Node):
+    kind: str              # PRIMARY KEY | NOT NULL | UNIQUE | DEFAULT | CHECK | REFERENCES
+    expr: "Node | None" = None
+    text: "str | None" = None       # source text, for CHECK: SQLite quotes it back in errors
+    ref_table: "str | None" = None
+    ref_column: "str | None" = None
 
 
 @dataclass
