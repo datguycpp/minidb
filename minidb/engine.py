@@ -953,7 +953,7 @@ class Database:
         def alias_values(env):
             values = {}
             for item in node.items:
-                if item.alias and not isinstance(item.expr, ast.Star):
+                if isinstance(item, ast.SelectItem) and item.alias and not isinstance(item.expr, ast.Star):
                     values[item.alias.lower()] = self._eval(item.expr, table, env)
             return values
 
@@ -1044,7 +1044,7 @@ class Database:
                     env, group = entry
                     aliased = {}
                     for item in projection:
-                        if item.alias and not isinstance(item.expr, ast.Star):
+                        if isinstance(item, ast.SelectItem) and item.alias and not isinstance(item.expr, ast.Star):
                             aliased[item.alias.lower()] = self._eval(item.expr, None, env, group)
                     if isinstance(expression, ast.ColumnRef) and expression.name.lower() in aliased:
                         return _order_sort_key(aliased[expression.name.lower()])

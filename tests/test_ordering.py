@@ -48,6 +48,25 @@ class TestOrdering(unittest.TestCase):
         self.assertEqual(rows, [(3, 1), (2, 1), (1, 2), (None, 1)])
 
 
+class TestStarSafety(unittest.TestCase):
+    """SELECT * puts a bare Star in node.items; the ORDER BY path must not assume every
+    item is a SelectItem (this crashed four t2c cases with AttributeError)."""
+
+    def setUp(self):
+        self.db = Database()
+        self.db.run("CREATE TABLE t (v INTEGER, w TEXT)")
+        self.db.run("INSERT INTO t VALUES (2, 'b'), (1, 'a')")
+
+    def test_star_with_order_by(self):
+        self.assertEqual(self.db.run("SELECT * FROM t ORDER BY v")[1], [(1, "a"), (2, "b")])
+
+    def test_star_with_order_by_desc(self):
+        self.assertEqual(self.db.run("SELECT * FROM t ORDER BY v DESC")[1], [(2, "b"), (1, "a")])
+
+    def test_star_with_order_and_limit(self):
+        self.assertEqual(self.db.run("SELECT * FROM t ORDER BY v LIMIT 1")[1], [(1, "a")])
+
+
 class TestLimit(unittest.TestCase):
     def setUp(self):
         self.db = Database()
@@ -90,6 +109,8 @@ class DifferentialM12(unittest.TestCase):
         SEED + ["SELECT v FROM t WHERE v IS NOT NULL ORDER BY v DESC LIMIT 1"],
         SEED + ["SELECT DISTINCT v FROM t ORDER BY v LIMIT 3"],
         SEED + ["SELECT v FROM t ORDER BY w DESC"],
+        SEED + ["SELECT * FROM t ORDER BY v"],
+        SEED + ["SELECT * FROM t ORDER BY w DESC, v"],
     ]
 
     def test_cases_match_sqlite(self):
