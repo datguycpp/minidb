@@ -12,7 +12,6 @@ compares, so they are produced here rather than reworded by a caller.
 import copy
 import re
 import string
-from types import SimpleNamespace
 
 from .sql import ast
 from .storage.disk import DiskStorage
@@ -30,10 +29,12 @@ def _rank(value):
     return _RANK[type(value)]
 
 
-def sql_compare(left, right, op):
+def sql_compare(left, right, op, nocase=False):
     """Three-valued comparison: NULL in either side yields None, as in SQL."""
     if left is None or right is None:
         return None
+    if nocase and isinstance(left, str) and isinstance(right, str):
+        left, right = left.lower(), right.lower()
     lr, rr = _rank(left), _rank(right)
     if lr != rr:
         # Cross-type comparison is defined by storage class, not by trying to coerce.
@@ -150,6 +151,61 @@ def cast_value(value, type_name):
         number = to_number(value)
         return number if number is not None else 0
     return to_text(value)
+
+
+def affinity_of(type_name):
+    """SQLite's affinity rules, in its own order: INT first, then CHAR/CLOB/TEXT, then BLOB,
+    then REAL/FLOA/DOUB, and NUMERIC for everything else."""
+    if not type_name:
+        return "BLOB"
+    name = type_name.upper()
+    if "INT" in name:
+        return "INTEGER"
+    if "CHAR" in name or "CLOB" in name or "TEXT" in name:
+        return "TEXT"
+    if "BLOB" in name or name.strip() == "":
+        return "BLOB"
+    if "REAL" in name or "FLOA" in name or "DOUB" in name:
+        return "REAL"
+    return "NUMERIC"
+
+
+def _numeric_prefix(text):
+    match = re.match(r"^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)", text)
+    if not match:
+        return None
+    body = match.group(1)
+    try:
+        if re.fullmatch(r"[+-]?\d+", body):
+            return int(body)
+        return float(body)
+    except ValueError:
+        return None
+
+
+def apply_affinity(value, affinity):
+    """Column affinity applied on write, which is what makes typeof('5') report integer."""
+    if value is None or affinity == "BLOB":
+        return value
+    if affinity == "TEXT":
+        return value if isinstance(value, str) else text_of(value)
+    if affinity in ("INTEGER", "NUMERIC"):
+        if isinstance(value, str):
+            # Only a losslessly convertible string is coerced: '12abc' stays text in a column,
+            # even though CAST('12abc' AS INTEGER) is 12.
+            stripped = value.strip()
+            if re.fullmatch(r"[+-]?\d+", stripped):
+                return int(stripped)
+            if re.fullmatch(r"[+-]?(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?", stripped):
+                number = float(stripped)
+                return int(number) if number.is_integer() else number
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        return value
+    if affinity == "REAL":
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else value
+    return value
 
 
 def text_of(value):
@@ -416,7 +472,7 @@ def truthy(value):
 
 class Column:
     __slots__ = ("name", "type_name", "not_null", "unique", "primary_key", "default", "check",
-                 "check_text", "ref_table", "ref_column")
+                 "check_text", "ref_table", "ref_column", "affinity", "collation")
 
     def __init__(self, definition: ast.ColumnDef):
         self.name = definition.name
@@ -429,8 +485,12 @@ class Column:
         self.check_text = None
         self.ref_table = None
         self.ref_column = None
+        self.affinity = affinity_of(definition.type_name)
+        self.collation = None
         for constraint in definition.constraints:
-            if constraint.kind == "REFERENCES":
+            if constraint.kind == "COLLATE":
+                self.collation = (constraint.text or "").upper()
+            elif constraint.kind == "REFERENCES":
                 self.ref_table = constraint.ref_table
                 self.ref_column = constraint.ref_column
             elif constraint.kind == "PRIMARY KEY":
@@ -696,7 +756,7 @@ class Database:
     def _materialise_view(self, view: ast.CreateView):
         columns, rows = self._select_node(view.select)
         names = view.columns or columns
-        table = Table(view.name, [SimpleNamespace(name=name) for name in names])
+        table = Table(view.name, [Column(ast.ColumnDef(name=name)) for name in names])
         table.rows = [tuple(row) for row in rows]
         return table
 
@@ -743,7 +803,7 @@ class Database:
     def _materialise_cte(self, cte):
         columns, rows = self._select_node(cte.select)
         names = cte.columns or columns
-        table = Table(cte.name, [SimpleNamespace(name=name) for name in names])
+        table = Table(cte.name, [Column(ast.ColumnDef(name=name)) for name in names])
         table.rows = [tuple(row) for row in rows]
         return table
 
@@ -763,7 +823,7 @@ class Database:
             accumulated.append(tuple(row))
         working = list(accumulated)
         for _ in range(1000):
-            table = Table(cte.name, [SimpleNamespace(name=name) for name in names])
+            table = Table(cte.name, [Column(ast.ColumnDef(name=name)) for name in names])
             table.rows = working
             self.tables[cte.name.lower()] = table
             _, rows = self._select_node(body.right)
@@ -781,7 +841,7 @@ class Database:
             working = fresh
         else:
             raise ExecError("recursive CTE exceeded 1000 iterations")
-        table = Table(cte.name, [SimpleNamespace(name=name) for name in names])
+        table = Table(cte.name, [Column(ast.ColumnDef(name=name)) for name in names])
         table.rows = accumulated
         return table
 
@@ -869,6 +929,7 @@ class Database:
                 elif column.not_null:
                     raise ExecError(f"NOT NULL constraint failed: {table.name}.{column.name}")
             for i, column in enumerate(table.columns):
+                values[i] = apply_affinity(values[i], column.affinity)
                 if values[i] is None and column.not_null:
                     raise ExecError(f"NOT NULL constraint failed: {table.name}.{column.name}")
                 if values[i] is None:
@@ -877,7 +938,14 @@ class Database:
                     raise ExecError(f"CHECK constraint failed: {column.check_text}")
                 if column.unique:
                     for existing in self._rows(table):
-                        if existing[i] == values[i]:
+                        same = existing[i]
+                        if (column.collation == "NOCASE" and isinstance(same, str)
+                                and isinstance(values[i], str)):
+                            same = same.lower()
+                            compared = values[i].lower()
+                        else:
+                            compared = values[i]
+                        if same == compared:
                             raise ExecError(f"UNIQUE constraint failed: {table.name}.{column.name}")
             # Unique indexes are checked before the row lands, so a rejected insert leaves
             # neither a row nor a dangling index entry.
@@ -1078,6 +1146,20 @@ class Database:
         return f"CREATE TABLE {name} (" + ", ".join(parts) + ")"
 
     # -- UPDATE / DELETE -----------------------------------------------------
+    def _collation(self, node, table):
+        if isinstance(node, ast.Collate):
+            return node.name.upper()
+        if isinstance(node, ast.ColumnRef) and table is not None:
+            position = table.index_of.get(node.name.lower())
+            if position is not None:
+                return table.columns[position].collation
+        return None
+
+    def _order_key(self, value, collation):
+        if collation == "NOCASE" and isinstance(value, str):
+            return _order_sort_key(value.lower())
+        return _order_sort_key(value)
+
     def _row_env(self, table, row):
         env = {}
         for column, value in zip(table.columns, row):
@@ -1125,7 +1207,8 @@ class Database:
             values = list(row)
             # All assignments read the OLD row, so `SET a = b, b = a` swaps rather than copies.
             for (_, expression), position in zip(node.assignments, positions):
-                values[position] = self._eval(expression, table, env)
+                values[position] = apply_affinity(self._eval(expression, table, env),
+                                                  table.columns[position].affinity)
             self._fire(table, "UPDATE", "BEFORE", row, values)
             table.rows[index] = tuple(values)
             self._fire(table, "UPDATE", "AFTER", row, values)
@@ -1562,7 +1645,8 @@ class Database:
             def key(entry, expression=expression):
                 if isinstance(expression, ast.ColumnRef) and expression.name.lower() in entry["aliases"]:
                     return _order_sort_key(entry["aliases"][expression.name.lower()])
-                return _order_sort_key(self._eval(expression, table, entry["env"]))
+                return self._order_key(self._eval(expression, table, entry["env"]),
+                                       self._collation(expression, table))
             entries.sort(key=key, reverse=descending)
 
         rows = []
@@ -1830,8 +1914,12 @@ class Database:
             if node.op == "OR":
                 return sql_or(self._eval(node.left, table, env, group),
                               self._eval(node.right, table, env, group))
+            nocase = (self._collation(node.left, table) == "NOCASE"
+                      or self._collation(node.right, table) == "NOCASE")
             return sql_compare(self._eval(node.left, table, env, group),
-                               self._eval(node.right, table, env, group), node.op)
+                               self._eval(node.right, table, env, group), node.op, nocase)
+        if isinstance(node, ast.Collate):
+            return self._eval(node.expr, table, env, group)
         if isinstance(node, ast.UnaryOp):
             value = self._eval(node.operand, table, env, group)
             if node.op == "NOT":

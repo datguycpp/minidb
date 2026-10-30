@@ -25,7 +25,8 @@ RESERVED_IDENTIFIERS = RESERVED_STARTERS | {
 }
 
 
-CONSTRAINT_STARTERS = {"PRIMARY", "NOT", "NULL", "UNIQUE", "DEFAULT", "CHECK", "REFERENCES"}
+CONSTRAINT_STARTERS = {"PRIMARY", "NOT", "NULL", "UNIQUE", "DEFAULT", "CHECK", "REFERENCES",
+                       "COLLATE"}
 
 COMPARISON_OPS = {"=", "==", "!=", "<>", "<", "<=", ">", ">="}
 
@@ -456,6 +457,8 @@ class Parser:
             return ast.Constraint("UNIQUE")
         if self.accept_keyword("DEFAULT"):
             return ast.Constraint("DEFAULT", self.parse_expression())
+        if self.accept_keyword("COLLATE"):
+            return ast.Constraint("COLLATE", text=self.parse_identifier("collation name"))
         if self.accept_keyword("REFERENCES"):
             ref_table = self.parse_identifier("table name")
             ref_column = None
@@ -758,11 +761,16 @@ class Parser:
             node = ast.BinaryOp(op, node, self.parse_unary())
         return node
 
+    def parse_collate(self, node):
+        while self.accept_keyword("COLLATE"):
+            node = ast.Collate(expr=node, name=self.parse_identifier("collation name"))
+        return node
+
     def parse_unary(self):
         if self.tok.kind == "PUNCT" and self.tok.value in ("-", "+"):
             op = self.advance().value
             return ast.UnaryOp(op, self.parse_unary())
-        return self.parse_primary()
+        return self.parse_collate(self.parse_primary())
 
     def parse_comparison(self):
         node = self.parse_additive()

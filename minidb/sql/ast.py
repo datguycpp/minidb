@@ -32,6 +32,12 @@ class BinaryOp(Node):
 
 
 @dataclass
+class Collate(Node):
+    expr: Node
+    name: str
+
+
+@dataclass
 class UnaryOp(Node):
     op: str                # NOT | - | +
     operand: Node
