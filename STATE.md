@@ -84,11 +84,10 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: TIER-2 GATE — VERIFIED PASS (208/208, slice 122/122, semantic
-  fuzz 0/10k on the declared 12-feature dialect, 86-line green, all tools green).
-  t2f landed 21/21. Tier 3 opens with M18 and the fuzzer's post-M15 feature-surface
-  extension queued as Build work; the benchmark's first full run still triggers the
-  pre-registered multiple.**
+- **Current milestone: M18 (page cache) accepted with an honest-reproduction finding
+  (lookups reproduce, the +46% scan claim does not); t3a's literal re-verified at 4209
+  chars (the proof-the-claim duty discharged), tree housekeeping committed. M19
+  (freelist/VACUUM/blob literals) next, with t3a's landing gate open after that review.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -179,6 +178,30 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t3.18 (M18 landing — page cache — re-baselined #20): 208/208 (100.0%),
+    336 tests — accepted with an honest-reproduction finding`** — the A/B harness
+    (`tools/page_cache_check.py`) committed per the "numbers reproduce from the clone"
+    rule, and my independent reproduction from the committed tool confirms **the
+    LOOKUP gain but not the scan claim**: at the reported 30,000 rows / 1.9MB:
+    cache 3.50 scans/s + 14 lookups/s vs no-cache 3.44 + 11 (**lookups ≈ +27%**,
+    direction confirmed at both 20k and 30k draws; **scans ≈ noise-flat**, the
+    reported +46% did not reproduce at either size — 5.13 vs 5.33 at 20k, 3.50 vs
+    3.44 at 30k). The M18 report's own honest weak spot (page I/O no longer the
+    bottleneck; per-rowid work is) survives this finding — the CREDIT goes to the
+    lookup path, and the commit message records this per the standing rule. A/B
+    magnitudes are the engine's claim until the benchmark protocol's median-of-7
+    workloads reproduce them as Tier-3's first full run (the pre-registered multiple
+    trigger is the same event). Protocol compliance verified: the page-cache test
+    file runs standalone (336 total, OK).
+  - **[T3a — the proof-the-claim loop CLOSED by measurement] t3a's literal re-verified
+    at my direct measurement through the loader: 4209 chars, `> 4096: True`, >= 4200:
+    True (research's threshold-probe reading independently confirmed — the
+    flagged-inability → measured → edited → verified loop is complete).** The tranche
+    loads: 8 cases, 5 multi-phase, VACUUM + reopen directives intact; the 3/8
+    mid-air preview stands as M19's baseline. **[TREE HOUSEKEEPING — the t2f-draft
+    deletion staged under the tree-claim rule + M23 spec + t3a draft committed]**
+    (commit `3d1f3f4`); the M23 spec stands as delivered; the docs bundle now rides
+    the landing owner's commits, not abandoned untracked files.
   - **`SCORE t3.19 (dialect extension + REAL-affinity bug, re-baselined #19):
     208/208 (100.0%), 331 tests — the queued [Build] item is closed`** — the
     fuzzer's declared dialect is now **16 features** (the 12 Tier-1-era surfaces +
