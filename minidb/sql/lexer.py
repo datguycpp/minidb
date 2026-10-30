@@ -13,7 +13,7 @@ HAVING IF IN INDEX INNER INSERT INTERSECT INTO IS JOIN KEY LEFT LIKE LIMIT NOT N
 ON OR ORDER OUTER RIGHT PRIMARY REFERENCES ROLLBACK SELECT SET TABLE THEN TRANSACTION TRUE FALSE
 DEFERRED IMMEDIATE EXCLUSIVE
 UNION UNIQUE UPDATE USING VALUES VIEW WHEN WHERE WITH RECURSIVE
-OVER PARTITION ROWS RANGE PRECEDING FOLLOWING CURRENT UNBOUNDED ROW COLUMN RENAME TO TRIGGER PRAGMA BEFORE AFTER RAISE ABORT EACH
+OVER PARTITION ROWS RANGE PRECEDING FOLLOWING CURRENT UNBOUNDED ROW COLUMN RENAME TO TRIGGER PRAGMA VACUUM BEFORE AFTER RAISE ABORT EACH
 """.split())
 
 # Longest first: '<=' must win over '<'.
@@ -141,6 +141,29 @@ def tokenize(sql):
                 sc.advance()
             tokens.append(Token("IDENT", "".join(buf), start_i, start_line, start_col,
                                 raw=sc.sql[start_i:sc.i], quote=quote))
+            continue
+
+        # Blob literal: X'0102' (the X may be either case, SQLite allows both)
+        if ch in ("x", "X") and sc.peek(1) == "'":
+            sc.advance(2)
+            digits = []
+            while True:
+                c = sc.peek()
+                if not c:
+                    raise LexError("unterminated blob literal", start_i, start_line, start_col,
+                                   snippet=sc.sql[start_i:])
+                if c == "'":
+                    sc.advance()
+                    break
+                digits.append(c)
+                sc.advance()
+            hex_text = "".join(digits)
+            if len(hex_text) % 2 or any(digit not in "0123456789abcdefABCDEF" for digit in hex_text):
+                raise LexError("malformed database schema", start_i, start_line, start_col,
+                               snippet=sc.sql[start_i:])
+            value = bytes.fromhex(hex_text)
+            tokens.append(Token("BLOB", value, start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i]))
             continue
 
         if ch == "'":

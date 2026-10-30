@@ -154,6 +154,9 @@ class Parser:
             stmt = self.parse_delete()
         elif self.at_keyword("PRAGMA"):
             stmt = self.parse_pragma()
+        elif self.at_keyword("VACUUM"):
+            self.advance()
+            stmt = ast.Vacuum()
         elif self.at_keyword("SELECT"):
             stmt = self.parse_compound()
         else:
@@ -909,6 +912,9 @@ class Parser:
             value = float(text) if any(c in text for c in ".eE") else int(text)
             return ast.Literal(value, "number")
 
+        if tok.kind == "BLOB":
+            self.advance()
+            return ast.Literal(tok.value, "blob")
         if tok.kind == "STRING":
             self.advance()
             return ast.Literal(tok.value, "string")

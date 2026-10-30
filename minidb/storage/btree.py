@@ -27,6 +27,9 @@ from .pager import PAGE_SIZE, Pager, StorageError
 LEAF = 2
 INTERIOR = 1
 HEADER = 8
+OVERFLOW = 0xFFFFFFFF
+INLINE_LIMIT = 1000            # payloads above this go to an overflow chain
+CHUNK = PAGE_SIZE - 4          # each overflow page: 4-byte next id + chunk
 
 
 class Node:
@@ -57,8 +60,14 @@ class BTree:
             if kind == LEAF:
                 length = struct.unpack_from("<I", data, offset)[0]
                 offset += 4
-                cells.append((key, data[offset:offset + length]))
-                offset += length
+                if length == OVERFLOW:
+                    first = struct.unpack_from("<I", data, offset)[0]
+                    total = struct.unpack_from("<I", data, offset + 4)[0]
+                    offset += 8
+                    cells.append((key, self._read_overflow(first, total)))
+                else:
+                    cells.append((key, data[offset:offset + length]))
+                    offset += length
             else:
                 cells.append((key, struct.unpack_from("<I", data, offset)[0]))
                 offset += 4
@@ -73,8 +82,16 @@ class BTree:
         for cell in node.cells:
             if node.kind == LEAF:
                 key, payload = cell
+                if len(payload) > INLINE_LIMIT:
+                    first = self._write_overflow(payload)
+                    struct.pack_into("<q", buffer, offset, key)
+                    struct.pack_into("<I", buffer, offset + 8, OVERFLOW)
+                    struct.pack_into("<I", buffer, offset + 12, first)
+                    struct.pack_into("<I", buffer, offset + 16, len(payload))
+                    offset += 20
+                    continue
                 if offset + 12 + len(payload) > PAGE_SIZE:
-                    raise StorageError("row too large for a page (overflow pages are milestone 20)")
+                    raise StorageError("row too large for a page even inlined")
                 struct.pack_into("<q", buffer, offset, key)
                 struct.pack_into("<I", buffer, offset + 8, len(payload))
                 offset += 12
@@ -89,11 +106,37 @@ class BTree:
                 offset += 12
         self.pager.write(node.page_id, bytes(buffer))
 
+    # -- overflow chains ----------------------------------------------------
+    def _write_overflow(self, payload):
+        pages = [payload[i:i + CHUNK] for i in range(0, len(payload), CHUNK)]
+        ids = [self.pager.allocate() for _ in pages]
+        for index, (page_id, chunk) in enumerate(zip(ids, pages)):
+            buffer = bytearray(PAGE_SIZE)
+            nxt = ids[index + 1] if index + 1 < len(ids) else 0
+            struct.pack_into("<I", buffer, 0, nxt)
+            buffer[4:4 + len(chunk)] = chunk
+            self.pager.write(page_id, bytes(buffer))
+        return ids[0]
+
+    def _read_overflow(self, first, total):
+        chunks = []
+        page_id = first
+        while page_id:
+            data = self.pager.read(page_id)
+            nxt = struct.unpack_from("<I", data, 0)[0]
+            chunks.append(data[4:])
+            page_id = nxt
+        return b"".join(chunks)[:total]
+
     @staticmethod
     def _fits(node, extra=None):
         total = HEADER
         for cell in (node.cells + ([extra] if extra else [])):
-            total += 12 + (len(cell[1]) if node.kind == LEAF else 0)
+            if node.kind == LEAF:
+                size = len(cell[1])
+                total += 12 + (size if size <= INLINE_LIMIT else 8)
+            else:
+                total += 12
         return total <= PAGE_SIZE
 
     # -- creation -----------------------------------------------------------

@@ -180,13 +180,17 @@ class TestDiskDatabase(TempDb):
         self.assertEqual(str(ctx.exception), "table t already exists")
         again.close()
 
-    def test_oversized_row_is_reported_not_crashed(self):
+    def test_oversized_row_uses_overflow_pages(self):
+        # This was a refusal guard ("row too large") until M19 added overflow chains; the
+        # invariant now is that a row bigger than one page stores and reads back intact.
         db = Database(self.path)
         db.run("CREATE TABLE t (body TEXT)")
-        with self.assertRaises(ExecError) as ctx:
-            db.run(f"INSERT INTO t VALUES ('{'x' * 8000}')")
-        self.assertIn("row too large", str(ctx.exception))
+        db.run(f"INSERT INTO t VALUES ('{'x' * 8000}')")
+        self.assertEqual(db.run("SELECT length(body) FROM t")[1], [(8000,)])
         db.close()
+        again = Database(self.path)
+        self.assertEqual(again.run("SELECT length(body) FROM t")[1], [(8000,)])
+        again.close()
 
     def test_file_page_count_is_reasonable(self):
         db = Database(self.path)

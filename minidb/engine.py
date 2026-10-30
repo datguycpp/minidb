@@ -10,6 +10,7 @@ compares, so they are produced here rather than reworded by a caller.
 """
 
 import copy
+import os
 import re
 import string
 
@@ -343,6 +344,11 @@ def call_function(name, args):
         if name == "TRUNC":
             return int(numbers[0])
 
+    if name == "HEX":
+        value = args[0]
+        if isinstance(value, bytes):
+            return value.hex().upper()
+        return text_of(value).encode("utf-8").hex().upper()
     if name == "INSTR":
         return text_of(args[0]).find(text_of(args[1])) + 1
     if name in ("DATE", "TIME", "DATETIME", "JULIANDAY", "STRFTIME", "UNIXEPOCH"):
@@ -684,6 +690,8 @@ class Database:
             return self._select(statement)
         if isinstance(statement, ast.Compound):
             return self._compound(statement)
+        if isinstance(statement, ast.Vacuum):
+            return self._vacuum()
         if isinstance(statement, ast.Pragma):
             return self._pragma(statement)
         if isinstance(statement, ast.CreateTrigger):
@@ -1005,6 +1013,48 @@ class Database:
                 index.add(rowid, values)
             self._fire(table, "INSERT", "AFTER", None, values)
         return len(node.rows)
+
+    # -- VACUUM --------------------------------------------------------------
+    def _vacuum(self):
+        """Rebuild the file so pages freed by DELETE/UPDATE are actually returned.
+
+        There is no freelist yet, so compaction is the only way to reclaim them; rewriting into a
+        fresh file also drops orphaned overflow chains left by row rewrites.
+        """
+        if self.storage is None:
+            return None
+        temp_path = self.path + ".vacuum"
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        fresh = Database(temp_path)
+        for table in self.tables.values():
+            fresh.run(table.entry["sql"])
+        for view in self.views.values():
+            fresh.run(view.sql or f"CREATE VIEW {view.name} AS SELECT 1")
+        for trigger in self.triggers.values():
+            fresh.run(trigger.sql or f"CREATE TRIGGER {trigger.name} AFTER INSERT ON "
+                                    f"{trigger.table} BEGIN SELECT 1; END")
+        for table in self.tables.values():
+            target = fresh.tables[table.name.lower()]
+            for row in self._rows(table):
+                if target.on_disk:
+                    fresh.storage.insert_row(target.entry, list(row))
+                else:
+                    target.rows.append(tuple(row))
+            for index in table.indexes.values():
+                columns = ", ".join(table.columns[i].name for i in index.columns)
+                unique = "UNIQUE " if index.unique else ""
+                fresh.run(f"CREATE {unique}INDEX mdb_vac_{index.name} ON {table.name} ({columns})")
+        fresh.close()
+        self.storage.close()
+        os.replace(temp_path, self.path)
+        reopened = Database(self.path)
+        self.storage = reopened.storage
+        self.tables = reopened.tables
+        self.views = reopened.views
+        self.triggers = reopened.triggers
+        reopened.storage = None      # ownership moved to self; avoid double close
+        return None
 
     # -- PRAGMA / foreign keys ----------------------------------------------
     def _pragma(self, node: ast.Pragma):

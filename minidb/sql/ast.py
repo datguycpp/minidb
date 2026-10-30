@@ -62,6 +62,11 @@ class SelectItem(Node):
 
 
 @dataclass
+class Vacuum(Node):
+    pass
+
+
+@dataclass
 class Pragma(Node):
     name: str
     value: "Node | None" = None
