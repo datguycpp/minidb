@@ -19,6 +19,7 @@ incremental checkpointing. Those are M25 and M18.
 import os
 import struct
 import zlib
+from collections import OrderedDict
 
 MAGIC = b"MiniDB01"
 VERSION = 1
@@ -41,6 +42,9 @@ class StorageError(Exception):
     pass
 
 
+CACHE_PAGES = int(os.environ.get("MINIDB_CACHE_PAGES", "512"))
+
+
 class Pager:
     def __init__(self, path):
         self.path = path
@@ -48,6 +52,9 @@ class Pager:
         exists = os.path.exists(path) and os.path.getsize(path) > 0
         self.fh = open(path, "r+b" if exists else "w+b")
         self.dirty = {}
+        # LRU page cache (milestone 18). Disabled with MINIDB_CACHE_PAGES=0 so the before/after
+        # numbers come from the same binary rather than from two checkouts.
+        self.cache = OrderedDict()
         # Recovery must come first: a crash can leave the database file empty (or short) while
         # the log holds the only copy of a committed batch.
         if os.path.exists(self.wal_path) and os.path.getsize(self.wal_path) > len(WAL_MAGIC):
@@ -93,15 +100,26 @@ class Pager:
             return self.dirty[page_id]
         if page_id < 0 or page_id >= self.page_count:
             raise StorageError(f"page {page_id} out of range")
+        cached = self.cache.get(page_id)
+        if cached is not None:
+            self.cache.move_to_end(page_id)
+            return cached
         data = self._read_page_bytes(page_id)
         if len(data) != PAGE_SIZE:
             raise StorageError(f"page {page_id} truncated")
+        if CACHE_PAGES:
+            self.cache[page_id] = data
+            if len(self.cache) > CACHE_PAGES:
+                self.cache.popitem(last=False)
         return data
 
     def write(self, page_id, data):
         if len(data) != PAGE_SIZE:
             raise StorageError(f"page {page_id}: expected {PAGE_SIZE} bytes, got {len(data)}")
-        self.dirty[page_id] = bytes(data)
+        payload = bytes(data)
+        self.dirty[page_id] = payload
+        if CACHE_PAGES:
+            self.cache[page_id] = payload
 
     def allocate(self):
         page_id = self.page_count
@@ -161,6 +179,7 @@ class Pager:
     def rollback(self):
         """Drop uncommitted pages. The file was never touched, so there is nothing to undo."""
         self.dirty.clear()
+        self.cache.clear()
         self._read_header()
 
     # -- recovery -----------------------------------------------------------
@@ -219,6 +238,7 @@ class Pager:
 
     # -- lifecycle ----------------------------------------------------------
     def close(self):
+        self.cache.clear()
         # A clean shutdown flushes what is pending; a crash skips this and leaves the WAL for
         # recovery. Silently dropping dirty pages here would lose data without a trace.
         self.commit()
