@@ -1,0 +1,105 @@
+-- t2b DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator stays 106 until ordered.
+-- AUTHORSHIP TIMING, stated because it matters: M11 shipped BEFORE this
+-- tranche was written (sequencing slipped — the milestone was built in the
+-- round that requested the draft). So this is NOT a pre-implementation
+-- tranche. Honest accounting, case by case:
+--   [pin]  = quirk whose value M11's report published (upper ASCII-only,
+--            substr 0-start, empty-needle replace, half-away round, 1/0,
+--            CAST prefix). Regression pins. No prediction credit.
+--   [t]    = behavior M11's report did NOT publish (exact substr(-2) form,
+--            instr misses, typeof labels, scalar min/max NULL rules,
+--            strftime/unixepoch outputs, trim family). These ARE genuine
+--            tests: authored from SQLite knowledge before seeing any output.
+-- src: authored after M11 report   tier: t2 (tranche b: built-in functions)
+
+-- [pin] Division by zero is NULL, not an error.
+
+SELECT 1 / 0;
+
+-- [pin] Leading-prefix numeric coercion.
+
+SELECT CAST('12abc' AS INTEGER);
+
+-- [pin] SQLite case mapping is ASCII-only: é survives upper().
+
+SELECT upper('héllo'), lower('HÉLLO');
+
+-- [pin] substr start index 0 begins one character before the string.
+
+SELECT substr('abcdef', 0, 3);
+
+-- [pin] Empty needle leaves the string untouched.
+
+SELECT replace('abc', '', 'X');
+
+-- [pin] Half away from zero, not banker's rounding.
+
+SELECT round(2.5), round(-2.5);
+
+-- [t] Negative start counts from the end; omitted length runs to the end.
+
+SELECT substr('abcdef', -2), substr('abcdef', 1, -1);
+
+-- [t] length on empty string is 0; on NULL it is NULL, not 0.
+
+SELECT length(''), length(NULL);
+
+-- [t] instr: 1-based position, 0 when absent.
+
+SELECT instr('abcdef', 'cd'), instr('abc', 'z');
+
+-- [t] typeof labels: SQLite's exact four names.
+
+SELECT typeof(1), typeof(1.5), typeof('a'), typeof(NULL);
+
+-- [t] Null-handling trio: first non-NULL, NULL-coalesce, conditional NULL.
+
+SELECT coalesce(NULL, NULL, 3), ifnull(NULL, 5), nullif(1, 1), nullif(1, 2);
+
+-- [t] Scalar min/max ignore NULL unless ALL args are NULL (the arity rule
+-- that distinguishes them from the aggregate forms).
+
+SELECT min(NULL, 2), max(NULL, 2), min(NULL, NULL);
+
+-- [t] Aggregate arity over rows: same names, different evaluation.
+
+CREATE TABLE t (v REAL);
+INSERT INTO t VALUES (3.5);
+INSERT INTO t VALUES (1);
+INSERT INTO t VALUES (NULL);
+SELECT min(v), max(v), count(v), avg(v) FROM t;
+
+-- [t] date/time round-trip and formatting (no modifiers — see the gap case).
+
+SELECT date('2024-01-15');
+
+SELECT datetime('2024-01-15 12:30:45');
+
+SELECT unixepoch('2024-01-15');
+
+SELECT strftime('%Y-%m-%d', '2024-01-15 13:45:00'),
+       strftime('%H:%M', '2024-01-15 13:45:00');
+
+-- [t] date('now'): day granularity, so back-to-back runs agree unless they
+-- straddle midnight (noted risk, accepted — datetime('now') deliberately
+-- avoided for that reason).
+
+SELECT date('now');
+
+-- [t] DECLARED GAP, included because the ladder's date/time promise covers
+-- modifiers and a declared limit is still a failing test until owned work
+-- closes it: expected to FAIL (M11 returns NULL rather than guessing).
+
+SELECT date('2024-01-15', '+1 day');
+
+-- [t] SWING: math functions are in the ladder's M11 wording but were not in
+-- M11's implemented list, and the reference build may or may not include
+-- SQLite's optional math. Both-reject counts as agreement; SQLite-has-it
+-- and we-don't is a fail. Whichever way, it is owned.
+
+SELECT sqrt(4);
+
+-- [t] Trim family: all three arities, spaces only.
+
+SELECT trim('  x  '), ltrim(' x'), rtrim('x ');

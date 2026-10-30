@@ -258,6 +258,7 @@ def load_cases(path):
     cases = []
     phases, case_directives = [[]], set()
     saw_directive_marker = False
+    pending_join = ""
 
     def flush(lineno):
         nonlocal phases, case_directives
@@ -308,9 +309,18 @@ def load_cases(path):
                                 f"{path}:{lineno}: '--{key}:' looks like a misspelled "
                                 f"directive — use `--directive: {near[0]}`")
                 continue  # plain comment (provenance headers, case descriptions)
-            phases[-1].append(stripped.rstrip(";").strip())
-    if not saw_directive_marker and not any(phases):
-        raise SystemExit(f"{path}: no cases found (file is empty or comment-only)")
+            pending = (pending_join + " " + stripped.rstrip(";").strip()
+                       if pending_join else stripped.rstrip(";").strip())
+            if pending.count("(") > pending.count(")") or pending.rstrip().endswith(","):
+                pending_join = pending  # still open: parens unbalanced or mid-list
+            else:
+                phases[-1].append(pending.rstrip(";").strip())
+                pending_join = ""
+        if pending_join:
+            raise SystemExit(
+                f"{path}: unterminated multi-line statement (trailing: {pending_join[-60:]!r})")
+        if not saw_directive_marker and not any(phases):
+            raise SystemExit(f"{path}: no cases found (file is empty or comment-only)")
     flush(lineno + 1)
     return cases
 
