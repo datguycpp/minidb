@@ -10,4 +10,24 @@ A SQL database engine built as a conformance project, scored against real SQLite
   the backlog and review. Nobody writes engine code who isn't Build; nobody reports a
   score without raw test output behind it.
 
+## Using it from Python
+
+```python
+from minidb.server import serve
+from minidb.client import Client, ServerError
+
+server = serve("demo.db", port=8765)          # one process, one handle, M25's lock model
+client = Client("127.0.0.1", 8765)
+client.execute("CREATE TABLE t (a INTEGER)")
+client.execute("INSERT INTO t VALUES (1), (2)")
+columns, rows = client.execute("SELECT sum(a) FROM t")
+print(columns, rows)                           # ['sum(a)'] [(3,)]
+
+try:
+    client.execute("SELECT * FROM missing")
+except ServerError as exc:                     # typed, and the wording is the engine's own
+    print(exc)                                 # no such table: missing
+client.close()
+```
+
 Status and next tasks: [STATE.md](STATE.md).
