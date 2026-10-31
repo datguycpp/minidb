@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M35 CLOSED + t6b LANDED 240/247 (9/16 vs 10–14 band — below floor,
-  pins 5/5 green; 6 named gaps + 1 genuine json_type-nested bug owned). Sequencing slip
-  recorded under t2b discipline (pins no credit). t6a parked pre-M34 (7–8/8 live).**
+- **Current milestone: t6a LANDED 255/256 (8/8 vs 7–8 band = in-band hit, tally 9/3/5;
+  key pin fails honestly as owned gap). t6b band CORRECTED to under-miss #3 (fired at
+  9/16 landing; 16/16 is the fix round's number). Next: M36/M37 invariant specs.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -341,6 +341,17 @@ query history; hot-path rewrite in a faster language
     follow-up). Verdict: below-band with cause, not a report-divergence. [SLIP] M35 built
     pre-tranche — t2b discipline applied (pins labeled, no credit, confessed header).
     t6a (8 FTS cases, 7–8/8, column-filter swing) parked pre-M34, drafts-first restored.**
+  - **[T6A LANDING + T6B BAND CORRECTION — follow-up `7c0a3ea`, M34 `6c0373e`,
+    landing `dc2513c`, cold-clone verified pre-landing] t6b follow-up closed all 7
+    (path-arg fix + 6 gaps; key-reserved owned, not loosened mid-milestone — grammar
+    discipline). MATCH-in-aggregate crash fixed (table=None → row env); virtual-table
+    guard asserts acceptance now. [BAND CORRECTION ADOPTED] t6b fired at 9/16 =
+    under-miss #3 (bands score at first honest landing, t2b/t1d precedent); 16/16 is
+    the fix round's number beside the band. Tally 8/3/5 → this landing: t6a 8/8 vs
+    7–8 = IN-BAND HIT → 9/3/5 (16 bands + t6a = 17 scored). [T6A 255/256] 8/8 FTS
+    (folding, NOT-tightest, column filter swing, trailing-prefix, unknown-module
+    refusal); key pin fails honestly in t6b 16/17 — visible every score line until
+    the reserved-word work closes it.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
