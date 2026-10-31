@@ -84,12 +84,10 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M23 accepted (24/24 read-compat); the TIER-3 GATE IS COMPUTED
-  AND PASSES with the benchmark's first full run published (median-of-ratios 111.957;
-  gate multiple set ONCE from this run at 150.0 with per-workload ceilings). Tier 4
-  opens with M24 — and the benchmark's two knife-edge-firing findings (W1 end-to-end
-  parse+fetch, W8 per-row full scan on UPDATE) are the M38 hot-path rewrite's named
-  first targets.**
+- **Current milestone: W1/W8 perf fixes accepted (index-preserving UPDATE, parse cache);
+  M24 crash torture built with negative controls — 300/300 reported, 50/50 cold-clone
+  reproduced; the 10k-iteration gate run is in flight (verdict on its exact line, not
+  on the 300). Tier-4 gate arithmetic waits for that line.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -179,6 +177,24 @@ query history; hot-path rewrite in a faster language
     engine was right; the harness was wrong.** Landed raw at 60/63 with that FAIL visible
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
+  - **[PERF FIXES ACCEPTED — `a601070`, cold-clone verified] W8 was a correctness
+    hazard, not just slow: disk UPDATE rebuilt indexes from `table.rows` (empty for
+    disk-backed tables) — a silent index-emptying path. Now: row found through the
+    index, rewritten in place through the B+tree, buckets maintained incrementally
+    (my probe: indexed UPDATE preserves the row AND the index serves it). W1:
+    identical statement text reuses one AST (1,024-entry cache; parse is pure and
+    the tree is read-only during execution). Ceilings untouched per the standing
+    rule — improving under a ceiling is the right direction. M38 keeps both as its
+    named first targets for the rerun numbers.**
+  - **[M24 TORTURE — tool accepted, gate run pending] `tools/crash_torture.py`:
+    fresh process + `os._exit(9)` at a seeded write-path point, reopen checked
+    against invariants (contiguous committed prefix; every index bucket matches a
+    direct table scan). Negative controls asserted in-suite (gapped table reported;
+    tampered index reported) — and the controls already paid: the first index check
+    went through the planner (full scan on 3 rows, tampered index never consulted),
+    now compares buckets directly. Cold clone at `cec38f4`: 387 tests, 222/222,
+    46/46; my rerun: 50/50 clean (rows=15, seeds 1..50). The 10k-iteration gate run
+    verdict waits for its exact line.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
