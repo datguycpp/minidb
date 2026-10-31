@@ -1,0 +1,63 @@
+-- t6a DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator stays 231 until ordered.
+-- Sequencing: authored BEFORE M34 starts (drafts-first holds here even
+-- though M35 was built first — see t6b's header).
+-- src: authored   tier: t6 (tranche a: full-text search, M34)
+-- DECLARED SUBSET (per tier6-prework): plain terms, AND/OR/NOT, column
+-- filters, trailing-prefix `*`, unicode61 case folding. OUT of subset and
+-- therefore out of this corpus: bm25() ranking, phrase-adjacency NEAR,
+-- tokenizer options, implicit-AND — declared in the milestone report, not
+-- hidden by silence.
+
+-- FTS: create virtual table, insert, MATCH a plain term.
+
+CREATE VIRTUAL TABLE docs USING fts5(body);
+INSERT INTO docs VALUES ('the quick brown fox');
+INSERT INTO docs VALUES ('a lazy dog sleeps');
+SELECT body FROM docs WHERE docs MATCH 'fox';
+
+-- MATCH with AND / OR.
+
+CREATE VIRTUAL TABLE docs USING fts5(body);
+INSERT INTO docs VALUES ('quick fox');
+INSERT INTO docs VALUES ('lazy dog');
+INSERT INTO docs VALUES ('quick dog');
+SELECT body FROM docs WHERE docs MATCH 'quick AND dog' ORDER BY body;
+
+CREATE VIRTUAL TABLE docs USING fts5(body);
+INSERT INTO docs VALUES ('quick fox');
+INSERT INTO docs VALUES ('lazy dog');
+SELECT body FROM docs WHERE docs MATCH 'quick OR lazy' ORDER BY body;
+
+-- MATCH with NOT.
+
+CREATE VIRTUAL TABLE docs USING fts5(body);
+INSERT INTO docs VALUES ('quick fox');
+INSERT INTO docs VALUES ('quick dog');
+SELECT body FROM docs WHERE docs MATCH 'quick NOT fox';
+
+-- Column filter: term restricted to one column.
+
+CREATE VIRTUAL TABLE docs USING fts5(title, body);
+INSERT INTO docs VALUES ('fox hunting', 'an article about dogs');
+INSERT INTO docs VALUES ('dog training', 'an article about foxes');
+SELECT body FROM docs WHERE docs MATCH 'title:dog';
+
+-- Trailing-prefix match: 'qui*' matches 'quick'.
+
+CREATE VIRTUAL TABLE docs USING fts5(body);
+INSERT INTO docs VALUES ('the quick brown fox');
+INSERT INTO docs VALUES ('nothing here');
+SELECT body FROM docs WHERE docs MATCH 'qui*';
+
+-- unicode61 case folding: query 'FOX' matches inserted 'fox'.
+
+CREATE VIRTUAL TABLE docs USING fts5(body);
+INSERT INTO docs VALUES ('a fox and a dog');
+SELECT body FROM docs WHERE docs MATCH 'FOX';
+
+-- No match: empty result, not an error.
+
+CREATE VIRTUAL TABLE docs USING fts5(body);
+INSERT INTO docs VALUES ('the quick brown fox');
+SELECT body FROM docs WHERE docs MATCH 'zebra';

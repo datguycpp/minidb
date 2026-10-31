@@ -72,3 +72,10 @@ SELECT json_valid('1'), json_valid('{'), json_valid('"x"');
 -- [t] Array-element path with index.
 
 SELECT '{"a":[1,2]}' ->> '$.a[1]';
+
+-- OWNED GAP PIN (t6a landing ride-along, per the AUTOINCREMENT ruling — holes stay
+-- corpus-shaped): `key` is reserved here, so SELECT key, value FROM json_each(...)
+-- is a syntax error while the reference returns the row. Visible in every score
+-- line until the reserved-word work closes it.
+
+SELECT key, value FROM json_each('[5]');
