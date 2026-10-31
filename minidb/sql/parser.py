@@ -696,6 +696,16 @@ class Parser:
             alias = self.parse_optional_alias()
             return None, alias, select
         name = self.parse_identifier("table name")
+        if self.at_punct("("):                       # table-valued function: json_each('[1,2]')
+            self.advance()
+            args = []
+            if not self.at_punct(")"):
+                args.append(self.parse_expression())
+                while self.accept_punct(","):
+                    args.append(self.parse_expression())
+            self.expect_punct(")")
+            alias = self.parse_optional_alias() or name
+            return ast.TableFunction(name=name, args=args), alias, None
         alias = self.parse_optional_alias()
         return name, alias, None
 

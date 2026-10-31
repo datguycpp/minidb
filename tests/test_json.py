@@ -45,6 +45,23 @@ CASES = [
     "SELECT json_extract('{\"a\":1}', '$.\"a\"') IS NULL",
 ]
 
+MUTATORS = [
+    "SELECT json_set('{}', '$.a', 1)",
+    "SELECT json_set('{\"a\":1}', '$.a', 2)",
+    "SELECT json_insert('{\"a\":1}', '$.a', 2)",
+    "SELECT json_insert('{\"a\":1}', '$.b', 2)",
+    "SELECT json_replace('{\"a\":1}', '$.b', 2)",
+    "SELECT json_replace('{\"a\":1}', '$.a', 7)",
+    "SELECT json_remove('{\"a\":1,\"b\":2}', '$.a')",
+    "SELECT json_remove('[1,2,3]', '$[1]')",
+    "SELECT json_set('[1]', '$[3]', 9)",          # the reference refuses to extend an array
+    "SELECT json_set('{\"a\":{\"b\":1}}', '$.a.b', 5)",
+    "SELECT json_type('{\"a\":[1,2]}', '$.a')",   # the t6b finding: path argument was ignored
+    "SELECT json_array_length('{\"a\":[1,2]}', '$.a')",
+    "SELECT json_group_object(k, v) FROM t",
+    "SELECT value FROM json_each('[10,20,30]') ORDER BY value",
+]
+
 ERRORS = [
     "SELECT json('nope')",
     "SELECT json_extract('{\"a\":1}', '$.')",
@@ -66,6 +83,17 @@ class TestJsonDifferential(unittest.TestCase):
             with self.subTest(sql=sql):
                 expected = bc.run_sqlite([sql])
                 actual = bc.run_minidb([sql])
+                ok, detail = bc.compare(expected, actual)
+                self.assertTrue(ok, f"{sql} -> {detail}")
+
+
+class TestJsonFollowUp(unittest.TestCase):
+    def test_mutators_and_table_function_match_the_binary(self):
+        setup = ["CREATE TABLE t (k TEXT, v INTEGER)", "INSERT INTO t VALUES ('a',1),('b',2)"]
+        for sql in MUTATORS:
+            with self.subTest(sql=sql):
+                expected = bc.run_sqlite([setup + [sql]])
+                actual = bc.run_minidb([setup + [sql]])
                 ok, detail = bc.compare(expected, actual)
                 self.assertTrue(ok, f"{sql} -> {detail}")
 

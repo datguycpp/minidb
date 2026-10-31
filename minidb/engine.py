@@ -333,6 +333,8 @@ def call_json_function(name, args):
         return 1
     if name == "JSON_TYPE":
         value = json_load(to_text(args[0]))
+        if len(args) > 1 and args[1] is not None:
+            value = json_lookup(value, json_path_steps(to_text(args[1])))
         if value is None:
             return "null"
         if isinstance(value, bool):
@@ -361,10 +363,84 @@ def call_json_function(name, args):
         if isinstance(value, (int, float)):
             return json_dump(value)
         return json_dump(to_text(value))
+    if name in ("JSON_SET", "JSON_INSERT", "JSON_REPLACE"):
+        document = json_load(to_text(args[0]))
+        mode = {"JSON_SET": "set", "JSON_INSERT": "insert", "JSON_REPLACE": "replace"}[name]
+        for index in range(1, len(args) - 1, 2):
+            json_mutate(document, to_text(args[index]), _json_input(args[index + 1]), mode)
+        return json_dump(document)
+    if name == "JSON_REMOVE":
+        document = json_load(to_text(args[0]))
+        for index in range(1, len(args)):
+            json_remove_path(document, to_text(args[index]))
+        return json_dump(document)
     if name == "JSON_ARRAY_LENGTH":
         value = json_load(to_text(args[0]))
+        if len(args) > 1 and args[1] is not None:
+            value = json_lookup(value, json_path_steps(to_text(args[1])))
         return len(value) if isinstance(value, list) else 0
     raise JsonError(f"no such function: {name}")
+
+
+def json_mutate(document, path, value, mode):
+    """json_set / json_insert / json_replace semantics, including the reference's refusal to
+    extend an array past its end (json_set('[1]','$[3]',9) leaves '[1]' alone)."""
+    steps = json_path_steps(path)
+    if not steps:
+        return value if mode != "remove" else document
+    node = document
+    for step in steps[:-1]:
+        if isinstance(step, int):
+            if not isinstance(node, list) or step >= len(node):
+                return document
+            node = node[step]
+        else:
+            if not isinstance(node, dict):
+                return document
+            if step not in node:
+                if mode == "insert" or mode == "set":
+                    node[step] = {}
+                else:
+                    return document
+            node = node[step]
+    last = steps[-1]
+    if isinstance(last, int):
+        if not isinstance(node, list) or last >= len(node):
+            return document
+        if mode != "insert":
+            node[last] = value
+        return document
+    if not isinstance(node, dict):
+        return document
+    if mode == "insert" and last in node:
+        return document
+    if mode == "replace" and last not in node:
+        return document
+    node[last] = value
+    return document
+
+
+def json_remove_path(document, path):
+    steps = json_path_steps(path)
+    if not steps:
+        return document
+    node = document
+    for step in steps[:-1]:
+        if isinstance(step, int):
+            if not isinstance(node, list) or step >= len(node):
+                return document
+            node = node[step]
+        else:
+            if not isinstance(node, dict) or step not in node:
+                return document
+            node = node[step]
+    last = steps[-1]
+    if isinstance(last, int):
+        if isinstance(node, list) and last < len(node):
+            del node[last]
+    elif isinstance(node, dict):
+        node.pop(last, None)
+    return document
 
 
 def _json_input(value):
@@ -1014,7 +1090,30 @@ class Database:
                 table.checks.append((constraint.expr, constraint.text))
         return None
 
+    def _materialise_table_function(self, node):
+        if node.name.lower() != "json_each":
+            raise ExecError(f"no such table: {node.name}")
+        document = json_load(to_text(self._eval(node.args[0], None, {})))
+        columns = [Column(ast.ColumnDef(name=name, type_name="", constraints=[]))
+                   for name in ("key", "value", "type", "atom", "id", "parent", "fullkey", "path")]
+        table = Table(node.name, columns)
+        items = document.items() if isinstance(document, dict) else enumerate(document)
+        for index, (key, value) in enumerate(items):
+            kind = ("null" if value is None else
+                    "true" if value is True else "false" if value is False else
+                    "object" if isinstance(value, dict) else
+                    "array" if isinstance(value, list) else
+                    "text" if isinstance(value, str) else
+                    "integer" if isinstance(value, int) else "real")
+            atom = value if not isinstance(value, (dict, list)) else None
+            path = f"$[{key}]" if isinstance(document, list) else f'$.{key}'
+            table.rows.append((key, json_to_sql(value) if not isinstance(value, (dict, list)) else json_dump(value),
+                               kind, atom, index, None, path, "$"))
+        return table
+
     def table(self, name):
+        if isinstance(name, ast.TableFunction):
+            return self._materialise_table_function(name)
         key = name.lower()
         if key == "sqlite_master":
             return self._master_table()
@@ -1994,6 +2093,8 @@ class Database:
 
     def _contains_aggregate(self, node):
         if isinstance(node, ast.FuncCall):
+            if node.name == "JSON_GROUP_OBJECT":
+                return len(node.args or []) == 2
             return node.name in self.AGGREGATES and len(node.args or []) <= 1
         if isinstance(node, ast.BinaryOp):
             return self._contains_aggregate(node.left) or self._contains_aggregate(node.right)
@@ -2488,6 +2589,15 @@ class Database:
         return self._eval(item.expr, None, env, group)
 
     def _aggregate(self, node, group):
+        if node.name == "JSON_GROUP_OBJECT":
+            pairs = {}
+            for env in group:
+                key = self._eval(node.args[0], None, env, group)
+                value = self._eval(node.args[1], None, env, group)
+                if key is None:
+                    continue
+                pairs[to_text(key)] = _json_input(value)
+            return json_dump(pairs)
         if node.star:
             return len(group)
         values = [self._eval(node.arg, None, env, group) for env in group]
@@ -2581,6 +2691,8 @@ class Database:
         if isinstance(node, ast.FuncCall):
             # Aggregates must be resolved before their arguments are evaluated: over an empty
             # group there is no row to evaluate a column reference against.
+            if node.name == "JSON_GROUP_OBJECT" and len(node.args or []) == 2:
+                return self._aggregate(node, group)
             if node.name in self.AGGREGATES and len(node.args or []) <= 1:
                 if group is None:
                     raise ExecError(f"misuse of aggregate function {node.name}()")

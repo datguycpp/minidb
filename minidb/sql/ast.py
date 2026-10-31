@@ -198,6 +198,12 @@ class FuncCall(Node):
 
 
 @dataclass
+class TableFunction(Node):
+    name: str
+    args: list = field(default_factory=list)
+
+
+@dataclass
 class Subquery(Node):
     select: "Select"
 
