@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M32 CLOSED (own vocab, negative control + anti-imitation live,
-  432 tests, 231/231; Tier-6 inventory probes committed). M33 integration carries: docs
-  home for plan vocab + EXPLAIN examples in runner set. Then Tier-5 closes.**
+- **Current milestone: Tier-5 CLOSED (M29–M33 × 5; 440 tests, 231/231, docs 7/7).
+  Review addition: bidirectional plan-vocab drift assertion (doc table was missing 4
+  emitted forms — fixed in the same commit). Tier-6 entry: inventory runs next.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -323,6 +323,13 @@ query history; hot-path rewrite in a faster language
     set (vocab can't rot under the pipeline). [TIER-6 PREP `8866f0d` as-is] entry =
     one command: compile_options pragma + json1/fts5 smokes (pragma claim vs working
     feature = two facts).**
+  - **[TIER-5 CLOSE — M33 `995a138` + spec `07559e2` + review `e464a5b`, cold-clone
+    verified] 440 tests, 231/231, docs 7/7 (12 skipped-counted). Runner's first-run
+    finds (neighbour-table block, trailing-comment-as-statement) are the milestone's
+    argument. Fixture-header retired for enforced self-containment; expect-line dormant
+    with trigger. [REVIEW ADDITION] Bidirectional drift assertion: doc table was missing
+    4 emitted forms (TABLE/GROUP BY/bare-SCAN/only-SELECT) — the hole research named,
+    fixed with the assertion in one commit; both directions now fail loudly.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
