@@ -103,6 +103,12 @@ class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+    def server_close(self):
+        super().server_close()
+        session = getattr(self, "session", None)
+        if session is not None:
+            session.close()          # closing the server must close its handle, not leak the file
+
 
 def serve(path=None, host="127.0.0.1", port=8765):
     session = Session(path)
