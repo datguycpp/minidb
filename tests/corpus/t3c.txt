@@ -1,0 +1,45 @@
+-- t3c DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator stays 227 until ordered.
+-- Sequencing: authored BEFORE any correlated-subquery work (drafts-first).
+-- Subject: CORRELATED SUBQUERIES — the M8-owned gap recorded in STATE.md's
+-- known-gaps list ("correlated subqueries ... remain owned (M8 report's
+-- stated limits)"), never pinned by any tranche (t1c's four subquery cases
+-- are all uncorrelated — my own blind spot, admitted in the header).
+-- src: authored   tier: t1-line (M8 remainder; lands with its fix)
+
+-- Correlated scalar subquery in the projection: per-row lookup against the
+-- other table — the classic form, outer column referenced inside.
+
+CREATE TABLE a (id INTEGER, name TEXT);
+CREATE TABLE b (aid INTEGER, score INTEGER);
+INSERT INTO a VALUES (1, 'x');
+INSERT INTO a VALUES (2, 'y');
+INSERT INTO b VALUES (1, 10);
+INSERT INTO b VALUES (1, 20);
+SELECT name, (SELECT MAX(score) FROM b WHERE b.aid = a.id) AS top FROM a ORDER BY name;
+
+-- Correlated subquery in WHERE: rows whose own-group maximum they equal.
+
+CREATE TABLE a (id INTEGER, v INTEGER);
+INSERT INTO a VALUES (1, 5);
+INSERT INTO a VALUES (1, 9);
+INSERT INTO a VALUES (2, 3);
+SELECT * FROM a WHERE v = (SELECT MAX(v) FROM a AS x WHERE x.id = a.id) ORDER BY id, v;
+
+-- Correlated EXISTS: rows in a that have any match in b.
+
+CREATE TABLE a (id INTEGER);
+CREATE TABLE b (aid INTEGER);
+INSERT INTO a VALUES (1);
+INSERT INTO a VALUES (2);
+INSERT INTO b VALUES (2);
+SELECT * FROM a WHERE EXISTS (SELECT 1 FROM b WHERE b.aid = a.id) ORDER BY id;
+
+-- Correlated NOT EXISTS: rows in a with no match in b.
+
+CREATE TABLE a (id INTEGER);
+CREATE TABLE b (aid INTEGER);
+INSERT INTO a VALUES (1);
+INSERT INTO a VALUES (2);
+INSERT INTO b VALUES (2);
+SELECT * FROM a WHERE NOT EXISTS (SELECT 1 FROM b WHERE b.aid = a.id) ORDER BY id;
