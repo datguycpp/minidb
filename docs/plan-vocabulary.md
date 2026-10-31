@@ -12,7 +12,11 @@ shape tools already read. The `detail` vocabulary is **ours**, and it is deliber
 | `SEARCH <table> USING INDEX <name>` | rows are found through an index |
 | `  estimated rows: N` | the planner's estimate for that lookup |
 | `NESTED LOOP` | a multi-source query, sources listed beneath |
+| `  TABLE <name>` | one source of the loop (or scan), by alias if aliased |
+| `  GROUP BY` | grouping happens after the sources are read |
 | `COMPOUND <op>` | a set operation, each branch planned in turn |
+| `SCAN` | a complex-path scan (join/group source listed in `TABLE` lines) |
+| `MiniDB: only SELECT plans are explained` | `EXPLAIN` of a write is refused after parsing |
 
 This is not SQLite's vocabulary and does not try to be: SQLite's `EXPLAIN` prints its virtual
 machine's bytecode, which describes SQLite's implementation rather than any standard. MiniDB's

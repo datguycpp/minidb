@@ -66,6 +66,49 @@ class TestExplain(unittest.TestCase):
         _, plan = details(self.db, "EXPLAIN QUERY PLAN SELECT a FROM t UNION SELECT a FROM t")
         self.assertEqual(plan[0], "COMPOUND UNION")
 
+    def test_documented_forms_match_emitted_forms(self):
+        # Bidirectional drift check: every detail line the planner emits must match a
+        # documented form in docs/plan-vocabulary.md, and every documented form must be
+        # exercised by at least one shape — so neither side can rot silently.
+        import re
+        doc = open(os.path.join(ROOT, "docs", "plan-vocabulary.md"), encoding="utf-8").read()
+        cells = re.findall(r"^\| `([^`]+)` \|", doc, re.M)
+
+        def to_rx(cell):
+            rx = re.escape(cell)
+            rx = rx.replace("<table>", r"\S+").replace("<name>", r"\S+")
+            rx = rx.replace("<op>", r"\S+").replace(":\ N", r":\ \d+")
+            return re.compile("^" + rx + "$")
+
+        patterns = [to_rx(cell) for cell in cells]
+        self.db.run("CREATE TABLE u (a INTEGER)")
+        self.db.run("INSERT INTO u VALUES (1), (2)")
+        self.db.run("CREATE INDEX idx_a ON t (a)")
+        shapes = ["SELECT * FROM t",
+                  "SELECT * FROM t WHERE b = 'v1'",
+                  "SELECT * FROM t WHERE a = 42",
+                  "SELECT * FROM t WHERE a >= 0",
+                  "SELECT * FROM t, u WHERE t.a = u.a",
+                  "SELECT a, count(*) FROM t GROUP BY a",
+                  "SELECT a FROM t UNION SELECT a FROM u"]
+        emitted = []
+        for shape in shapes:
+            _, plan = details(self.db, "EXPLAIN QUERY PLAN " + shape)
+            emitted.extend(plan)
+        try:
+            _, write_plan = details(self.db, "EXPLAIN INSERT INTO t VALUES (1, 'x')")
+            emitted.extend(write_plan)
+        except Exception:
+            pass
+        unmatched = [line for line in emitted
+                     if not any(p.match(line) for p in patterns)]
+        self.assertEqual(unmatched, [],
+                         "planner emits forms the vocabulary doc does not document")
+        uncovered = [cell for cell, p in zip(cells, patterns)
+                     if not any(p.match(line) for line in emitted)]
+        self.assertEqual(uncovered, [],
+                         "vocabulary doc lists forms no exercised shape emits")
+
 
 if __name__ == "__main__":
     unittest.main()
