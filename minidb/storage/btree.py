@@ -22,14 +22,14 @@ be tested. Nodes are rewritten whole on modification; dirty-page tracking is M18
 
 import struct
 
-from .pager import PAGE_SIZE, Pager, StorageError
+from .pager import PAGE_SIZE, USABLE, Pager, StorageError
 
 LEAF = 2
 INTERIOR = 1
 HEADER = 8
 OVERFLOW = 0xFFFFFFFF
 INLINE_LIMIT = 1000            # payloads above this go to an overflow chain
-CHUNK = PAGE_SIZE - 4          # each overflow page: 4-byte next id + chunk
+CHUNK = USABLE - 4          # each overflow page: 4-byte next id + chunk
 
 
 class Node:
@@ -97,7 +97,7 @@ class BTree:
                     struct.pack_into("<I", buffer, offset + 16, len(payload))
                     offset += 20
                     continue
-                if offset + 12 + len(payload) > PAGE_SIZE:
+                if offset + 12 + len(payload) > USABLE:
                     raise StorageError("row too large for a page even inlined")
                 struct.pack_into("<q", buffer, offset, key)
                 struct.pack_into("<I", buffer, offset + 8, len(payload))
@@ -106,7 +106,7 @@ class BTree:
                 offset += len(payload)
             else:
                 key, child = cell
-                if offset + 12 > PAGE_SIZE:
+                if offset + 12 > USABLE:
                     raise StorageError("node overflow: interior cell does not fit")
                 struct.pack_into("<q", buffer, offset, key)
                 struct.pack_into("<I", buffer, offset + 8, child)
@@ -131,7 +131,7 @@ class BTree:
         while page_id:
             data = self.pager.read(page_id)
             nxt = struct.unpack_from("<I", data, 0)[0]
-            chunks.append(data[4:])
+            chunks.append(data[4:USABLE])
             page_id = nxt
         return b"".join(chunks)[:total]
 
@@ -144,7 +144,7 @@ class BTree:
                 total += 12 + (size if size <= INLINE_LIMIT else 8)
             else:
                 total += 12
-        return total <= PAGE_SIZE
+        return total <= USABLE
 
     # -- creation -----------------------------------------------------------
     def create(self):

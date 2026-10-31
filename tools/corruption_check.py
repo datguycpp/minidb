@@ -62,11 +62,9 @@ def probe(path):
         db.close()
 
 
-# Declared limit, not a failure: without page checksums a bit flip inside a record payload is
-# undetectable — the same property SQLite has. Kept in the list so the boundary is visible.
-UNDETECTABLE_BY_DESIGN = {
-    "payload-bitflip": lambda path: flip(path, PAGE_SIZE + 14),
-}
+# Foreign (SQLite-format) files carry no checksums, so they are validated structurally only —
+# by design, exactly as SQLite would treat them. MiniDB's own pages do carry CRC32 trailers.
+UNDETECTABLE_BY_DESIGN = {}
 
 FIXTURES = {
     "magic": lambda path: flip(path, 0),
@@ -77,6 +75,7 @@ FIXTURES = {
     "btree-cell-count": lambda path: flip(path, PAGE_SIZE + 1),
     "truncated-file": lambda path: os.truncate(path, os.path.getsize(path) - 1000),
     "page-fill-garbage": lambda path: flip(path, PAGE_SIZE + 20, 0xFF),
+    "payload-bitflip": lambda path: flip(path, PAGE_SIZE + 14),
 }
 
 
@@ -98,9 +97,9 @@ def main():
         damage(path)
         verdict, detail = probe(path)
         print(f"CORRUPTION {name:<20} declared-undetectable ({verdict})")
-    print(f"M27: {len(FIXTURES) - len(failures)}/{len(FIXTURES)} structural fixtures detected, "
-          f"{len(failures)} silent-wrong-data failures, "
-          f"{len(UNDETECTABLE_BY_DESIGN)} declared undetectable (no page checksums)")
+    print(f"M27: {len(FIXTURES) - len(failures)}/{len(FIXTURES)} fixtures detected "
+          f"(CRC32 page checksums on MiniDB's own format), "
+          f"{len(failures)} silent-wrong-data failures")
     return 1 if failures else 0
 
 

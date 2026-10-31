@@ -22,8 +22,11 @@ import zlib
 from collections import OrderedDict
 
 MAGIC = b"MiniDB01"
-VERSION = 1
+VERSION = 2                     # 2 adds a CRC32 trailer to every page
+LEGACY_VERSION = 1              # read-only support: no checksums to verify
 PAGE_SIZE = 4096
+CHECKSUM_SIZE = 4
+USABLE = PAGE_SIZE - CHECKSUM_SIZE
 
 _OFF_MAGIC = 0
 _OFF_VERSION = 8
@@ -60,6 +63,7 @@ class Pager:
         if os.path.exists(self.wal_path) and os.path.getsize(self.wal_path) > len(WAL_MAGIC):
             self.recover()
         if os.path.getsize(path) == 0:
+            self.version = VERSION
             self.page_count = 1        # page 0 is the header; storage creates the catalog tree
             self.catalog_root = 0
             self._stage_header()
@@ -88,8 +92,9 @@ class Pager:
         if page_size != PAGE_SIZE:
             raise StorageError(f"{self.path}: header page size {page_size} != {PAGE_SIZE}")
         version = data[_OFF_VERSION]
-        if version != VERSION:
+        if version not in (VERSION, LEGACY_VERSION):
             raise StorageError(f"{self.path}: unsupported format version {version}")
+        self.version = version
         self.page_count = struct.unpack_from("<I", data, _OFF_PAGE_COUNT)[0]
         self.catalog_root = struct.unpack_from("<I", data, _OFF_CATALOG)[0]
 
@@ -110,6 +115,11 @@ class Pager:
         data = self._read_page_bytes(page_id)
         if len(data) != PAGE_SIZE:
             raise StorageError(f"page {page_id} truncated")
+        if self.version >= 2:
+            payload, stored = data[:USABLE], struct.unpack_from("<I", data, USABLE)[0]
+            if zlib.crc32(payload) != stored:
+                raise StorageError(f"page {page_id}: checksum mismatch")
+            data = payload + b"\x00" * CHECKSUM_SIZE
         if CACHE_PAGES:
             self.cache[page_id] = data
             if len(self.cache) > CACHE_PAGES:
@@ -119,7 +129,8 @@ class Pager:
     def write(self, page_id, data):
         if len(data) != PAGE_SIZE:
             raise StorageError(f"page {page_id}: expected {PAGE_SIZE} bytes, got {len(data)}")
-        payload = bytes(data)
+        payload = bytes(data)[:USABLE].ljust(USABLE, b"\x00")
+        payload = payload + struct.pack("<I", zlib.crc32(payload))
         self.dirty[page_id] = payload
         if CACHE_PAGES:
             self.cache[page_id] = payload

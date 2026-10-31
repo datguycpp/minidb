@@ -61,6 +61,14 @@ class TestIntegrityCheck(unittest.TestCase):
             Database(path)
         self.assertIn("unsupported format version", str(ctx.exception))
 
+    def test_payload_bitflip_is_caught_by_page_checksums(self):
+        path = build()
+        flip(path, PAGE_SIZE + 14)          # inside the first record's payload
+        with self.assertRaises(StorageError) as ctx:
+            db = Database(path)
+            db.run("SELECT v FROM t")
+        self.assertIn("checksum mismatch", str(ctx.exception))
+
     def test_truncated_file_is_reported(self):
         path = build()
         os.truncate(path, os.path.getsize(path) - 1000)
