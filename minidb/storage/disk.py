@@ -7,6 +7,7 @@ parsing in exactly one place, the parser.
 """
 
 import json
+import struct
 
 from . import record
 from .btree import BTree
@@ -29,7 +30,10 @@ class DiskStorage:
     # -- catalog ------------------------------------------------------------
     def _load_catalog(self):
         for key, payload in self.tree.scan(self.pager.catalog_root):
-            entry = json.loads(payload.decode("utf-8"))
+            try:
+                entry = json.loads(payload.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise StorageError(f"catalog row {key}: corrupt ({exc})") from None
             entry["key"] = key
             self.catalog[entry["name"].lower()] = entry
 
@@ -124,15 +128,22 @@ class DiskStorage:
 
     def iter_rows(self, entry):
         for _, payload in self.tree.scan(entry["root"]):
-            yield record.decode(payload)
+            yield self._decode(payload)
+
+    @staticmethod
+    def _decode(payload):
+        try:
+            return record.decode(payload)
+        except (UnicodeDecodeError, ValueError, struct.error) as exc:
+            raise StorageError(f"corrupt record ({exc})") from None
 
     def iter_rows_with_ids(self, entry):
         for rowid, payload in self.tree.scan(entry["root"]):
-            yield rowid, record.decode(payload)
+            yield rowid, self._decode(payload)
 
     def search_row(self, entry, rowid):
         payload = self.tree.search(entry["root"], rowid)
-        return None if payload is None else record.decode(payload)
+        return None if payload is None else self._decode(payload)
 
     # -- transactions -------------------------------------------------------
     def commit(self):

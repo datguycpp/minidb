@@ -48,6 +48,13 @@ class BTree:
 
     # -- page (de)serialisation --------------------------------------------
     def load(self, page_id):
+        try:
+            return self._load(page_id)
+        except (struct.error, IndexError, ValueError) as exc:
+            # A damaged page must surface as our typed storage error, not a struct traceback.
+            raise StorageError(f"page {page_id}: corrupt b-tree page ({exc})") from None
+
+    def _load(self, page_id):
         data = self.pager.read(page_id)
         kind = data[0]
         count = struct.unpack_from("<H", data, 1)[0]
