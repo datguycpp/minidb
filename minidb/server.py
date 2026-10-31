@@ -1,0 +1,103 @@
+"""MiniDB's network server (milestone 30).
+
+There is no SQLite wire protocol to be compatible with — SQLite is a library, not a server — so the
+acceptance is different in kind: N clients get answers identical to local in-process runs, over a
+protocol we define. Requests and responses are one JSON object per line.
+
+The server inherits M25's semantics rather than inventing its own: one Database handle, one lock,
+so a write from any client is serialised with every other statement, and a client sees the same
+snapshot rules a local caller does.
+
+    python3 -m minidb.server --db path/to.db --port 8765
+"""
+
+import argparse
+import json
+import socketserver
+import sys
+import threading
+
+from .engine import Database, ExecError
+from .sql.parser import ParseError
+
+
+class Session:
+    """One Database handle shared by every connection, guarded by one lock."""
+
+    def __init__(self, path=None):
+        self.db = Database(path)
+        self.lock = threading.Lock()
+
+    def execute(self, sql):
+        with self.lock:
+            try:
+                result = self.db.run(sql)
+            except (ExecError, ParseError) as exc:
+                return {"error": str(exc)}
+            except Exception as exc:                      # a bug must not kill the connection
+                return {"error": f"{type(exc).__name__}: {exc}"}
+        if not isinstance(result, tuple):
+            return {"columns": [], "rows": []}
+        columns, rows = result
+        return {"columns": list(columns),
+                "rows": [[_jsonable(value) for value in row] for row in rows]}
+
+    def close(self):
+        self.db.close()
+
+
+def _jsonable(value):
+    if isinstance(value, bytes):
+        return {"__blob__": value.hex()}
+    return value
+
+
+class Handler(socketserver.StreamRequestHandler):
+    def handle(self):
+        for line in self.rfile:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                request = json.loads(line)
+            except json.JSONDecodeError:
+                response = {"error": "malformed request: expected one JSON object per line"}
+            else:
+                response = self.server.session.execute(request.get("sql", ""))
+            self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+            self.wfile.flush()
+
+
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def serve(path=None, host="127.0.0.1", port=8765):
+    session = Session(path)
+    server = Server((host, port), Handler)
+    server.session = session
+    return server
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db", default=None)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8765)
+    args = parser.parse_args(argv)
+    server = serve(args.db, args.host, args.port)
+    host, port = server.server_address
+    print(f"minidb server listening on {host}:{port}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
