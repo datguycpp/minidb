@@ -84,10 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: t3c delivered pre-fix (4 correlated cases, parked, 3–4/4 band live);
-  property-generator growth ORDERED (self-joins, multi-table joins, correlated; band
-  ≥1 failure at 1,000 cases, correlated named primary); Tier-5 START called (M29 first).
-  M28 TOTAL line still the artifact that closes Tier-4.**
+- **Current milestone: t3c LANDED 231/231 (4/4 vs 3–4 band, generous side); M8 remainder
+  CLOSED (outer-env stack + EXISTS); M29 shell accepted (declared dot subset + CSV
+  round-trip). Next: property-generator growth (band live) + M30 (inherits M25 locks).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -261,6 +260,12 @@ query history; hot-path rewrite in a faster language
     parked. [ORDERED] property-generator growth (self-joins, multi-table joins,
     correlated; band ≥1 failure at 1k, correlated primary). [CALLED] Tier-5 start,
     M29 first (docs-runner contract, dot subset, no-wire-protocol all on paper).**
+  - **[T3c LANDING + M8 CLOSE + M29 — `36b8826` (landing), `a79ab8c` + `cebddc7` (build)]**
+    t3c 4/4 vs pre-registered 3–4/4 (generous side; EXISTS implemented not left owned).
+    Probes match binary (per-row correlated MAX, unshadowed inner, EXISTS/NOT EXISTS).
+    M29: declared dot subset + CSV round-trip byte-identical, unknown dots refused.
+    M8 remainder CLOSED. Still queued: property-generator growth (band live), M30
+    (M25 locks inherited), M28 TOTAL (Tier-4 close artifact).
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
