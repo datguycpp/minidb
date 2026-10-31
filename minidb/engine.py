@@ -17,7 +17,7 @@ import string
 
 from .sql import ast
 from .storage.disk import DiskStorage
-from .storage.pager import StorageError
+from .storage.pager import PAGE_SIZE, StorageError
 from .storage.sqlite_file import SQLiteFile, is_sqlite_file
 
 # SQLite's storage-class ordering, used when comparing values of different types.
@@ -1279,7 +1279,17 @@ class Database:
                 fresh.run(f"CREATE {unique}INDEX mdb_vac_{index.name} ON {table.name} ({columns})")
         fresh.close()
         self.storage.close()
+        # VACUUM's file-replace path is its own crash surface: the temporary file can be half
+        # written, or the process can die either side of the atomic rename.
+        if os.environ.get("MINIDB_CRASH_POINT") == "vacuum_before_replace":
+            os._exit(9)
+        if os.environ.get("MINIDB_CRASH_POINT") == "vacuum_mid_replace":
+            with open(temp_path, "r+b") as handle:   # half a file, as a torn write would leave it
+                handle.truncate(max(0, os.path.getsize(temp_path) // 2))
+            os._exit(9)
         os.replace(temp_path, self.path)
+        if os.environ.get("MINIDB_CRASH_POINT") == "vacuum_after_replace":
+            os._exit(9)
         reopened = Database(self.path)
         self.storage = reopened.storage
         self.tables = reopened.tables
@@ -1291,6 +1301,8 @@ class Database:
     # -- PRAGMA / foreign keys ----------------------------------------------
     def _pragma(self, node: ast.Pragma):
         name = node.name.lower()
+        if name == "integrity_check":
+            return (["integrity_check"], [(self._integrity_check(),)])
         if name == "table_info":
             if node.value is None:
                 raise ExecError("table_info requires a table name")
@@ -1335,6 +1347,36 @@ class Database:
             if not any(row[ref_position] == value for row in self._rows(parent)):
                 return "FOREIGN KEY constraint failed"
         return None
+
+    def _integrity_check(self):
+        """SQLite's PRAGMA integrity_check answers 'ok' or names the first problem it finds."""
+        try:
+            if self.storage is None:
+                for table in self.tables.values():
+                    list(self._rows(table))
+                return "ok"
+            size = os.path.getsize(self.path)
+            if size % PAGE_SIZE:
+                return f"file size {size} is not a multiple of the page size"
+            pager = self.storage.pager
+            if size // PAGE_SIZE != pager.page_count:
+                return f"header says {pager.page_count} pages, file has {size // PAGE_SIZE}"
+            for entry in self.storage.catalog.values():
+                if entry.get("kind") == "view":
+                    continue
+                for _ in self.storage.iter_rows_with_ids(entry):
+                    pass
+            for table in self.tables.values():
+                rows = list(self._rows(table))
+                for index in table.indexes.values():
+                    indexed = sum(len(bucket) for bucket in index.map.values())
+                    if indexed != len(rows):
+                        return f"index {index.name} has {indexed} entries, table has {len(rows)}"
+            return "ok"
+        except StorageError as exc:
+            return str(exc)
+        except Exception as exc:                     # any parse failure is corruption, not a crash
+            return f"{type(exc).__name__}: {exc}"
 
     def _check_no_action(self, table, row):
         if not self.foreign_keys:

@@ -84,6 +84,9 @@ class Pager:
         data = self._read_page_bytes(0)
         if len(data) < HEADER_SIZE or data[_OFF_MAGIC:_OFF_MAGIC + 8] != MAGIC:
             raise StorageError(f"{self.path}: not a MiniDB file")
+        page_size = struct.unpack_from("<H", data, _OFF_PAGE_SIZE)[0]
+        if page_size != PAGE_SIZE:
+            raise StorageError(f"{self.path}: header page size {page_size} != {PAGE_SIZE}")
         version = data[_OFF_VERSION]
         if version != VERSION:
             raise StorageError(f"{self.path}: unsupported format version {version}")

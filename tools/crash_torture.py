@@ -49,7 +49,8 @@ def run_iteration(path, seed, rows):
 
 SITES = ["wal_before_write", "wal_after_write", "wal_after_flush", "wal_after_fsync",
          "db_before_apply", "db_mid_apply", "db_after_first_page", "db_after_flush",
-         "db_after_fsync", "truncate_before", "truncate_after", "db_torn_page"]
+         "db_after_fsync", "truncate_before", "truncate_after", "db_torn_page",
+         "vacuum_before_replace", "vacuum_mid_replace", "vacuum_after_replace"]
 
 
 def run_iteration_forked(path, seed, rows, site=None, commit=1):
@@ -74,6 +75,10 @@ def run_iteration_forked(path, seed, rows, site=None, commit=1):
                 db.run(f"INSERT INTO t VALUES ({i}, {i % 5})")
                 if i >= crash_after:
                     os._exit(9)
+            if site and site.startswith("vacuum_"):
+                # VACUUM's file-replace path is only reachable from a VACUUM.
+                db.run("DELETE FROM t WHERE id > 5")
+                db.run("VACUUM")
             db.close()
         except BaseException:
             os._exit(70)
