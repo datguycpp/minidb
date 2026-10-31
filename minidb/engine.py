@@ -790,6 +790,8 @@ class Database:
             return self._compound(statement)
         if isinstance(statement, ast.Vacuum):
             return self._vacuum()
+        if isinstance(statement, ast.Explain):
+            return self._explain(statement)
         if isinstance(statement, ast.Analyze):
             return None          # accepted; results unchanged (sqlite_stat1 contents are out of scope)
         if isinstance(statement, ast.DropTable):
@@ -1251,6 +1253,39 @@ class Database:
         if node.if_exists:
             return None
         raise ExecError(f"no such table: {node.name}")
+
+    # -- EXPLAIN -------------------------------------------------------------
+    def _explain(self, node: ast.Explain):
+        """Human-readable plan. Deliberately NOT SQLite's bytecode or its planner vocabulary:
+        those describe SQLite's VM and SQLite's choices, and diffing them would be meaningless.
+        The shape mirrors `EXPLAIN QUERY PLAN`'s four columns so tools can read it."""
+        statement = node.statement
+        if not isinstance(statement, (ast.Select, ast.Compound)):
+            return (["detail"], [("MiniDB: only SELECT plans are explained",)])
+        plan = self._plan_for(statement)
+        rows = [(0, 0, 0, detail) for detail in plan]
+        return (["id", "parent", "notused", "detail"], rows)
+
+    def _plan_for(self, statement):
+        if isinstance(statement, ast.Compound):
+            details = [f"COMPOUND {statement.op}"]
+            details.extend(self._plan_for(statement.left))
+            details.extend(self._plan_for(statement.right))
+            return details
+        if self._is_complex(statement):
+            sources = self._sources(statement)
+            details = ["NESTED LOOP" if len(sources) > 1 else "SCAN"]
+            for source in sources:
+                details.append(f"  TABLE {source['alias'] or source['name']}")
+            if statement.group_by:
+                details.append("  GROUP BY")
+            return details
+        decision = self._choose_access(self.table(statement.table), statement.where)
+        if decision["access"] == "index":
+            index = decision["candidate"]["index"]
+            return [f"SEARCH {statement.table} USING INDEX {index.name}",
+                    f"  estimated rows: {decision['estimated_rows']}"]
+        return [f"SCAN {statement.table}", f"  reason: {decision['reason']}"]
 
     # -- VACUUM --------------------------------------------------------------
     def _vacuum(self):

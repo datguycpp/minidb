@@ -30,4 +30,8 @@ except ServerError as exc:                     # typed, and the wording is the e
 client.close()
 ```
 
+`EXPLAIN QUERY PLAN <select>` prints MiniDB's own plan (`SCAN` with a reason, or
+`SEARCH … USING INDEX`). It is deliberately **not** SQLite's bytecode — that output describes
+SQLite's VM, and matching it would be imitation rather than conformance.
+
 Status and next tasks: [STATE.md](STATE.md).

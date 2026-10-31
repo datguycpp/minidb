@@ -62,6 +62,12 @@ class SelectItem(Node):
 
 
 @dataclass
+class Explain(Node):
+    statement: "Node"
+    query_plan: bool = False
+
+
+@dataclass
 class Analyze(Node):
     target: "str | None" = None
 

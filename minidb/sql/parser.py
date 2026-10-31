@@ -157,6 +157,17 @@ class Parser:
         elif self.at_keyword("VACUUM"):
             self.advance()
             stmt = ast.Vacuum()
+        elif self.at_keyword("EXPLAIN"):
+            self.advance()
+            query_plan = False
+            if self.accept_keyword("QUERY"):
+                self.expect_keyword("PLAN")
+                query_plan = True
+            if self.at_keyword("SELECT", "WITH", "VALUES"):
+                inner = self.parse_compound()
+            else:                       # EXPLAIN of a write is parsed, then refused by the engine
+                inner = self.parse_statement()
+            stmt = ast.Explain(statement=inner, query_plan=query_plan)
         elif self.at_keyword("ANALYZE"):
             self.advance()
             target = None
