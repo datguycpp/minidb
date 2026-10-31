@@ -1,0 +1,74 @@
+-- t6b DRAFT (owner: Research). NOT part of the suite: parked outside
+-- tests/corpus/ — denominator stays 231 until ordered.
+-- AUTHORSHIP TIMING (t2b discipline): authored AFTER M35's build report —
+-- the sequencing slip the ledger already named (inventory and build landed
+-- in the same round this tranche was owed). Honest accounting per case:
+--   [pin]  = behavior M35's report published (arrow types, precedence,
+--            JSON-null, error text). Regression pins, NO prediction credit.
+--   [t]    = surface M35's report did NOT implement or publish — genuine
+--            tests, including the likely-gap cluster.
+-- src: authored after M35 report   tier: t6 (tranche b: JSON functions)
+
+-- [pin] -> yields TEXT, ->> yields the SQL value (typeof proves it).
+
+SELECT typeof('{"a":5}' -> '$.a'), typeof('{"a":5}' ->> '$.a');
+
+-- [pin] Precedence is not C-like: || binds tighter than -> ->>, which
+-- binds tighter than * /. ('a'||1) is text 'a1', times 2 truncates to 0.
+
+SELECT 'a' || 1 * 2;
+
+-- [pin] Arrow binds tighter than *: 2 * (value 3) = 6.
+
+SELECT 2 * '{"a":3}' ->> '$.a';
+
+-- [pin] JSON null becomes SQL NULL.
+
+SELECT json_extract('{"a":null}', '$.a') IS NULL;
+
+-- [pin] Malformed input errors in the reference's wording (runtime text).
+
+SELECT json('oops');
+
+-- [t] Likely-gap cluster begins: the mutating functions were NOT in M35's
+-- implemented list. Each in its own case so a gap maps to one statement.
+
+SELECT json_set('{"a":1}', '$.a', 2);
+
+SELECT json_remove('{"a":1,"b":2}', '$.a');
+
+SELECT json_insert('{"a":1}', '$.b', 9);
+
+SELECT json_replace('{"a":1}', '$.a', 7);
+
+-- [t] Aggregate form over rows (one group, single key — no order risk).
+
+CREATE TABLE t (k TEXT, v INTEGER);
+INSERT INTO t VALUES ('x', 1);
+INSERT INTO t VALUES ('y', 2);
+SELECT json_group_object(k, v) FROM t;
+
+-- [t] Table-valued function in FROM — parser surface, ordered output.
+
+SELECT value FROM json_each('[10,20,30]') ORDER BY value;
+
+-- [t] json_type on a nested container path.
+
+SELECT json_type('{"a":[1,2]}', '$.a');
+
+-- [t] json_array_length on a non-array: whatever the reference does,
+-- byte-identical.
+
+SELECT json_array_length('{"a":1}');
+
+-- [t] json_quote across scalar types, including NULL -> 'null'.
+
+SELECT json_quote(5), json_quote('a'), json_quote(NULL);
+
+-- [t] json_valid truth table on good, truncated and quoted forms.
+
+SELECT json_valid('1'), json_valid('{'), json_valid('"x"');
+
+-- [t] Array-element path with index.
+
+SELECT '{"a":[1,2]}' ->> '$.a[1]';
