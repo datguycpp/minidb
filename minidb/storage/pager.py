@@ -51,18 +51,20 @@ CACHE_PAGES = int(os.environ.get("MINIDB_CACHE_PAGES", "512"))
 
 
 class Pager:
-    def __init__(self, path):
+    def __init__(self, path, readonly=False):
         self.path = path
+        self.readonly = readonly
         self.wal_path = path + ".wal"
         exists = os.path.exists(path) and os.path.getsize(path) > 0
-        self.fh = open(path, "r+b" if exists else "w+b")
-        # Single-writer model (M25/M26): one handle owns the file for its lifetime. A second
-        # process waits, then reports the reference's wording instead of corrupting pages.
+        self.fh = open(path, "rb" if readonly and exists else ("r+b" if exists else "w+b"))
+        # Readers share the file; a writer takes it exclusively and waits for readers to finish.
+        # That is SQLite's shape for this milestone, minus WAL's non-blocking readers.
+        lock = fcntl.LOCK_SH if readonly else fcntl.LOCK_EX
         timeout = float(os.environ.get("MINIDB_LOCK_TIMEOUT", "5"))
         deadline = time.monotonic() + timeout
         while True:
             try:
-                fcntl.flock(self.fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(self.fh.fileno(), lock | fcntl.LOCK_NB)
                 break
             except OSError:
                 if time.monotonic() >= deadline:

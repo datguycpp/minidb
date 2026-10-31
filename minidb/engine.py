@@ -644,11 +644,11 @@ class Database:
     behave exactly as before — the conformance runner is untouched and still in-memory.
     """
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, readonly=False):
         self.path = path
         foreign = bool(path) and is_sqlite_file(path)
         try:
-            self.storage = None if foreign else (DiskStorage(path) if path else None)
+            self.storage = None if foreign else (DiskStorage(path, readonly=readonly) if path else None)
         except StorageError as exc:
             if str(exc) == "database is locked":
                 raise ExecError(str(exc)) from None
@@ -663,7 +663,7 @@ class Database:
         self._sql = None
         self.last_plan = None
         self.tx_snapshot = None
-        self.read_only = False
+        self.read_only = bool(readonly)
         if foreign:
             # A file the reference wrote is read-only by the M23 scope decision: MiniDB answers
             # queries over SQLite's bytes and never writes them back.
