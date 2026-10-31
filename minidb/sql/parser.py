@@ -828,16 +828,33 @@ class Parser:
 
     def parse_additive(self):
         node = self.parse_multiplicative()
-        while self.tok.kind == "PUNCT" and self.tok.value in ("+", "-", "||"):
+        while self.tok.kind == "PUNCT" and self.tok.value in ("+", "-"):
             op = self.advance().value
             node = ast.BinaryOp(op, node, self.parse_multiplicative())
         return node
 
     def parse_multiplicative(self):
-        node = self.parse_unary()
+        node = self.parse_arrow()
         while self.tok.kind == "PUNCT" and self.tok.value in ("*", "/", "%"):
             op = self.advance().value
-            node = ast.BinaryOp(op, node, self.parse_unary())
+            node = ast.BinaryOp(op, node, self.parse_arrow())
+        return node
+
+    def parse_arrow(self):
+        """`->` and `->>` bind tighter than * / but looser than ||, per the reference:
+        'a' || 1 * 2 is 0 and 2 * '{"a":3}' ->> '$.a' is 6, so the levels are not the
+        ones a C programmer would guess."""
+        node = self.parse_concat()
+        while self.tok.kind == "PUNCT" and self.tok.value in ("->", "->>"):
+            op = self.advance().value
+            node = ast.BinaryOp(op, node, self.parse_concat())
+        return node
+
+    def parse_concat(self):
+        node = self.parse_unary()
+        while self.tok.kind == "PUNCT" and self.tok.value == "||":
+            self.advance()
+            node = ast.BinaryOp("||", node, self.parse_unary())
         return node
 
     def parse_collate(self, node):

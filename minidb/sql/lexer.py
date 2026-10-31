@@ -19,7 +19,7 @@ OVER PARTITION ROWS RANGE PRECEDING FOLLOWING CURRENT UNBOUNDED ROW COLUMN RENAM
 # Longest first: '<=' must win over '<'.
 PUNCTUATION = sorted(
     [
-        "<=", ">=", "<>", "!=", "==", "||",
+        "->>", "->", "<=", ">=", "<>", "!=", "==", "||",
         "=", "<", ">", "+", "-", "*", "/", "%", "(", ")", ",", ";", ".",
     ],
     key=len,

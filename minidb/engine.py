@@ -229,8 +229,154 @@ def text_of(value):
     return to_text(value) if value is not None else ""
 
 
+# -- JSON (milestone 35) ------------------------------------------------------
+# SQLite's JSON layer is a text-in/text-out API with a small path language. Two behaviours are worth
+# stating because they are easy to get subtly wrong: `json()` normalises whitespace but preserves key
+# order, and `->` always yields text while `->>` yields the SQL value (numbers as numbers, strings
+# unquoted, JSON null as SQL NULL).
+
+_JSON_PATH_TOKEN = None
+
+
+class JsonError(Exception):
+    pass
+
+
+def json_load(text):
+    import json as _json
+    try:
+        return _json.loads(text)
+    except Exception:
+        raise JsonError("malformed JSON") from None
+
+
+def json_dump(value):
+    import json as _json
+    return _json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+def json_path_steps(path):
+    """'$.a.b[2]' -> ['a', 'b', 2]. Raises on anything the reference calls a bad path."""
+    if not isinstance(path, str) or not path.startswith("$"):
+        raise JsonError(f"bad JSON path: '{path}'")
+    steps, index, i = [], path, 1
+    while i < len(index):
+        if index[i] == ".":
+            j = i + 1
+            while j < len(index) and index[j] not in ".[":
+                j += 1
+            name = index[i + 1:j]
+            if not name:
+                raise JsonError(f"bad JSON path: '{path}'")
+            steps.append(name)
+            i = j
+        elif index[i] == "[":
+            j = index.find("]", i)
+            if j < 0:
+                raise JsonError(f"bad JSON path: '{path}'")
+            body = index[i + 1:j]
+            if body == "#":
+                steps.append("#")
+            elif body.lstrip("-").isdigit():
+                steps.append(int(body))
+            else:
+                raise JsonError(f"bad JSON path: '{path}'")
+            i = j + 1
+        else:
+            raise JsonError(f"bad JSON path: '{path}'")
+    return steps
+
+
+def json_lookup(value, steps):
+    for step in steps:
+        if step == "#":
+            return len(value) if isinstance(value, list) else None
+        if isinstance(step, int):
+            if not isinstance(value, list) or step < 0 or step >= len(value):
+                return None
+            value = value[step]
+        else:
+            if not isinstance(value, dict) or step not in value:
+                return None
+            value = value[step]
+    return value
+
+
+def json_to_sql(value):
+    """`->>` semantics: JSON value as an SQL value."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, (dict, list)):
+        return json_dump(value)
+    return value
+
+
+def json_to_text(value):
+    """`->` semantics: JSON text for any JSON value."""
+    return json_dump(value)
+
+
+def call_json_function(name, args):
+    if name == "JSON":
+        if args[0] is None:
+            return None
+        return json_dump(json_load(to_text(args[0])))
+    if name == "JSON_VALID":
+        if args[0] is None:
+            return None
+        try:
+            json_load(to_text(args[0]))
+        except JsonError:
+            return 0
+        return 1
+    if name == "JSON_TYPE":
+        value = json_load(to_text(args[0]))
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, dict):
+            return "object"
+        if isinstance(value, list):
+            return "array"
+        if isinstance(value, str):
+            return "text"
+        if isinstance(value, int):
+            return "integer"
+        return "real"
+    if name == "JSON_EXTRACT":
+        value = json_lookup(json_load(to_text(args[0])), json_path_steps(to_text(args[1])))
+        return json_to_sql(value)
+    if name == "JSON_ARRAY":
+        return json_dump([_json_input(value) for value in args])
+    if name == "JSON_OBJECT":
+        pairs = list(zip(args[0::2], args[1::2]))
+        return json_dump({to_text(key): _json_input(value) for key, value in pairs})
+    if name == "JSON_QUOTE":
+        value = args[0]
+        if value is None:
+            return "null"
+        if isinstance(value, (int, float)):
+            return json_dump(value)
+        return json_dump(to_text(value))
+    if name == "JSON_ARRAY_LENGTH":
+        value = json_load(to_text(args[0]))
+        return len(value) if isinstance(value, list) else 0
+    raise JsonError(f"no such function: {name}")
+
+
+def _json_input(value):
+    if isinstance(value, bytes):
+        return text_of(value)
+    return value
+
+
 def call_function(name, args):
     """Scalar built-ins (milestone 11). NULL handling follows SQLite, which is not uniform."""
+    if name.startswith("JSON"):
+        return call_json_function(name, args)
     if name == "COALESCE":
         for value in args:
             if value is not None:
@@ -2440,7 +2586,10 @@ class Database:
                     raise ExecError(f"misuse of aggregate function {node.name}()")
                 return self._aggregate(node, group)
             arguments = [self._eval(argument, table, env, group) for argument in (node.args or [])]
-            return call_function(node.name, arguments)
+            try:
+                return call_function(node.name, arguments)
+            except JsonError as exc:
+                raise ExecError(str(exc)) from None
         if isinstance(node, ast.Raise):
             raise ExecError(node.message if node.message else node.action.lower())
         if isinstance(node, ast.ColumnRef):
@@ -2503,6 +2652,16 @@ class Database:
             if node.op == "OR":
                 return sql_or(self._eval(node.left, table, env, group),
                               self._eval(node.right, table, env, group))
+            if node.op in ("->", "->>"):
+                left = self._eval(node.left, table, env, group)
+                right = self._eval(node.right, table, env, group)
+                if left is None or right is None:
+                    return None
+                try:
+                    value = json_lookup(json_load(to_text(left)), json_path_steps(to_text(right)))
+                except JsonError as exc:
+                    raise ExecError(str(exc)) from None
+                return json_to_text(value) if node.op == "->" else json_to_sql(value)
             nocase = (self._collation(node.left, table) == "NOCASE"
                       or self._collation(node.right, table) == "NOCASE")
             return sql_compare(self._eval(node.left, table, env, group),
