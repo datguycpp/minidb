@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: Tier-5 CLOSED (M29–M33 × 5; 440 tests, 231/231, docs 7/7).
-  Review addition: bidirectional plan-vocab drift assertion (doc table was missing 4
-  emitted forms — fixed in the same commit). Tier-6 entry: inventory runs next.**
+- **Current milestone: M35 CLOSED + t6b LANDED 240/247 (9/16 vs 10–14 band — below floor,
+  pins 5/5 green; 6 named gaps + 1 genuine json_type-nested bug owned). Sequencing slip
+  recorded under t2b discipline (pins no credit). t6a parked pre-M34 (7–8/8 live).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -330,6 +330,17 @@ query history; hot-path rewrite in a faster language
     with trigger. [REVIEW ADDITION] Bidirectional drift assertion: doc table was missing
     4 emitted forms (TABLE/GROUP BY/bare-SCAN/only-SELECT) — the hole research named,
     fixed with the assertion in one commit; both directions now fail loudly.**
+  - **[M35 + T6B — build `fa7797b`, landing `9a9c96e`, cold-clone verified] 445 tests,
+    231/231 pre-t6b, docs 7/7. Inventory finding verified: no ENABLE_JSON1 line, JSON
+    fully live (smoke authoritative, pragma hint — the spec's warning in the unpredicted
+    direction). Arrow split ('5' vs 5), precedence (|| > arrow > */), error wordings
+    byte-identical to binary. [T6B 9/16 vs 10–14 — BELOW FLOOR, investigation per the
+    stated boundary] Pins 5/5 green (no published-behavior divergence); fails = 6
+    named-gap surfaces (set/remove/insert/replace/group_object/each — absent from M35's
+    list by declaration) + 1 GENUINE json_type-nested bug (array→'object', owned M35
+    follow-up). Verdict: below-band with cause, not a report-divergence. [SLIP] M35 built
+    pre-tranche — t2b discipline applied (pins labeled, no credit, confessed header).
+    t6a (8 FTS cases, 7–8/8, column-filter swing) parked pre-M34, drafts-first restored.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
