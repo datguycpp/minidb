@@ -2363,6 +2363,21 @@ class Database:
             return node.value
         if isinstance(node, ast.Subquery):
             return self._scalar_subquery(node.select)
+        if isinstance(node, ast.InList):
+            value = self._eval(node.expr, table, env, group)
+            if value is None:
+                return None
+            found_null = False
+            for candidate_node in node.values:
+                candidate = self._eval(candidate_node, table, env, group)
+                if candidate is None:
+                    found_null = True
+                    continue
+                if sql_compare(value, candidate, "="):
+                    return not node.negated
+            if found_null:
+                return None
+            return node.negated
         if isinstance(node, ast.InSubquery):
             return self._in_subquery(node, env, group)
         if isinstance(node, ast.FuncCall):

@@ -863,7 +863,11 @@ class Parser:
         if self.accept_keyword("IN"):
             self.expect_punct("(")
             if not self.at_keyword("SELECT"):
-                raise ParseError("only IN (SELECT ...) is supported", self.tok)
+                values = [self.parse_expression()]
+                while self.accept_punct(","):
+                    values.append(self.parse_expression())
+                self.expect_punct(")")
+                return ast.InList(expr=node, values=values, negated=negated)
             inner = self.parse_compound()
             self.expect_punct(")")
             return ast.InSubquery(expr=node, select=inner, negated=negated)

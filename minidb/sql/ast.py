@@ -197,6 +197,13 @@ class Subquery(Node):
 
 
 @dataclass
+class InList(Node):
+    expr: Node
+    values: list
+    negated: bool = False
+
+
+@dataclass
 class InSubquery(Node):
     expr: Node
     select: "Select"
