@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M31 CLOSED (round-trip + word-for-word ServerError + README-as-test;
-  paired persistence assertion added at review — 425 tests, 231/231; lock spec-edit
-  committed). Next: M32 (EXPLAIN human-only), M33 (docs runner), growth item, M28 TOTAL.**
+- **Current milestone: M32 CLOSED (own vocab, negative control + anti-imitation live,
+  432 tests, 231/231; Tier-6 inventory probes committed). M33 integration carries: docs
+  home for plan vocab + EXPLAIN examples in runner set. Then Tier-5 closes.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -313,6 +313,16 @@ query history; hot-path rewrite in a faster language
     full 425 OK, cold-clone green. Release-paths-tested-like-failure-paths (4th
     pattern data point: closes/disconnects/shutdowns). M25-lock spec consequence
     committed as-is.**
+  - **[M32 CLOSED — `ad7e3b6`, cold-clone verified] 432 tests, 231/231. Four ruling
+    conditions hold: no corpus differential; own labeled vocab; anti-imitation
+    assertion live (no opcode/addr/p1/p2/p3); negative control live (my probe: plan
+    changes no-index→with-index, SCAN/no-eligible-index → SCAN/index-not-selective
+    on a 1-row table — the SEARCH shape needs selective scale). EXPLAIN-write parses
+    then refuses `only SELECT plans are explained` (unsupported-vs-typo boundary).
+    [M33 CARRY] docs home for plan vocab + deterministic EXPLAIN fixtures in runner
+    set (vocab can't rot under the pipeline). [TIER-6 PREP `8866f0d` as-is] entry =
+    one command: compile_options pragma + json1/fts5 smokes (pragma claim vs working
+    feature = two facts).**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
