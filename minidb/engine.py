@@ -647,7 +647,12 @@ class Database:
     def __init__(self, path=None):
         self.path = path
         foreign = bool(path) and is_sqlite_file(path)
-        self.storage = None if foreign else (DiskStorage(path) if path else None)
+        try:
+            self.storage = None if foreign else (DiskStorage(path) if path else None)
+        except StorageError as exc:
+            if str(exc) == "database is locked":
+                raise ExecError(str(exc)) from None
+            raise
         self.tables = {}
         self.views = {}
         self.triggers = {}

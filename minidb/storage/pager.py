@@ -16,8 +16,10 @@ This is a redo log, not SQLite's WAL: one writer, no concurrent readers during r
 incremental checkpointing. Those are M25 and M18.
 """
 
+import fcntl
 import os
 import struct
+import time
 import zlib
 from collections import OrderedDict
 
@@ -54,6 +56,19 @@ class Pager:
         self.wal_path = path + ".wal"
         exists = os.path.exists(path) and os.path.getsize(path) > 0
         self.fh = open(path, "r+b" if exists else "w+b")
+        # Single-writer model (M25/M26): one handle owns the file for its lifetime. A second
+        # process waits, then reports the reference's wording instead of corrupting pages.
+        timeout = float(os.environ.get("MINIDB_LOCK_TIMEOUT", "5"))
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(self.fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    self.fh.close()
+                    raise StorageError("database is locked") from None
+                time.sleep(0.01)
         self.dirty = {}
         # LRU page cache (milestone 18). Disabled with MINIDB_CACHE_PAGES=0 so the before/after
         # numbers come from the same binary rather than from two checkouts.
@@ -275,6 +290,12 @@ class Pager:
 
     # -- lifecycle ----------------------------------------------------------
     def close(self):
+        if self.fh.closed:
+            return
+        try:
+            fcntl.flock(self.fh.fileno(), fcntl.LOCK_UN)
+        except (OSError, ValueError):     # already closed: close() is idempotent
+            pass
         self.cache.clear()
         # A clean shutdown flushes what is pending; a crash skips this and leaves the WAL for
         # recovery. Silently dropping dirty pages here would lose data without a trace.
