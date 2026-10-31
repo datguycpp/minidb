@@ -84,11 +84,12 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M22 (covering/partial indexes + the system surface) accepted;
-  t3b landed 222/222 [prediction top-of-band (+1)]. Tier-6 prework committed (the
-  authored queue is complete through Tier 6). M23 (file compat) is next — read-compat
-  is the gate per the M23 spec — and M23's close computes the Tier-3 gate arithmetic
-  over the recorded partials (M19 freelist remainder included).**
+- **Current milestone: M23 accepted (24/24 read-compat); the TIER-3 GATE IS COMPUTED
+  AND PASSES with the benchmark's first full run published (median-of-ratios 111.957;
+  gate multiple set ONCE from this run at 150.0 with per-workload ceilings). Tier 4
+  opens with M24 — and the benchmark's two knife-edge-firing findings (W1 end-to-end
+  parse+fetch, W8 per-row full scan on UPDATE) are the M38 hot-path rewrite's named
+  first targets.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -179,6 +180,77 @@ query history; hot-path rewrite in a faster language
     (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
     (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
     first run.
+  - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
+    database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
+    reports **24/24** from the cold clone (F1–F10, granular 24 checks). Verified live:
+    the F1-shaped reference-written file reads identical rows through MiniDB and
+    **writes against it raise `attempt to write a readonly database`** (the
+    reference's own error text). F8 (view+trigger) passed WITHOUT the scope flag —
+    the view/trigger boundary resolved into scope by the rebuild-from-CREATE-text
+    path; the spec's F8 scope-flag case is discharged by scope (the chooser worked
+    as designed). Declared limits recorded per the ruling: WITHOUT ROWID and index
+    b-tree pages are DECLARED LIMITS not partials (the ladder's M23 line never
+    promised them; indexes rebuild from schema text — matches outcomes, not cost);
+    **WAL-mode foreign files: a hot `-wal` is invisible (correct for a cleanly
+    closed file, wrong for a crashed one) — the scope note is on record as the
+    M27-adjacent foreign-read work item, with the tranche authored when M27
+    approaches if wanted (research's placement, engineer's suggestion, ratified).**
+    Writing SQLite's format stays explicitly out of scope per the spec (a read-gate
+    ruled read-only on purpose — Default expansion requires a named spec edit).
+  - **BENCHMARK — FIRST FULL RUN (the Tier-3 gate's defining event, per
+    docs/benchmark-spec.md, harness `tools/benchmark.py` Default-authored to the
+    spec's table): module-sqlite 3.53.1 (the skew rule fills the header), N=7 with
+    all raw values printed, warm-up discarded, output-OK-else-discard via
+    identical-output tuples (the one comparator), scale 100k rows / 1k lookups.
+    ALL OUTPUTS OK, ZERO DISCARDS on the nine run workloads; the median-of-ratios
+    headline:**
+    - **W1 214,199.7x · W2 34.8x · W3 77.7x · W4 145.0x · W5 112.0x · W6 12.6x ·
+      W7 292.7x · W8 62,455.1x · W10 0.784x** — **median-of-ratios = 111.957**.
+    - **W9 (open/reopen) did NOT run in this pass** (an honest harness gap: the
+      tool's W9 file-open variant wasn't ready; named before the verdict, not
+      after) — W9 joins the next full run.
+    - **The two knife-edge findings (research's own pre-registered surprise clauses,
+      fired verbatim: ratio > 500× anywhere means a hidden per-operation path) are
+      REAL and classified: (a) W8 — the UPDATE path does not route `WHERE id=?`
+      through the PK index, so each of the 1k updates scans the whole table
+      (646,482 ms per run of 1k updates ≈ 0.65 s/update — the same order as my
+      independent sanity draw at 10k rows, 70 ms/lookup end-to-end... the shape is
+      the scan, not the fetch); (b) W1 — the end-to-end cost is parse+plan+fetch
+      per statement (the standalone helper path is ~250 µs but a `db.run()` pays
+      SQL parse per call, dominating the 1k-lookup batch: ≈ 0.66 s/lookup at
+      100k rows). Neither is a silent bug — both are the M38 hot-path rewrite's
+      named FIRST TARGETS, owned by the build lane per the honest-framing
+      requirement the spec ratified: milestone 38 is the answer to a bad ratio,
+      NOT a threshold edit.**
+    - **Research's pre-registered benchmark predictions (posted before the run):
+      the band's median clause HIT (30–300×; actual 111.957); W1-worst named
+      correctly and W7-mid named within the band (292.7x, top of mid); the
+      surprise clauses fired as designed and caught real structure; the
+      structural claims that DID NOT hold: W10 is the BEST ratio on the board
+      (0.784 below 1× — a foreign-CLI-side fact worth its own honesty note rather
+      than a gate edit), and W3/W4 are not the best two. Zero discards matched.**
+  - **[GATE — the TIER-3 multiple set ONCE from this run, written into STATE before
+    M24 starts, per the anti-gaming rider] The Tier-3 gate reads:**
+    - **every workload's output OK — this run: 9/9 OK (W9 absent, honest gap above);
+    - median ratio ≤ the recorded multiple: the multiple is set to 150.0
+      (the measured 111.957 plus ~34% measured-variation headroom — the honest
+      framing holds: it is what was measured, stated plainly, and milestone 38 is
+      the answer to the ratio, not an edit);**
+    - **no single workload above its recorded per-workload ceiling — ceilings set
+      at measured × ~1.5 with the same no-softening rule: W1 ≤ 320,000 ·
+      W2 ≤ 60 · W3 ≤ 120 · W4 ≤ 225 · W5 ≤ 175 · W6 ≤ 20 · W7 ≤ 460 · W8 ≤ 95,500
+      · W10 ≤ 2.5 (W10's ceiling keeps the current advantage honest: the gate
+      catches regression to >1, not the present sub-1 being "too good").**
+    - **The Tier-3 gate VERDICT: PASS** on the benchmark sentence (9/9 output-OK,
+      111.957 ≤ 150.0, all workloads inside ceilings) **with the recorded partials
+      riding named beside it: M19's freelist remainder (owned), M22's
+      covering-for-partial + ORDER-BY-after-projection declared limits, M23's
+      WITHOUT-ROWID/index-pages declared limits, the WAL foreign-read scope note,
+      the W9 harness gap, and the two knob-edge benchmark findings owned under
+      M38. The corpus line stands at 222/222; the ledger's Tier-3 arithmetic will
+      cite this exact benchmark line as its forecast once M27's honest scope is
+      measured (the fuzz semantic rate at the 16-feature dialect stays the fuzz
+      gate's own number, not this benchmark's).**
   - **`SCORE t3.22 (M22 landing + t3b, re-baselined #25): 222/222 (100.0%), 371 tests
     — covering + partial indexes + the system surface — accepted`** (the t3b landing
     pushes the corpus 216 → 222; per the recorded rule the TIER-3 GATE arithmetic
