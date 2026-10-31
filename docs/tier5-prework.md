@@ -31,6 +31,17 @@ vocabulary describing SQLite's planner — likewise not byte-comparable.
   `sql` with a one-line header comment naming the fixture
   (`-- fixture: empty | demo`), and expected-output lines when the doc
   shows results (`-- expect: …`).
+- **AS-BUILT RECONCILIATION (M33), which supersedes part of this
+  contract:** (a) the fixture-header *declaration* is replaced by
+  enforced **runtime self-containment** — every `sql` block runs against
+  a fresh in-memory database and must seed its own tables; execution
+  tests what a declaration could only claim (a `-- fixture:` header can
+  lie; a neighbour-dependent block fails the run). The declaration rule
+  is retired, not contradicted. (b) The `-- expect` output-comparison
+  line stays specified but **dormant**: no current doc displays outputs.
+  It activates the first time a doc *shows* a result — at that moment
+  the runner must compare displayed output or the doc becomes a
+  user-facing falsehood the pipeline silently blesses.
 - `tools/docs_check.py` extracts every runnable block, executes it
   against a fresh database (pinned reference for expected outputs,
   MiniDB under test for acceptance), and fails on: SQL that errors,
