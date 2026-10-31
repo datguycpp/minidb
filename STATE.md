@@ -84,9 +84,10 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: gate-plan Tier-1-line rule adopted (86→91 named re-baseline from
-  t1c pin); M28 TOTAL line pending (seed 1: 250 clean = draw by standard). Nothing closes
-  this round.**
+- **Current milestone: t3c delivered pre-fix (4 correlated cases, parked, 3–4/4 band live);
+  property-generator growth ORDERED (self-joins, multi-table joins, correlated; band
+  ≥1 failure at 1,000 cases, correlated named primary); Tier-5 START called (M29 first).
+  M28 TOTAL line still the artifact that closes Tier-4.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -253,6 +254,13 @@ query history; hot-path rewrite in a faster language
     Tier-1 tranche post-gate-plan, so the literal "86 must stay 86" is now the Tier-1
     LINE rule: no regression vs the latest re-baseline count (91 from the pin onward),
     per-file lines vs last logged values. 86→91 named as ledger event, not drift.**
+  - **[T3c DELIVERY CONFIRMED + QUEUE ORDERS — t3c 4 cases loader-clean, no directives,
+    parked pre-fix; band 3–4/4 live (scalar forms = core scope, EXISTS/NOT EXISTS =
+    named swing, 3/4 = EXISTS-owned-item not regression).] STATE staleness edit done:
+    FROM-subquery → closed at Tier-1 remediation; correlated → still owned with t3c
+    parked. [ORDERED] property-generator growth (self-joins, multi-table joins,
+    correlated; band ≥1 failure at 1k, correlated primary). [CALLED] Tier-5 start,
+    M29 first (docs-runner contract, dot subset, no-wire-protocol all on paper).**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
@@ -978,8 +986,10 @@ query history; hot-path rewrite in a faster language
   M8's sorted-structure ordering); the rest M12.
 - No DELETE / UPDATE / DROP; table-level `CHECK` rejected. M16.
 - Joins — **INNER (+ comma/cross/LEFT/RIGHT/FULL via the Tier-1 remediation) CLOSED at
-  M8; subqueries in WHERE/select items landed M8; correlated subqueries and
-  FROM-subquery derivation remain owned (M8 report's stated limits)**. M8 follow-up or
+  M8; subqueries in WHERE/select items landed M8; FROM-subquery derivation CLOSED at
+  the Tier-1 remediation (t1c derived-table case green since 75/75); correlated
+  subqueries remain owned (M8 report's stated limit), now with t3c's 4-case tranche
+  parked to pin it (3–4/4 pre-registered; EXISTS/NOT EXISTS the named swing)**. M8 follow-up or
   M12+.
 - Column DEFAULT evaluated without SQLite's constant-expression rules — untested against
   quirks, flagged rather than assumed correct.
