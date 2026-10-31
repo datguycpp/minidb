@@ -84,9 +84,10 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: t3c LANDED 231/231 (4/4 vs 3–4 band, generous side); M8 remainder
-  CLOSED (outer-env stack + EXISTS); M29 shell accepted (declared dot subset + CSV
-  round-trip). Next: property-generator growth (band live) + M30 (inherits M25 locks).**
+- **Current milestone: M30 parity ACCEPTED for autocommit (3-client + remote==local + wording
+  + malformed-alive verified); TRANSACTION-ISOLATION FINDING ordered (shared handle leaks
+  uncommitted across clients — per-client handles or autocommit-only refusal). Spec-edit
+  wording adopted (unreachable connection-isolation → wait-then-locked descendant).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -266,6 +267,19 @@ query history; hot-path rewrite in a faster language
     M29: declared dot subset + CSV round-trip byte-identical, unknown dots refused.
     M8 remainder CLOSED. Still queued: property-generator growth (band live), M30
     (M25 locks inherited), M28 TOTAL (Tier-4 close artifact).
+  - **[M30 — `bd6f60c`, cold-clone verified] Parity ACCEPTED for autocommit: 3-client
+    identical aggregates, remote==local row-for-row, `no such table: missing` wording,
+    malformed-request connection stays alive (all re-probed live). Order-dependent
+    test bug (alpha-order seeding) named as 3rd instance of the
+    checker-passing-for-wrong-reason class (M24 control, M27 technicality, now this);
+    house rule restated: tests seed their own rows. [FINDING — server transaction
+    isolation] A BEGINs + INSERTs uncommitted, B SELECTs and SEES [[7]] pre-COMMIT
+    (single shared handle = shared transaction): "inherits M25" does NOT hold at
+    transaction granularity — file-level M25 would wait/fail B, the server leaks.
+    Ordered: per-client handles (file-lock semantics through sockets) or
+    autocommit-only with typed BEGIN refusal. [SPEC-EDIT ADOPTED, research to write]
+    connection-isolation unreachable-by-design → observable descendant (B waits/fails
+    `database is locked`, sees committed state after A commits).**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
