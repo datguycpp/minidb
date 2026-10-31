@@ -84,10 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: property band CLOSED as generous miss #5 (verbatim TOTAL 1000/4/0;
-  tally 8/2/5); next band FILED (≥1 genuine gap anywhere in the work, primary multi-level
-  nested subqueries, secondary composite-ON with NULLs). Sequencing: M31 before growth.
-  Tier-5 ladder resumes.**
+- **Current milestone: M31 CLOSED (round-trip + word-for-word ServerError + README-as-test;
+  paired persistence assertion added at review — 425 tests, 231/231; lock spec-edit
+  committed). Next: M32 (EXPLAIN human-only), M33 (docs runner), growth item, M28 TOTAL.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -306,6 +305,14 @@ query history; hot-path rewrite in a faster language
     multi-level nested subqueries (alias shadowing, env-stack depth>1 — untouched by any
     case/property/probe), secondary = composite/multi-column ON with NULL rows. Zero
     everywhere = miss. [SEQUENCED] M31 before growth (ladder is the spine).**
+  - **[M31 CLOSED — `e03a62e` + `f0c75c5` (build), `aa1a3f7` (spec-edit as-is),
+    `313c58c` (review test)] Three-part acceptance verified: round-trip row-for-row,
+    ServerError strings compared not eyeballed, README example executed as test.
+    [REVIEW ADDITION] Paired post-shutdown persistence assertion (own server + file,
+    close, shutdown, server_close, direct open expects [(3,)]) — standalone 5/5 OK,
+    full 425 OK, cold-clone green. Release-paths-tested-like-failure-paths (4th
+    pattern data point: closes/disconnects/shutdowns). M25-lock spec consequence
+    committed as-is.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
