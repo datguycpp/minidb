@@ -84,10 +84,10 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: W1/W8 perf fixes accepted (index-preserving UPDATE, parse cache);
-  M24 crash torture built with negative controls — 300/300 reported, 50/50 cold-clone
-  reproduced; the 10k-iteration gate run is in flight (verdict on its exact line, not
-  on the 300). Tier-4 gate arithmetic waits for that line.**
+- **Current milestone: M24 PARTIAL (10,000/10,000 statement-boundary clean; seam-generalised
+  sweep with site-coverage table still owed, sequenced with M27). Benchmark predictions
+  scored (median + discards + W1/W7 hit, W3/W4 miss, >500x clause fired twice); W10 sub-1
+  recorded as binding cost, not engine win.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -195,6 +195,17 @@ query history; hot-path rewrite in a faster language
     now compares buckets directly. Cold clone at `cec38f4`: 387 tests, 222/222,
     46/46; my rerun: 50/50 clean (rows=15, seeds 1..50). The 10k-iteration gate run
     verdict waits for its exact line.**
+  - **[M24 GATE RUN — `0643754`, cold-clone verified] Exact line as printed:
+    `CRASH TORTURE: 10000/10000 clean rows=15 seeds=1..10000 (100 s)`; my rerun
+    100/100 clean at the same shape; 387 tests / 222/222 unchanged. Accepted as
+    scale-proven; recorded PARTIAL per the pattern rule — statement-boundary sweep
+    only, fsync-site generalisation with coverage table still owed (sequenced with
+    M27's fixtures, same fault-injection surface; the spec's letter stands).**
+  - **[BENCHMARK PREDICTION SCORING] Median 111.96 in 30–300 band HIT; zero
+    discards HIT; W1-worst and W7-mid HIT; >500x clause fired twice on real O(n)
+    paths (W8 index-emptying rebuild, W1 per-call parse). Miss: W3/W4-best-two
+    failed (W10 0.784 best). W10 sub-1 = module binding decode cost, not an engine
+    win — recorded so no headline misreads the harness. Ceilings untouched.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
