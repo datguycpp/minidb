@@ -133,10 +133,26 @@ class Pager:
         self._stage_header()
 
     # -- commit / rollback --------------------------------------------------
+    def _crash(self, site):
+        """Die here if the fault injector names this site and this commit.
+
+        The site list is the M24 coverage surface: every write, flush, fsync and truncate step in
+        the commit path, plus a torn page write. A run that only ever kills one site is a lottery.
+        """
+        point = os.environ.get("MINIDB_CRASH_POINT", "")
+        if not point:
+            return
+        # Legacy names from M7's two-site seam, kept so old tests and tools keep working.
+        point = {"after_wal": "wal_after_fsync", "mid_apply": "db_mid_apply"}.get(point, point)
+        wanted_commit = int(os.environ.get("MINIDB_CRASH_COMMIT", "1"))
+        if point == site and getattr(self, "_commit_count", 0) == wanted_commit:
+            os._exit(9)
+
     def commit(self):
         """WAL first, then the database file, then truncate. Any crash in between replays."""
         if not self.dirty:
             return
+        self._commit_count = getattr(self, "_commit_count", 0) + 1
         self._stage_header()
         ordered = sorted(self.dirty.items())
         frames = b"".join(
@@ -146,34 +162,41 @@ class Pager:
         marker = (struct.pack("<I", WAL_COMMIT) + struct.pack("<I", len(ordered))
                   + struct.pack("<I", zlib.crc32(frames)))
 
+        self._crash("wal_before_write")
         offset = os.path.getsize(self.wal_path) if os.path.exists(self.wal_path) else 0
         with open(self.wal_path, "ab+") as wal:
             if offset == 0:
                 wal.write(WAL_MAGIC)
             wal.write(frames)
+            self._crash("wal_after_write")
             wal.write(marker)
             wal.flush()
+            self._crash("wal_after_flush")
             os.fsync(wal.fileno())
+            self._crash("wal_after_fsync")
 
-        # Fault injection for the crash tests: die exactly where a real crash would land,
-        # after the log is durable but before the database file is. MINIDB_CRASH_COMMIT picks
-        # which commit in the process's life dies (1 = the very first).
-        crash_point = os.environ.get("MINIDB_CRASH_POINT", "")
-        crash_commit = int(os.environ.get("MINIDB_CRASH_COMMIT", "1"))
-        self._commit_count = getattr(self, "_commit_count", 0) + 1
-        crash_here = crash_point and self._commit_count == crash_commit
-        if crash_here and crash_point == "after_wal":
+        self._crash("db_before_apply")
+        if os.environ.get("MINIDB_CRASH_POINT") == "db_torn_page":
+            page_id, page = ordered[0]
+            self.fh.seek(page_id * PAGE_SIZE)
+            self.fh.write(page[: PAGE_SIZE // 2])
+            self.fh.flush()
             os._exit(9)
-
         for index, (page_id, page) in enumerate(ordered):
             self.fh.seek(page_id * PAGE_SIZE)
+            if index == 0:
+                self._crash("db_mid_apply")
             self.fh.write(page)
-            if crash_here and crash_point == "mid_apply" and index == 0:
-                os._exit(9)
+            if index == 0:
+                self._crash("db_after_first_page")
         self.fh.flush()
+        self._crash("db_after_flush")
         os.fsync(self.fh.fileno())
+        self._crash("db_after_fsync")
 
+        self._crash("truncate_before")
         os.truncate(self.wal_path, 0)
+        self._crash("truncate_after")
         self.dirty.clear()
 
     def rollback(self):

@@ -47,7 +47,12 @@ def run_iteration(path, seed, rows):
     return result
 
 
-def run_iteration_forked(path, seed, rows):
+SITES = ["wal_before_write", "wal_after_write", "wal_after_flush", "wal_after_fsync",
+         "db_before_apply", "db_mid_apply", "db_after_first_page", "db_after_flush",
+         "db_after_fsync", "truncate_before", "truncate_after", "db_torn_page"]
+
+
+def run_iteration_forked(path, seed, rows, site=None, commit=1):
     """Same crash without paying interpreter start-up per iteration.
 
     A 10,000-iteration gate run at ~0.4 s per exec is over an hour; forking the already-imported
@@ -57,11 +62,14 @@ def run_iteration_forked(path, seed, rows):
     pid = os.fork()
     if pid == 0:
         try:
+            if site:
+                os.environ["MINIDB_CRASH_POINT"] = site
+                os.environ["MINIDB_CRASH_COMMIT"] = str(commit)
             rng = random.Random(seed)
             db = Database(path)
             db.run("CREATE TABLE t (id INTEGER, v INTEGER)")
             db.run("CREATE INDEX idx_v ON t (v)")
-            crash_after = rng.randint(1, rows)
+            crash_after = rng.randint(1, rows) if not site else rows + 1
             for i in range(1, rows + 1):
                 db.run(f"INSERT INTO t VALUES ({i}, {i % 5})")
                 if i >= crash_after:
@@ -76,7 +84,13 @@ def run_iteration_forked(path, seed, rows):
 
 
 def check_database(db):
-    """Invariants over an open database: contiguous prefix, and indexes that tell the truth."""
+    """Invariants over an open database: contiguous prefix, and indexes that tell the truth.
+
+    A crash during the CREATE TABLE commit leaves a database with no table at all; that is a
+    consistent state, not a failure, so it passes with zero rows.
+    """
+    if "t" not in db.tables:
+        return None
     columns, rows = db.run("SELECT id FROM t ORDER BY id")
     ids = [row[0] for row in rows]
     if ids != list(range(1, len(ids) + 1)):
@@ -104,14 +118,55 @@ def check(path):
         db.close()
 
 
+def sweep(args):
+    """One row per crash site: iterations, how many actually died at that site, and clean reopens."""
+    rows_out = []
+    total_failures = 0
+    for site in SITES:
+        died = 0
+        failures = []
+        for offset in range(args.iterations):
+            seed = args.start_seed + offset
+            path = os.path.join(tempfile.mkdtemp(), f"sweep-{site}-{seed}.db")
+            result = run_iteration_forked(path, seed, args.rows, site=site, commit=1)
+            if result.returncode == 9:
+                died += 1
+            elif result.returncode != 0:
+                failures.append((seed, f"child exit {result.returncode}"))
+                continue
+            problem = check(path)
+            if problem:
+                failures.append((seed, problem))
+        clean = args.iterations - len(failures)
+        total_failures += len(failures)
+        rows_out.append((site, args.iterations, died, clean, failures[:2]))
+    print(f"CRASH SITE SWEEP: rows={args.rows} iterations_per_site={args.iterations} "
+          f"seeds={args.start_seed}..{args.start_seed + args.iterations - 1}")
+    print(f"  {'site':<20} {'iters':>6} {'died_here':>9} {'clean_reopen':>13}")
+    for site, iterations, died, clean, failures in rows_out:
+        note = "" if died else "   <- site never reached"
+        print(f"  {site:<20} {iterations:>6} {died:>9} {clean:>13}{note}")
+        for seed, problem in failures:
+            print(f"      FAIL seed={seed}: {problem}")
+    sites_hit = sum(1 for _, _, died, _, _ in rows_out if died)
+    print(f"COVERAGE: {sites_hit}/{len(SITES)} sites reached, "
+          f"{sum(r[2] for r in rows_out)} crashes injected, {total_failures} invariant failures")
+    return 1 if total_failures else 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=200)
     parser.add_argument("--rows", type=int, default=20)
     parser.add_argument("--start-seed", type=int, default=1)
+    parser.add_argument("--sweep", action="store_true",
+                        help="run every crash site and print the coverage table")
     parser.add_argument("--fork", action="store_true",
                         help="fork per iteration instead of exec (much faster at 10k)")
     args = parser.parse_args()
+
+    if args.sweep:
+        return sweep(args)
 
     failures = []
     for offset in range(args.iterations):
