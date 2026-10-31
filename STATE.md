@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M26 CLOSED (1/1 wording MATCH, flock-namespace limit declared);
-  M28 OPEN pending scale-up (50-case clean reproduced; ≥1,000 cases multi-seed + schema
-  header + full site list required per pre-registered response). Tier-5 queued next.**
+- **Current milestone: M28 scale-up verified interim (schema header + 15-site crash property
+  + widened equivalents live; 20/seed clean reproduced); IN-list gap pinned to corpus
+  (t1c +5, 227/227). 1,000-case multi-seed line still owed — M28 stays OPEN.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -241,6 +241,14 @@ query history; hot-path rewrite in a faster language
     research's pre-registered harness-first response — requires ≥1,000 cases
     multi-seed, schema-shape header (fuzz precedent), crash property at full 15-site
     list. Zero at 50 is a draw, not a sweep.**
+  - **[M28 SCALE-UP INTERIM — `689c30b`/`bc2f9a1`, cold-clone verified] Header declares
+    schema features (composite-key/index/composite-index/nocase/trigger/view/blob/
+    affinity-mix/nulls); crash property draws full 15-site list; per-seed + TOTAL lines;
+    equivalents widened (IN-vs-OR, DISTINCT-vs-GROUP BY, LEFT-vs-INNER, NULL-counting,
+    NOT IN NULL-free). My rerun 20/seed clean. [FIND-AND-PIN CLOSED] Literal IN-lists
+    (rejected outright; 222-case corpus never asked) pinned to t1c +5 cases (match,
+    NULL-IN, match-beats-NULL, NOT-IN flip, NOT-IN-with-NULL) — 227/227, binary-verified
+    three-valued rows. Gap family #3 (unvoiced feature) caught by redundancy.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`

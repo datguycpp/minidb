@@ -110,3 +110,22 @@ INSERT INTO t VALUES (2);
 INSERT INTO s VALUES (1);
 INSERT INTO s VALUES (NULL);
 SELECT * FROM t WHERE id NOT IN (SELECT id FROM s);
+
+-- IN literal list: match (pinned M28 find-and-pin — literal IN-lists were
+-- rejected outright before the property run found it; reference: match is true).
+
+SELECT 1 IN (1, 2, 3);
+
+-- IN literal list with NULL: NULL IN (...) is NULL; a match beats a NULL
+-- in the list (three-valued-logic rows, binary-verified at build).
+
+SELECT NULL IN (1, 2);
+
+SELECT 2 IN (1, NULL, 2);
+
+-- NOT IN literal list: flips only the true case; NULL in list makes
+-- the non-match unknown (binary-verified at build).
+
+SELECT 3 NOT IN (1, 2);
+
+SELECT 3 NOT IN (1, NULL, 2);
