@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M27 remainder CLOSED (9/9 incl. payload-bitflip via CRC32); M25
-  PARTIAL (single-handle isolation + database-is-locked ✓; concurrent readers ✗ —
-  shared-lock reader model ordered). M26 lock sentence verified. M28 next.**
+- **Current milestone: M25 CLOSED ladder-faithful (shared LOCK_SH readers, exclusive writer,
+  typed upgrade refusal; 5-invariant band registered pre-report). Tier-4 remainder: M26
+  differential (now reachable) + M28 property tests.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -227,6 +227,13 @@ query history; hot-path rewrite in a faster language
     concurrent readers ✗. Ordered: shared LOCK_SH readers + exclusive writer, writer
     waits MINIDB_LOCK_TIMEOUT then reference wording; reader→writer upgrade = typed
     refusal (no silent-wait deadlock). WAL-mode non-blocking NOT implied.**
+  - **[M25 CLOSED — `916481d`, cold-clone verified] Shared LOCK_SH readers coexist;
+    writer takes LOCK_EX, waits MINIDB_LOCK_TIMEOUT, fails `database is locked`;
+    read-only write refused `attempt to write a readonly database`. My probe: two
+    readers [(7,)]/[(7,)], writer blocked, upgrade refused, writer-after [(7,),(8,)].
+    [BAND — pre-registered] corpus 222/222 zero-move; 5 invariants; both error texts
+    byte-identical. Unreachable-by-design read-across-commit replaced in writing by
+    writer-waits-or-locked (rollback-journal model, not WAL).**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
