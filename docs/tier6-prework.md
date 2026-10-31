@@ -10,7 +10,18 @@ Ratified at the M11 math-functions finding: **the pinned binary's compiled-
 in features are what conformance requires** — optional modules the build
 ships are in scope, optional modules it lacks are out (both by decision 3).
 Tier 6's FTS and JSON claims therefore begin with a **runtime feature
-inventory** at Tier-6 entry, printed in the first report:
+inventory** at Tier-6 entry, printed in the first report (exact probe commands, so entry is one
+command, not an improvisation):
+
+```
+sqlite3 :memory: "PRAGMA compile_options;"     # ENABLE_JSON1 / ENABLE_FTS5 / ENABLE_MATH_FUNCTIONS …
+sqlite3 :memory: "SELECT json('[1]'), json_extract('[1,2]','$[0]');"   # json1 smoke
+sqlite3 :memory: "CREATE VIRTUAL TABLE t USING fts5(a); INSERT INTO t VALUES('x'); SELECT * FROM t WHERE t MATCH 'x';";  # fts5 smoke
+```
+
+`PRAGMA compile_options` is authoritative for what the build carries;
+the smoke queries confirm the pragma's claims actually execute (a pragma
+line and a working feature are two different facts — verify both).
 
 ```
 REFERENCE-INVENTORY: json1=<yes/no> fts5=<yes/no> math=<yes/no> … (probe commands attached)
