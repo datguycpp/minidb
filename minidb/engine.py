@@ -657,6 +657,7 @@ class Database:
         self.views = {}
         self.triggers = {}
         self.trigger_env = None
+        self._outer_env = None          # enclosing row, for correlated subqueries
         self._in_trigger = False
         self.foreign_keys = False
         self.sequences = {}
@@ -2332,11 +2333,14 @@ class Database:
             return max(values)
         raise ExecError(f"unsupported aggregate {node.name}")
 
-    def _scalar_subquery(self, select):
+    def _scalar_subquery(self, select, env=None):
         saved = self.last_plan
+        previous = self._outer_env
+        self._outer_env = env
         try:
             _, rows = self._select_node(select)
         finally:
+            self._outer_env = previous
             self.last_plan = saved
         if not rows:
             return None
@@ -2345,9 +2349,12 @@ class Database:
     def _in_subquery(self, node, env, group):
         value = self._eval(node.expr, None, env, group)
         saved = self.last_plan
+        previous = self._outer_env
+        self._outer_env = env
         try:
             _, rows = self._select_node(node.select)
         finally:
+            self._outer_env = previous
             self.last_plan = saved
         values = {row[0] for row in rows}
         if value is None:
@@ -2362,7 +2369,17 @@ class Database:
         if isinstance(node, ast.Literal):
             return node.value
         if isinstance(node, ast.Subquery):
-            return self._scalar_subquery(node.select)
+            return self._scalar_subquery(node.select, env)
+        if isinstance(node, ast.Exists):
+            saved_plan = self.last_plan
+            previous = self._outer_env
+            self._outer_env = env
+            try:
+                _, rows = self._select_node(node.select)
+            finally:
+                self._outer_env = previous
+                self.last_plan = saved_plan
+            return 1 if rows else 0
         if isinstance(node, ast.InList):
             value = self._eval(node.expr, table, env, group)
             if value is None:
@@ -2398,6 +2415,11 @@ class Database:
                     return self.trigger_env[qualified]
             key = (f"{node.table.lower()}.{node.name.lower()}" if node.table
                    else node.name.lower())
+            if (env is None or key not in env) and self._outer_env is not None:
+                # Correlation: the enclosing row is consulted only when this query cannot resolve
+                # the name itself, and a qualified name never falls back to a bare match.
+                if key in self._outer_env:
+                    return self._outer_env[key]
             if env is None or key not in env:
                 # SQLite adds the hint only for double-quoted identifiers, and prints the
                 # quotes back; bracket/backtick forms lose their quotes in the message.

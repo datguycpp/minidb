@@ -917,6 +917,13 @@ class Parser:
             self.expect_punct(")")
             return ast.Cast(expr=inner, type_name=type_name)
 
+        if tok.kind == "KEYWORD" and tok.upper == "EXISTS":
+            self.advance()
+            self.expect_punct("(")
+            inner = self.parse_compound()
+            self.expect_punct(")")
+            return ast.Exists(inner)
+
         if tok.kind == "PUNCT" and tok.value == "(":
             self.advance()
             if self.at_keyword("SELECT"):

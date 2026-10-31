@@ -204,6 +204,11 @@ class InList(Node):
 
 
 @dataclass
+class Exists(Node):
+    select: "Select"
+
+
+@dataclass
 class InSubquery(Node):
     expr: Node
     select: "Select"
