@@ -84,11 +84,10 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: property-generator growth verified interim (30/seed × 2 clean =
-  draw; equivalent pairs live incl. EXISTS-vs-JOIN, self-join, IN-vs-EXISTS, LEFT-vs-NOT
-  EXISTS). Prediction STANDS unchanged (pre-emption = context, not rescue); bad-property
-  fix logged as 4th family instance (fix the assertion, not the bar). 1,000-case TOTAL
-  still the artifact.**
+- **Current milestone: property band CLOSED as generous miss #5 (verbatim TOTAL 1000/4/0;
+  tally 8/2/5); next band FILED (≥1 genuine gap anywhere in the work, primary multi-level
+  nested subqueries, secondary composite-ON with NULLs). Sequencing: M31 before growth.
+  Tier-5 ladder resumes.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -298,6 +297,15 @@ query history; hot-path rewrite in a faster language
     bad-property (JOIN-pair vs IN-row, 12 false failures) fixed by making the pair
     genuinely equivalent — fix the assertion, not the bar; triage-first (engine vs
     property vs harness) before any edit.**
+  - **[PROP BAND CLOSED — miss #5, tally 8/2/5] Verbatim TOTAL: 250×4 seeds, 1000 cases,
+    failures=0 with schema-features header; my sampled rerun seed-3 30/0 clean. Logged
+    as frozen: zero = plain generous miss, correlated pre-emption = context. [DIAGNOSIS
+    ADOPTED] Gate-run bands are structurally biased to miss — build-test-triage migrates
+    findings to build time (IN-list at zero scale, bad-property pre-run). [NEXT BAND
+    FILED] ≥1 genuine gap anywhere in the work (build, probes, 1k run), primary =
+    multi-level nested subqueries (alias shadowing, env-stack depth>1 — untouched by any
+    case/property/probe), secondary = composite/multi-column ON with NULL rows. Zero
+    everywhere = miss. [SEQUENCED] M31 before growth (ladder is the spine).**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
