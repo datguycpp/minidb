@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""M24 crash torture: random crashes, then invariants — never "the file opened".
+
+Per docs/tier4-prework.md: a crash is a fresh process killed at a random point inside the write
+path; randomness is a seeded RNG so every failing iteration replays from its log line; and the
+check after reopen is invariants, not existence:
+
+  1. rows present form a contiguous committed prefix (no torn state),
+  2. the index agrees with a full scan (a lying index is data loss's cousin),
+  3. the file reopens and is queryable.
+
+    python3 tools/crash_torture.py --iterations 2000 --rows 20
+"""
+
+import argparse
+import os
+import random
+import subprocess
+import sys
+import tempfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+CHILD = r'''
+import os, random, sys
+sys.path.insert(0, {root!r})
+from minidb.engine import Database
+path, seed, rows = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+rng = random.Random(seed)
+db = Database(path)
+db.run("CREATE TABLE t (id INTEGER, v INTEGER)")
+db.run("CREATE INDEX idx_v ON t (v)")
+crash_after = rng.randint(1, rows)
+for i in range(1, rows + 1):
+    db.run(f"INSERT INTO t VALUES ({{i}}, {{i % 5}})")
+    if i >= crash_after:
+        os._exit(9)          # die without closing: the WAL is the only record
+db.close()
+'''
+
+
+def run_iteration(path, seed, rows):
+    script = CHILD.format(root=ROOT)
+    result = subprocess.run([sys.executable, "-c", script, path, str(seed), str(rows)],
+                            capture_output=True, text=True)
+    return result
+
+
+def check_database(db):
+    """Invariants over an open database: contiguous prefix, and indexes that tell the truth."""
+    columns, rows = db.run("SELECT id FROM t ORDER BY id")
+    ids = [row[0] for row in rows]
+    if ids != list(range(1, len(ids) + 1)):
+        return f"rows are not a contiguous committed prefix: {ids[:5]}…{ids[-3:]}"
+    table = db.tables["t"]
+    rows = list(db._rows(table))         # direct table scan: the planner cannot lie here
+    for index in table.indexes.values():
+        for key, bucket in index.map.items():
+            expected = sum(1 for row in rows if index.key_for(row) == key)
+            if len(bucket) != expected:
+                return f"index {index.name} disagrees at {key}: {len(bucket)} vs {expected}"
+        indexed = sum(len(bucket) for bucket in index.map.values())
+        if indexed != len(rows):
+            return f"index {index.name} holds {indexed} rows, table has {len(rows)}"
+    return None
+
+
+def check(path):
+    """Invariants after recovery."""
+    from minidb.engine import Database
+    db = Database(path)
+    try:
+        return check_database(db)
+    finally:
+        db.close()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--iterations", type=int, default=200)
+    parser.add_argument("--rows", type=int, default=20)
+    parser.add_argument("--start-seed", type=int, default=1)
+    args = parser.parse_args()
+
+    failures = []
+    for offset in range(args.iterations):
+        seed = args.start_seed + offset
+        path = os.path.join(tempfile.mkdtemp(), f"crash-{seed}.db")
+        result = run_iteration(path, seed, args.rows)
+        if result.returncode not in (0, 9):
+            failures.append((seed, f"child exit {result.returncode}: {result.stderr.strip()[:200]}"))
+            continue
+        problem = check(path)
+        if problem:
+            failures.append((seed, problem))
+    clean = args.iterations - len(failures)
+    print(f"CRASH TORTURE: {clean}/{args.iterations} clean  rows={args.rows} "
+          f"seeds={args.start_seed}..{args.start_seed + args.iterations - 1}")
+    for seed, problem in failures[:10]:
+        print(f"  FAIL seed={seed}: {problem}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
