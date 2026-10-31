@@ -47,6 +47,34 @@ def run_iteration(path, seed, rows):
     return result
 
 
+def run_iteration_forked(path, seed, rows):
+    """Same crash without paying interpreter start-up per iteration.
+
+    A 10,000-iteration gate run at ~0.4 s per exec is over an hour; forking the already-imported
+    engine makes the same crash shape affordable. The child still dies with os._exit(9) mid-write.
+    """
+    from minidb.engine import Database
+    pid = os.fork()
+    if pid == 0:
+        try:
+            rng = random.Random(seed)
+            db = Database(path)
+            db.run("CREATE TABLE t (id INTEGER, v INTEGER)")
+            db.run("CREATE INDEX idx_v ON t (v)")
+            crash_after = rng.randint(1, rows)
+            for i in range(1, rows + 1):
+                db.run(f"INSERT INTO t VALUES ({i}, {i % 5})")
+                if i >= crash_after:
+                    os._exit(9)
+            db.close()
+        except BaseException:
+            os._exit(70)
+        os._exit(0)
+    _, status = os.waitpid(pid, 0)
+    code = os.waitstatus_to_exitcode(status)
+    return type("Result", (), {"returncode": code, "stderr": ""})()
+
+
 def check_database(db):
     """Invariants over an open database: contiguous prefix, and indexes that tell the truth."""
     columns, rows = db.run("SELECT id FROM t ORDER BY id")
@@ -81,13 +109,16 @@ def main():
     parser.add_argument("--iterations", type=int, default=200)
     parser.add_argument("--rows", type=int, default=20)
     parser.add_argument("--start-seed", type=int, default=1)
+    parser.add_argument("--fork", action="store_true",
+                        help="fork per iteration instead of exec (much faster at 10k)")
     args = parser.parse_args()
 
     failures = []
     for offset in range(args.iterations):
         seed = args.start_seed + offset
         path = os.path.join(tempfile.mkdtemp(), f"crash-{seed}.db")
-        result = run_iteration(path, seed, args.rows)
+        result = (run_iteration_forked(path, seed, args.rows) if args.fork
+                  else run_iteration(path, seed, args.rows))
         if result.returncode not in (0, 9):
             failures.append((seed, f"child exit {result.returncode}: {result.stderr.strip()[:200]}"))
             continue
