@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M24 site sweep accepted (12/12 sites, died_here verified, torn-page
-  included, real storage) — combined 11,200+ crashes zero failures; VACUUM-site residual
-  (vacuum_before/mid/after_replace) carried to M27 as M19-remainder duty. M27 next.**
+- **Current milestone: M24 CLOSED (15/15 incl. VACUUM file-replace, torn-page; 11,200+3,000
+  crashes zero failures); M27 PARTIAL (integrity_check ok + 8/8 typed detection; per-page
+  checksums for own format remain the owned remainder). M25/M26/M28 next per specs.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -210,6 +210,14 @@ query history; hot-path rewrite in a faster language
     (200/site, 2400 crashes, 0 failures). Combined 11,200+ crashes zero failures.
     Residual carried: no VACUUM file-replace sites (M19-remainder duty, lands with
     M27). Sweep is now the redo-protocol regression tripwire.**
+  - **[M24 CLOSED + M27 PARTIAL — `26c4e1b`, cold-clone verified] Site sweep now 15/15
+    (3 VACUUM file-replace sites added); my rerun 15/15 (200/site, 3000 crashes, 0
+    failures). vacuum_mid_replace = halved temp file + die before rename, original
+    survives every seed. integrity_check ok differential-clean; 8/8 structural
+    fixtures typed StorageError (page-size validation + wrap of struct/JSON/unicode
+    errors surfaced by fixtures). Recorded PARTIAL per pattern rule: per-page
+    checksums for own format owed (foreign files skip, WAL frames already CRC'd);
+    payload-bitflip stays declared-undetectable until then.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
