@@ -73,6 +73,16 @@ class TestCreateTable(unittest.TestCase):
                 parse(f"SELECT {word} FROM t")
             self.assertEqual(str(ctx.exception), f'near "{word}": syntax error')
 
+    def test_key_is_an_identifier_but_keyword_grammar_still_works(self):
+        # The reference accepts `key` as a column name and in json_each's column list; it is a
+        # keyword in PRIMARY KEY / FOREIGN KEY positions only.
+        stmt = parse("SELECT key, value FROM json_each('[5]')")
+        self.assertEqual(stmt.items[0].expr.name, "key")
+        self.assertEqual(parse("CREATE TABLE t (key TEXT, v INTEGER)").columns[0].name, "key")
+        constraints = parse("CREATE TABLE p (k TEXT PRIMARY KEY)").columns[0].constraints
+        self.assertEqual([c.kind for c in constraints], ["PRIMARY KEY"])
+        self.assertEqual(parse("SELECT k FROM t WHERE k = 1").where.left.name, "k")
+
     def test_by_and_inner_are_not_reserved(self):
         # SQLite accepts these as identifiers: "no such column", not a syntax error.
         for word in ("by", "inner"):

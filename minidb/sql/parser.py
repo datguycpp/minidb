@@ -15,7 +15,11 @@ RESERVED_STARTERS = {"CREATE", "INSERT", "SELECT"}
 RESERVED_IDENTIFIERS = RESERVED_STARTERS | {
     "BEGIN", "COMMIT", "ROLLBACK", "END", "TRANSACTION", "DEFERRED", "IMMEDIATE", "EXCLUSIVE",
     "FROM", "WHERE", "INTO", "VALUES", "TABLE", "AND", "OR", "NOT", "IS", "NULL",
-    "PRIMARY", "KEY", "UNIQUE", "DEFAULT", "CHECK", "AS", "DISTINCT", "TRUE", "FALSE",
+    # KEY and VALUE are NOT reserved: the reference accepts them as column names
+    # ("SELECT key, value FROM json_each(...)"), and so must we. Grammar positions
+    # (PRIMARY KEY, FOREIGN KEY) still see them as keywords — this set only gates
+    # bare-identifier acceptance.
+    "PRIMARY", "UNIQUE", "DEFAULT", "CHECK", "AS", "DISTINCT", "TRUE", "FALSE",
     # Join and grouping words are reserved in SQLite's grammar; treating them as identifiers
     # makes our error land on the *next* token, which is a byte-level rejection mismatch.
     # SQLite reserves JOIN/ON/GROUP/HAVING/ORDER/LIMIT but still accepts BY and INNER as bare
