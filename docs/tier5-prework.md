@@ -61,8 +61,16 @@ vocabulary describing SQLite's planner — likewise not byte-comparable.
   nothing differential to run. Acceptance is functional: N concurrent
   clients, interleaved queries, results identical to local in-process
   answers for the same statements (differential against the *engine
-  locally*, which is real), connection isolation (one client's open
-  transaction invisible to another until commit).
+  locally*, which is real), and — IN-WRITING REPLACEMENT for the original
+  connection-isolation line, made after M30's probe showed it
+  unreachable-by-design under the shared-handle lock model: *while client
+  A holds an open transaction, B's statements wait and then fail with the
+  reference wording; after A commits, B sees the committed state.*
+  (Measured at the server layer as of M30's fix. Added as a sixth
+  invariant: a client disconnecting mid-transaction rolls back, so a dead
+  socket cannot leave the database locked — the original line never
+  imagined it, and unreachable invariants get replaced in writing rather
+  than dropped, per the M25 precedent.)
 - Concurrency semantics are defined in the Tier-4 work (M25): the server
   inherits them; it does not invent them.
 
