@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M25 CLOSED ladder-faithful (shared LOCK_SH readers, exclusive writer,
-  typed upgrade refusal; 5-invariant band registered pre-report). Tier-4 remainder: M26
-  differential (now reachable) + M28 property tests.**
+- **Current milestone: M26 CLOSED (1/1 wording MATCH, flock-namespace limit declared);
+  M28 OPEN pending scale-up (50-case clean reproduced; ≥1,000 cases multi-seed + schema
+  header + full site list required per pre-registered response). Tier-5 queued next.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -234,6 +234,13 @@ query history; hot-path rewrite in a faster language
     [BAND — pre-registered] corpus 222/222 zero-move; 5 invariants; both error texts
     byte-identical. Unreachable-by-design read-across-commit replaced in writing by
     writer-waits-or-locked (rollback-journal model, not WAL).**
+  - **[M26 CLOSED + M28 HELD OPEN — `24528aa`, cold-clone verified] M26: 1/1 wording
+    MATCH from real two-process collision; no foreign-vs-own divergence (surprise
+    clause resolved clean). flock-vs-POSIX namespace declared (harmless: foreign
+    files read-only by design). M28: 50-case clean reproduced BUT held open per
+    research's pre-registered harness-first response — requires ≥1,000 cases
+    multi-seed, schema-shape header (fuzz precedent), crash property at full 15-site
+    list. Zero at 50 is a draw, not a sweep.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
