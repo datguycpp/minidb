@@ -79,6 +79,23 @@ class TestClient(unittest.TestCase):
         self.assertEqual(rows, [(3,)])
         client.close()
 
+    def test_post_shutdown_persistence_proves_disk_and_lock_release(self):
+        # Paired assertion for the in-memory parity test: after server_close(),
+        # open the file directly — proves the lock was released AND rows hit disk.
+        path = os.path.join(tempfile.mkdtemp(), "persist.db")
+        srv = serve(path, port=0)
+        host, port = srv.server_address
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        client = Client(host, port)
+        client.execute("CREATE TABLE p (a INTEGER)")
+        client.execute("INSERT INTO p VALUES (1), (2)")
+        client.close()
+        srv.shutdown()
+        srv.server_close()
+        check = Database(path)
+        self.assertEqual(check.run("SELECT sum(a) FROM p")[1], [(3,)])
+        check.close()
+
 
 if __name__ == "__main__":
     unittest.main()
