@@ -13,21 +13,27 @@ A SQL database engine built as a conformance project, scored against real SQLite
 ## Using it from Python
 
 ```python
+import threading
+
 from minidb.server import serve
 from minidb.client import Client, ServerError
 
-server = serve("demo.db", port=8765)          # one process, one handle, M25's lock model
-client = Client("127.0.0.1", 8765)
+server = serve(":memory:", port=0)                       # one handle, M25's lock model
+threading.Thread(target=server.serve_forever, daemon=True).start()
+client = Client(*server.server_address)
 client.execute("CREATE TABLE t (a INTEGER)")
 client.execute("INSERT INTO t VALUES (1), (2)")
 columns, rows = client.execute("SELECT sum(a) FROM t")
-print(columns, rows)                           # ['sum(a)'] [(3,)]
+print(columns, rows)                                     # ['sum(a)'] [(3,)]
 
 try:
     client.execute("SELECT * FROM missing")
-except ServerError as exc:                     # typed, and the wording is the engine's own
-    print(exc)                                 # no such table: missing
+except ServerError as exc:                               # typed, engine wording preserved
+    print(exc)                                           # no such table: missing
+
 client.close()
+server.shutdown()
+server.server_close()
 ```
 
 `EXPLAIN QUERY PLAN <select>` prints MiniDB's own plan (`SCAN` with a reason, or

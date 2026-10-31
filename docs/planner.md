@@ -13,6 +13,8 @@ filter would produce wrong rows, so partial support is worse than none until M21
 A composite index is eligible only when **every** one of its columns is constrained:
 
 ```sql
+CREATE TABLE t (a INTEGER, b INTEGER);
+INSERT INTO t VALUES (1, 2), (1, 3), (2, 2);
 CREATE INDEX idx_ab ON t (a, b);
 SELECT * FROM t WHERE a = 1;            -- full scan: prefix match is not used
 SELECT * FROM t WHERE a = 1 AND b = 2;  -- index
