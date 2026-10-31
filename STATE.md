@@ -84,10 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M24 PARTIAL (10,000/10,000 statement-boundary clean; seam-generalised
-  sweep with site-coverage table still owed, sequenced with M27). Benchmark predictions
-  scored (median + discards + W1/W7 hit, W3/W4 miss, >500x clause fired twice); W10 sub-1
-  recorded as binding cost, not engine win.**
+- **Current milestone: M24 site sweep accepted (12/12 sites, died_here verified, torn-page
+  included, real storage) — combined 11,200+ crashes zero failures; VACUUM-site residual
+  (vacuum_before/mid/after_replace) carried to M27 as M19-remainder duty. M27 next.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -206,6 +205,11 @@ query history; hot-path rewrite in a faster language
     paths (W8 index-emptying rebuild, W1 per-call parse). Miss: W3/W4-best-two
     failed (W10 0.784 best). W10 sub-1 = module binding decode cost, not an engine
     win — recorded so no headline misreads the harness. Ceilings untouched.**
+  - **[M24 SITE SWEEP — `38685ae`, cold-clone reproduced] 12/12 sites, died_here
+    verified per iteration, torn-page case included, real storage; my rerun 12/12
+    (200/site, 2400 crashes, 0 failures). Combined 11,200+ crashes zero failures.
+    Residual carried: no VACUUM file-replace sites (M19-remainder duty, lands with
+    M27). Sweep is now the redo-protocol regression tripwire.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
