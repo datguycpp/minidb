@@ -114,6 +114,14 @@ class DiskStorage:
         self._save_catalog_entry(entry)
         return rowid
 
+    def update_row(self, entry, rowid, values):
+        """Replace one row in place. The B+tree replaces a payload for an existing key, so this is
+        O(log n) instead of the whole-table rewrite an UPDATE used to pay."""
+        root = self.tree.insert(entry["root"], rowid, record.encode(values))
+        entry["root"] = root
+        self._save_catalog_entry(entry)
+        return rowid
+
     def iter_rows(self, entry):
         for _, payload in self.tree.scan(entry["root"]):
             yield record.decode(payload)

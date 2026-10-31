@@ -11,6 +11,7 @@ compares, so they are produced here rather than reworded by a caller.
 
 import copy
 import os
+from functools import lru_cache
 import re
 import string
 
@@ -545,6 +546,14 @@ class Column:
                 self.check_text = constraint.text
 
 
+@lru_cache(maxsize=1024)
+def _parse_cached(sql):
+    """Parsing is pure and the AST is read-only during execution, so the same statement text can
+    reuse one tree. The benchmark's point-lookup workload paid the parser on every call."""
+    from .sql.parser import parse
+    return parse(sql)
+
+
 RANDOM_ACCESS_COST = 20      # measured: ~250us random row fetch vs ~10us sequential row read
 
 
@@ -596,6 +605,14 @@ class Index:
     def add(self, rowid, values):
         self.check_unique(values)
         self.map.setdefault(self.key_for(values), set()).add(rowid)
+
+    def remove(self, rowid, values):
+        key = self.key_for(values)
+        bucket = self.map.get(key)
+        if bucket:
+            bucket.discard(rowid)
+            if not bucket:
+                self.map.pop(key, None)
 
     def lookup(self, key):
         return self.map.get(key, set())
@@ -794,7 +811,7 @@ class Database:
     def run(self, sql):
         from .sql.parser import parse
         self._sql = sql
-        return self.execute(parse(sql), autocommit=True)
+        return self.execute(_parse_cached(sql), autocommit=True)
 
     # -- CREATE --------------------------------------------------------------
     def _create(self, node: ast.CreateTable):
@@ -1490,6 +1507,15 @@ class Database:
             raise ExecError(f"cannot modify {node.table} because it is a view")
         return self.table(node.table)
 
+    def _matching_rowids(self, table, where):
+        """Rowids an index can hand back for this predicate, or None when a scan is needed."""
+        if where is None:
+            return None
+        decision = self._choose_access(table, where)
+        if decision["access"] != "index":
+            return None
+        return decision["candidate"]["rowids"]
+
     def _update(self, node: ast.Update):
         table = self._modified_table(node)
         positions = []
@@ -1499,26 +1525,32 @@ class Database:
                 raise ExecError(f"no such column: {column}")
             positions.append(position)
         if table.on_disk:
-            rows = list(self._rows_with_ids(table))
+            wanted = self._matching_rowids(table, node.where)
             changed = 0
-            rewritten = []
-            for rowid, row in rows:
+            source = ([(rowid, self._row_by_id(table, rowid)) for rowid in sorted(wanted)]
+                      if wanted is not None else list(self._rows_with_ids(table)))
+            for rowid, row in source:
+                if row is None:
+                    continue
                 env = self._row_env(table, row)
                 if node.where is not None and not truthy(self._eval(node.where, table, env)):
-                    rewritten.append((rowid, row))
                     continue
                 values = list(row)
                 for (_, expression), position in zip(node.assignments, positions):
-                    values[position] = self._eval(expression, table, env)
-                rewritten.append((rowid, tuple(values)))
+                    values[position] = apply_affinity(self._eval(expression, table, env),
+                                                      table.columns[position].affinity)
+                self._fire(table, "UPDATE", "BEFORE", row, values)
+                self.storage.update_row(table.entry, rowid, values)
+                self._fire(table, "UPDATE", "AFTER", row, values)
+                self._maintain_indexes(table, rowid, row, values)
                 changed += 1
-            if changed:
-                self.storage.rewrite_rows(table.entry, rewritten)
-            self._reindex(table)
             return changed
 
+        wanted = self._matching_rowids(table, node.where)
         changed = 0
         for index, row in enumerate(list(table.rows)):
+            if wanted is not None and (index + 1) not in wanted:
+                continue
             env = self._row_env(table, row)
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 continue
@@ -1530,8 +1562,8 @@ class Database:
             self._fire(table, "UPDATE", "BEFORE", row, values)
             table.rows[index] = tuple(values)
             self._fire(table, "UPDATE", "AFTER", row, values)
+            self._maintain_indexes(table, index + 1, row, values)
             changed += 1
-        self._reindex(table)
         return changed
 
     def _delete(self, node: ast.Delete):
@@ -1539,7 +1571,11 @@ class Database:
         if table.on_disk:
             kept = []
             changed = 0
+            wanted = self._matching_rowids(table, node.where)
             for rowid, row in self._rows_with_ids(table):
+                if wanted is not None and rowid not in wanted:
+                    kept.append((rowid, row))
+                    continue
                 env = self._row_env(table, row)
                 if node.where is not None and not truthy(self._eval(node.where, table, env)):
                     kept.append((rowid, row))
@@ -1565,10 +1601,18 @@ class Database:
         self._reindex(table)
         return changed
 
+    def _maintain_indexes(self, table, rowid, old_values, new_values):
+        """Incremental index upkeep: an UPDATE touches one row, so it must not rebuild the index."""
+        for index in table.indexes.values():
+            if self._index_applies(index, table, old_values):
+                index.remove(rowid, old_values)
+            if self._index_applies(index, table, new_values):
+                index.add(rowid, new_values)
+
     def _reindex(self, table):
         for index in table.indexes.values():
             index.map = {}
-            for rowid, values in enumerate(table.rows, start=1):
+            for rowid, values in self._rows_with_ids(table):
                 if self._index_applies(index, table, values):
                     index.add(rowid, values)
 
