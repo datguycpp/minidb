@@ -80,6 +80,12 @@ vocabulary describing SQLite's planner — likewise not byte-comparable.
   runner, round-trip test (connect → schema → insert → query → compare
   with local), and error propagation (server-side SQL error arrives at
   the client as a typed error, message text identical to local run).
+  Lock-model consequence, added after M31: the local comparison uses an
+  **in-memory** database because the server holds M25's exclusive file
+  lock (a second handle on the same path is `database is locked`), so the
+  parity check must be paired with a **post-shutdown persistence check** —
+  after `server_close()`, open the file directly: proves the lock was
+  released AND the rows reached disk, in one assertion.
 
 ## Order of authoring
 
