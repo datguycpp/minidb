@@ -22,25 +22,50 @@ from .sql.parser import ParseError
 
 
 class Session:
-    """One Database handle shared by every connection, guarded by one lock."""
+    """One Database handle shared by every connection, guarded by one lock.
+
+    Transaction ownership is explicit because the handle is shared: while one client holds an open
+    transaction, every other client's statement waits and then fails with the reference wording,
+    instead of reading that client's uncommitted rows. After the owner commits, the state is
+    visible to everyone. That is the observable form of the isolation the single-writer model
+    permits — the alternative (per-client handles) would simply refuse the second connection.
+    """
 
     def __init__(self, path=None):
         self.db = Database(path)
         self.lock = threading.Lock()
+        self.owner = None            # connection id holding the open transaction
 
-    def execute(self, sql):
+    def execute(self, sql, client_id=None):
+        keyword = sql.strip().split(" ", 1)[0].upper() if sql.strip() else ""
         with self.lock:
+            if self.owner is not None and client_id != self.owner:
+                return {"error": "database is locked"}
             try:
                 result = self.db.run(sql)
             except (ExecError, ParseError) as exc:
                 return {"error": str(exc)}
             except Exception as exc:                      # a bug must not kill the connection
                 return {"error": f"{type(exc).__name__}: {exc}"}
+            if keyword == "BEGIN" and not isinstance(result, dict) and self.db.tx_snapshot is not None:
+                self.owner = client_id
+            elif keyword in ("COMMIT", "ROLLBACK", "END"):
+                self.owner = None
         if not isinstance(result, tuple):
             return {"columns": [], "rows": []}
         columns, rows = result
         return {"columns": list(columns),
                 "rows": [[_jsonable(value) for value in row] for row in rows]}
+
+    def release(self, client_id):
+        """A client that disappears mid-transaction must not leave the database locked."""
+        with self.lock:
+            if self.owner == client_id:
+                try:
+                    self.db.run("ROLLBACK")
+                except (ExecError, ParseError):
+                    pass
+                self.owner = None
 
     def close(self):
         self.db.close()
@@ -54,6 +79,12 @@ def _jsonable(value):
 
 class Handler(socketserver.StreamRequestHandler):
     def handle(self):
+        try:
+            self._handle()
+        finally:
+            self.server.session.release(id(self))
+
+    def _handle(self):
         for line in self.rfile:
             line = line.strip()
             if not line:
@@ -63,7 +94,7 @@ class Handler(socketserver.StreamRequestHandler):
             except json.JSONDecodeError:
                 response = {"error": "malformed request: expected one JSON object per line"}
             else:
-                response = self.server.session.execute(request.get("sql", ""))
+                response = self.server.session.execute(request.get("sql", ""), client_id=id(self))
             self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
             self.wfile.flush()
 

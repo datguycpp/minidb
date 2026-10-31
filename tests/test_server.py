@@ -9,6 +9,7 @@ import os
 import socket
 import sys
 import threading
+import time
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -89,6 +90,46 @@ class TestServer(unittest.TestCase):
         self.assertEqual(len(results), 3)
         for result in results:
             self.assertEqual(result["rows"], [[11]])
+
+    def test_open_transaction_locks_other_clients_then_releases(self):
+        a = socket.create_connection((self.host, self.port), timeout=5)
+        b = socket.create_connection((self.host, self.port), timeout=5)
+        fa, fb = a.makefile("rwb"), b.makefile("rwb")
+
+        def send(stream, sql):
+            stream.write((json.dumps({"sql": sql}) + "\n").encode())
+            stream.flush()
+            return json.loads(stream.readline().decode())
+
+        send(fa, "CREATE TABLE IF NOT EXISTS txn (a INTEGER)")
+        send(fa, "DELETE FROM txn")
+        send(fa, "BEGIN")
+        send(fa, "INSERT INTO txn VALUES (7)")
+        blocked = send(fb, "SELECT count(*) FROM txn")
+        self.assertEqual(blocked["error"], "database is locked",
+                         "an uncommitted transaction must not leak to another client")
+        send(fa, "COMMIT")
+        self.assertEqual(send(fb, "SELECT count(*) FROM txn")["rows"], [[1]],
+                         "after commit the state is visible")
+        a.close()
+        b.close()
+
+    def test_client_leaving_mid_transaction_releases_the_lock(self):
+        a = socket.create_connection((self.host, self.port), timeout=5)
+        fa = a.makefile("rwb")
+        for sql in ("CREATE TABLE IF NOT EXISTS txn (a INTEGER)", "BEGIN"):
+            fa.write((json.dumps({"sql": sql}) + "\n").encode())
+            fa.flush()
+            fa.readline()
+        fa.close()
+        a.close()                                  # disappear without COMMIT
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            response = client(self.host, self.port, ["SELECT count(*) FROM txn"])
+            if "error" not in response[0]:
+                break
+            time.sleep(0.05)                       # the handler notices EOF asynchronously
+        self.assertNotIn("error", response[0], "the server must roll back a dropped transaction")
 
     def test_malformed_request_is_answered_not_dropped(self):
         sock = socket.create_connection((self.host, self.port), timeout=5)
