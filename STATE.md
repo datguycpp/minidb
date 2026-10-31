@@ -84,10 +84,11 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M30 CLOSED fully (transaction ownership verified session-affine:
-  B locked during A-txn, [[1]] after commit; disconnect-rollback sixth invariant;
-  spec-edit committed). House rules formalized (precondition-check + own-fixtures).
-  Next: property-generator growth (live band), M31–M33, M28 TOTAL.**
+- **Current milestone: property-generator growth verified interim (30/seed × 2 clean =
+  draw; equivalent pairs live incl. EXISTS-vs-JOIN, self-join, IN-vs-EXISTS, LEFT-vs-NOT
+  EXISTS). Prediction STANDS unchanged (pre-emption = context, not rescue); bad-property
+  fix logged as 4th family instance (fix the assertion, not the bar). 1,000-case TOTAL
+  still the artifact.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -289,6 +290,14 @@ query history; hot-path rewrite in a faster language
     (died_here designed; makefile-disconnect counterexample); (2) own-fixtures family
     (alpha-order 2nd instance). Commit-count correction 422→420 logged (message
     written last or corrected when the number moves). 420 tests, 231/231.**
+  - **[PROP-GROWTH INTERIM — `c277bbc` (HEAD; reported as `a3f4c19`), cold-clone
+    verified] 30/seed × 2 seeds clean = draw by standard; pairs live (EXISTS-vs-
+    DISTINCT-JOIN, self-join-vs-GROUP, IN-vs-EXISTS, LEFT-IS-NULL-vs-NOT-EXISTS).
+    [TERMS FROZEN] Band unchanged: ≥1 at 1k = hit however classified; zero = plain
+    generous miss, pre-emption recorded as context only. [4TH FAMILY INSTANCE]
+    bad-property (JOIN-pair vs IN-row, 12 false failures) fixed by making the pair
+    genuinely equivalent — fix the assertion, not the bar; triage-first (engine vs
+    property vs harness) before any edit.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
