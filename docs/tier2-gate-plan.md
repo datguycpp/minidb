@@ -8,9 +8,15 @@ predictions BEFORE the run, so the gate is executed, not negotiated.
 
 - Full corpus at gate: **208 cases** (187 current + t2f's 21).
 - Tier-2 slice (t2a–f): **122 cases** (20+21+21+19+20+21).
-- Tier-1 regression line (t1a–e + behavior): **86 cases must stay 86.**
+- Tier-1 regression line (t1a–e + behavior): **86 cases must stay 86**
+  — AMENDED (post-gate): the t1c IN-list pin added 5 cases to a Tier-1
+  tranche after this plan was written, so the line reads 91 from that
+  re-baseline onward. The *rule* is "no regression against the count
+  recorded at the latest corpus re-baseline", not a literal 86; a gate
+  run compares per-file lines to their last logged value, and the delta
+  is a re-baseline event already in the ledger, never drift.
 - Gate threshold: **slice ≥ 95% = at least 116/122** on the slice, with the
-  full 208 reported alongside and the 86-line explicitly checked (the
+  full 208 reported alongside and the Tier-1 line explicitly checked (the
   no-regression condition from the recorded recommendation — a gate that
   can pass while old cases rot measures nothing).
 
