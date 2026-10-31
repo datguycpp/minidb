@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M28 scale-up verified interim (schema header + 15-site crash property
-  + widened equivalents live; 20/seed clean reproduced); IN-list gap pinned to corpus
-  (t1c +5, 227/227). 1,000-case multi-seed line still owed — M28 stays OPEN.**
+- **Current milestone: gate-plan Tier-1-line rule adopted (86→91 named re-baseline from
+  t1c pin); M28 TOTAL line pending (seed 1: 250 clean = draw by standard). Nothing closes
+  this round.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -249,6 +249,10 @@ query history; hot-path rewrite in a faster language
     (rejected outright; 222-case corpus never asked) pinned to t1c +5 cases (match,
     NULL-IN, match-beats-NULL, NOT-IN flip, NOT-IN-with-NULL) — 227/227, binary-verified
     three-valued rows. Gap family #3 (unvoiced feature) caught by redundancy.**
+  - **[GATE-PLAN AMENDMENT — `556dae7`, research-authored as-is] The t1c IN-pin moved a
+    Tier-1 tranche post-gate-plan, so the literal "86 must stay 86" is now the Tier-1
+    LINE rule: no regression vs the latest re-baseline count (91 from the pin onward),
+    per-file lines vs last logged values. 86→91 named as ledger event, not drift.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
