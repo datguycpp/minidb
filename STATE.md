@@ -84,10 +84,10 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M30 parity ACCEPTED for autocommit (3-client + remote==local + wording
-  + malformed-alive verified); TRANSACTION-ISOLATION FINDING ordered (shared handle leaks
-  uncommitted across clients — per-client handles or autocommit-only refusal). Spec-edit
-  wording adopted (unreachable connection-isolation → wait-then-locked descendant).**
+- **Current milestone: M30 CLOSED fully (transaction ownership verified session-affine:
+  B locked during A-txn, [[1]] after commit; disconnect-rollback sixth invariant;
+  spec-edit committed). House rules formalized (precondition-check + own-fixtures).
+  Next: property-generator growth (live band), M31–M33, M28 TOTAL.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -280,6 +280,15 @@ query history; hot-path rewrite in a faster language
     autocommit-only with typed BEGIN refusal. [SPEC-EDIT ADOPTED, research to write]
     connection-isolation unreachable-by-design → observable descendant (B waits/fails
     `database is locked`, sees committed state after A commits).**
+  - **[M30 ISOLATION CLOSED — `27f89e0` fix + `eb46a44` spec-edit, cold-clone verified]
+    Session-affine re-probe (my first probe opened a new socket per request, breaking
+    session affinity — precondition failure of my own, same family): A BEGIN+INSERT,
+    B → `database is locked`, A COMMIT, B → [[1]]. Disconnect-rollback sixth invariant
+    in spec (dead socket can't hold the lock). Spec loop closed: prose → probe →
+    finding → fix → measured. [HOUSE RULES FORMALIZED] (1) precondition-check family
+    (died_here designed; makefile-disconnect counterexample); (2) own-fixtures family
+    (alpha-order 2nd instance). Commit-count correction 422→420 logged (message
+    written last or corrected when the number moves). 420 tests, 231/231.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
