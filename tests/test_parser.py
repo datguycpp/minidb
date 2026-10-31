@@ -6,6 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from minidb.engine import Database, ExecError
 from minidb.sql import ast
 from minidb.sql.parser import ParseError, parse
 
@@ -78,12 +79,18 @@ class TestCreateTable(unittest.TestCase):
             stmt = parse(f"SELECT {word} FROM t")
             self.assertEqual(stmt.items[0].expr.name, word)
 
-    def test_other_create_forms_are_rejected(self):
-        # This guard follows the frontier: CREATE VIEW (M14) and CREATE TRIGGER (M16) have both
-        # moved into the subset, so it now names a form still outside it.
-        with self.assertRaises(ParseError) as ctx:
-            parse("CREATE VIRTUAL TABLE v USING fts5(a)")
-        self.assertIn("CREATE TABLE and CREATE INDEX", ctx.exception.detail)
+    def test_virtual_table_is_accepted_and_unknown_modules_are_refused(self):
+        # This guard follows the frontier: CREATE VIEW (M14), CREATE TRIGGER (M16) and now
+        # CREATE VIRTUAL TABLE … USING fts5 (M34) have moved into the subset. What stays outside
+        # is a virtual table with no module, and a module the engine does not implement.
+        stmt = parse("CREATE VIRTUAL TABLE v USING fts5(a, b)")
+        self.assertEqual(stmt.virtual_module, "fts5")
+        self.assertEqual([c.name for c in stmt.columns], ["a", "b"])
+        with self.assertRaises(ParseError):
+            parse("CREATE VIRTUAL TABLE v (a)")
+        with self.assertRaises(ExecError) as ctx:
+            Database().run("CREATE VIRTUAL TABLE v USING nosuchmodule(a)")
+        self.assertEqual(str(ctx.exception), "no such module: nosuchmodule")
 
 
 class TestInsert(unittest.TestCase):

@@ -220,6 +220,10 @@ class Parser:
             return self.parse_create_trigger(False)
         if self.at_keyword("VIEW"):
             return self.parse_create_view(False)
+        virtual = False
+        if self.at_keyword("VIRTUAL"):
+            self.advance()
+            virtual = True
         if not self.at_keyword("TABLE"):
             raise ParseError("only CREATE TABLE and CREATE INDEX are supported", self.tok)
         self.advance()
@@ -231,6 +235,20 @@ class Parser:
             if_not_exists = True
 
         name = self.parse_identifier("table name")
+        if virtual:
+            self.expect_keyword("USING")
+            module = self.parse_identifier("module name")
+            self.expect_punct("(")
+            columns = []
+            while True:
+                columns.append(ast.ColumnDef(name=self.parse_identifier("column name"),
+                                             type_name="", constraints=[]))
+                if not self.accept_punct(","):
+                    break
+            self.expect_punct(")")
+            statement = ast.CreateTable(name=name, columns=columns, virtual_module=module,
+                                        sql=self.source.strip() if self.source else None)
+            return statement
         self.expect_punct("(")
 
         columns = []
@@ -881,6 +899,8 @@ class Parser:
     def parse_comparison(self):
         node = self.parse_additive()
 
+        if self.accept_keyword("MATCH"):
+            return ast.BinaryOp("MATCH", node, self.parse_additive())
         if self.accept_keyword("IS"):
             negated = bool(self.accept_keyword("NOT"))
             if self.accept_keyword("NULL"):

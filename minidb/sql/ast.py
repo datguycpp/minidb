@@ -123,6 +123,7 @@ class CreateTable(Node):
     table_constraints: list = field(default_factory=list)
     if_not_exists: bool = False
     sql: "str | None" = None    # original statement text; it is what the catalog stores
+    virtual_module: "str | None" = None    # 'fts5' for CREATE VIRTUAL TABLE … USING fts5
 
 
 @dataclass

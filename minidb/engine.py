@@ -449,6 +449,84 @@ def _json_input(value):
     return value
 
 
+# -- full-text search (milestone 34) ------------------------------------------
+# The declared subset: plain terms, AND / OR / NOT, column filters (title:dog), trailing prefix
+# (qui*), unicode61-style case folding. bm25(), NEAR and tokenizer options are declared out of
+# scope rather than silently unimplemented.
+
+_WORD = None
+
+
+def fts_tokens(text):
+    import re
+    global _WORD
+    if _WORD is None:
+        _WORD = re.compile(r"[0-9A-Za-z_\u00c0-\uffff]+")
+    return [match.group(0).lower() for match in _WORD.finditer(text or "")]
+
+
+def fts_parse_query(query):
+    """Split an fts5 query into its declared subset's AST: ('or', ...), ('and', ...), ('not', ...),
+    ('term', column_or_None, word, prefix)."""
+    parts = query.replace("(", " ( ").replace(")", " ) ").split()
+
+    def atom(tokens, index):
+        word = tokens[index]
+        column = None
+        if ":" in word and not word.startswith(":"):
+            column, word = word.split(":", 1)
+        prefix = word.endswith("*")
+        if prefix:
+            word = word[:-1]
+        return ("term", column, word.lower(), prefix), index + 1
+
+    def factor(tokens, index):
+        if index < len(tokens) and tokens[index].upper() == "NOT":
+            node, index = factor(tokens, index + 1)
+            return ("not", node), index
+        if index < len(tokens) and tokens[index] == "(":
+            node, index = expression(tokens, index + 1)
+            if index < len(tokens) and tokens[index] == ")":
+                index += 1
+            return node, index
+        return atom(tokens, index)
+
+    def conjunction(tokens, index):
+        node, index = factor(tokens, index)
+        while index < len(tokens) and tokens[index].upper() not in ("OR", ")"):
+            if tokens[index].upper() == "AND":
+                index += 1
+            right, index = factor(tokens, index)
+            node = ("and", node, right)
+        return node, index
+
+    def expression(tokens, index):
+        node, index = conjunction(tokens, index)
+        while index < len(tokens) and tokens[index].upper() == "OR":
+            right, index = conjunction(tokens, index + 1)
+            node = ("or", node, right)
+        return node, index
+
+    return expression(parts, 0)[0]
+
+
+def fts_eval(node, columns):
+    kind = node[0]
+    if kind == "term":
+        _, column, word, prefix = node
+        scope = columns if column is None else {column.lower(): columns.get(column.lower(), [])}
+        for tokens in scope.values():
+            for token in tokens:
+                if token.startswith(word) if prefix else token == word:
+                    return True
+        return False
+    if kind == "and":
+        return fts_eval(node[1], columns) and fts_eval(node[2], columns)
+    if kind == "or":
+        return fts_eval(node[1], columns) or fts_eval(node[2], columns)
+    return not fts_eval(node[1], columns)
+
+
 def call_function(name, args):
     """Scalar built-ins (milestone 11). NULL handling follows SQLite, which is not uniform."""
     if name.startswith("JSON"):
@@ -1046,6 +1124,9 @@ class Database:
     # -- CREATE --------------------------------------------------------------
     def _create(self, node: ast.CreateTable):
         key = node.name.lower()
+        module = getattr(node, "virtual_module", None)
+        if module is not None and module.lower() != "fts5":
+            raise ExecError(f"no such module: {module}")
         if key in self.tables or key in self.views:
             if node.if_not_exists:
                 return None
@@ -2764,6 +2845,21 @@ class Database:
             if node.op == "OR":
                 return sql_or(self._eval(node.left, table, env, group),
                               self._eval(node.right, table, env, group))
+            if node.op == "MATCH":
+                query = self._eval(node.right, table, env, group)
+                if query is None:
+                    return None
+                columns = {}
+                names = (table.column_names if table is not None
+                         else [name for name in env if "." not in name])
+                for column in names:
+                    value = env.get(column)
+                    columns[column.lower()] = fts_tokens(to_text(value)) if value is not None else []
+                target = getattr(node.left, "name", "") or ""
+                table_name = table.name.lower() if table is not None else ""
+                if target.lower() in columns and target.lower() != table_name:
+                    columns = {target.lower(): columns[target.lower()]}
+                return fts_eval(fts_parse_query(to_text(query)), columns)
             if node.op in ("->", "->>"):
                 left = self._eval(node.left, table, env, group)
                 right = self._eval(node.right, table, env, group)
