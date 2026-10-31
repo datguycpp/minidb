@@ -84,9 +84,9 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M24 CLOSED (15/15 incl. VACUUM file-replace, torn-page; 11,200+3,000
-  crashes zero failures); M27 PARTIAL (integrity_check ok + 8/8 typed detection; per-page
-  checksums for own format remain the owned remainder). M25/M26/M28 next per specs.**
+- **Current milestone: M27 remainder CLOSED (9/9 incl. payload-bitflip via CRC32); M25
+  PARTIAL (single-handle isolation + database-is-locked ✓; concurrent readers ✗ —
+  shared-lock reader model ordered). M26 lock sentence verified. M28 next.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
@@ -218,6 +218,15 @@ query history; hot-path rewrite in a faster language
     errors surfaced by fixtures). Recorded PARTIAL per pattern rule: per-page
     checksums for own format owed (foreign files skip, WAL frames already CRC'd);
     payload-bitflip stays declared-undetectable until then.**
+  - **[M27 REMAINDER CLOSED + M25/M26 LANDED — `72634be` + `51a13c5`, cold-clone
+    verified] CRC32 trailer per page (v2; v1 opens unverified; foreign skips by design
+    — the per-file-flag boundary); my rerun: 9/9 incl. payload-bitflip now
+    `StorageError: page 1: checksum mismatch`. Lock: 2nd opener fails `database is
+    locked` (reference wording, verified live), close idempotent, reopen sees commit.
+    [RULING — 5th named partial] M25 = within-handle isolation ✓ + lock file ✓;
+    concurrent readers ✗. Ordered: shared LOCK_SH readers + exclusive writer, writer
+    waits MINIDB_LOCK_TIMEOUT then reference wording; reader→writer upgrade = typed
+    refusal (no silent-wait deadlock). WAL-mode non-blocking NOT implied.**
     first run.
   - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
     database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
