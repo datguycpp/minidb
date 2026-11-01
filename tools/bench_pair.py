@@ -34,11 +34,24 @@ MINIDB = re.compile(r"^\s+minidb_ms median=([\d.]+)")
 RATIO = re.compile(r"^\s+ratio=([\d.]+)\s+output:\s*(\S+)")
 
 
-def parse(path):
-    """Return {workload: {...}} or raise ValueError naming the first malformed line."""
+def parse(path, require_header=True):
+    """Return {workload: {...}} or raise ValueError naming the first malformed line.
+
+    A file without the harness's own header is not a run. That check exists because a hand-made
+    fixture paired silently once and its numbers were read as a finding — a fixture in a report is
+    indistinguishable from a result unless the tool refuses to treat it as one.
+    """
     runs, current = {}, None
+    seen_header = False
     with open(path, encoding="utf-8") as handle:
         for lineno, line in enumerate(handle, 1):
+            if not seen_header:
+                if not line.strip():
+                    continue
+                seen_header = True
+                if require_header and not line.startswith("BENCH first-full-run"):
+                    raise ValueError(f"{path}: not a benchmark artifact — first line is not the "
+                                     f"harness header (pair a fixture with --allow-foreign)")
             header = HEADER.match(line) if not line[:1].isspace() else None
             if header:
                 # A workload section is present if *any* terminal line names it. A discarded or
@@ -124,11 +137,15 @@ def main(argv=None):
     parser.add_argument("after")
     parser.add_argument("--workloads", default=",".join(WORKLOADS),
                         help="comma-separated subset (default: all nine)")
+    parser.add_argument("--allow-foreign", action="store_true",
+                        help="pair a hand-made fixture that lacks the harness header (tests only; "
+                             "never quote such a pairing as a result)")
     args = parser.parse_args(argv)
     expected = [name.strip() for name in args.workloads.split(",") if name.strip()]
 
     try:
-        before, after = parse(args.before), parse(args.after)
+        require = not args.allow_foreign
+        before, after = parse(args.before, require), parse(args.after, require)
     except (OSError, ValueError) as exc:
         print(f"bench_pair: unreadable input: {exc}", file=sys.stderr)
         return 2

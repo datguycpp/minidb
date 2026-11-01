@@ -75,6 +75,12 @@ class BenchPairTest(unittest.TestCase):
         after = write_run(self.path("a.txt"), minidb_shift=0.5)
         self.assertEqual(self.run_pair(before, after), 0)
 
+    def test_a_file_without_the_harness_header_is_not_a_run(self):
+        foreign = self.path("foreign.txt")
+        with open(foreign, "w", encoding="utf-8") as handle:
+            handle.write("BENCH x\nW3  synthetic          rows=1\n     ratio=1.000  output: OK\n")
+        self.assertEqual(self.run_pair(foreign, write_run(self.path("a.txt"))), 2)
+
     def test_a_header_only_file_is_refused(self):
         empty = self.path("empty.txt")
         with open(empty, "w", encoding="utf-8") as handle:
