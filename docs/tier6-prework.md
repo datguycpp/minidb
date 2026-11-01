@@ -77,6 +77,12 @@ never after.
   local commits are reported (count and seq range) by the typed error
   before resolution discards them — losing divergent replica-local
   writes is allowed by policy; *silent* loss is not (M27's rule).
+- **Refusal precedence (adopted from the build; stricter than the
+  original letter, now the letter):** divergence is refused at *every*
+  sync, including one with nothing to ship. The original "a ship … is
+  refused" wording permitted `applied 0, lag 0` over differing files —
+  a readout that lies, and invariant 6 (lag as a declared readout)
+  forbids it. Replaced in writing per the M25/M30 discipline.
 - **Divergence stays API-reachable** (replica-local writes permitted in
   the partitioned state), so the refusal invariant is testable rather
   than unreachable by construction.
@@ -88,8 +94,11 @@ never after.
   table (`died_here` per site) — coverage, not just a pass count.
 
 **M36 acceptance invariants (priced, six):** (1) convergence without
-partition — replica byte-identical after N commits, corpus run against
-the replica file, not spot selects; (2) batch atomicity — kill inside
+partition — replica byte-identical after N commits plus a full-table
+row comparison (the original "corpus run against the replica file"
+phrasing never parsed: every corpus case self-seeds a fresh database;
+byte-identity subsumes it a fortiori, replacement recorded in writing
+per the M25/M30 discipline); (2) batch atomicity — kill inside
 apply leaves pre- or post-state, never mixed, applied through the pager
 so M24's crash sites apply unchanged; (3) replay idempotence — applying
 the same batch twice leaves the file unchanged; (4) divergence refused —

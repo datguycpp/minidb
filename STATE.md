@@ -84,7 +84,7 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: key pin CLOSED 256/256 (100.0%); M34 accepted over declared FTS subset (t6a 8/8 in-band, tally 9/3/5; t6b band stands as under-miss #3). Next: M36/M37 invariant specs.**
+- **Current milestone: M36 ACCEPTED (reject policy, byte-identical ships; 470 tests, 256/256 zero movement, format v2). Tally 10/3/5. Next: M37 (learning planner) with file-compat recursion flagged.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
