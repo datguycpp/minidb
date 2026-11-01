@@ -84,7 +84,7 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: write-path item ACCEPTED (set-lookup uniqueness, flat inserts, 501 tests; autoindex gap owned as new item). M38 gate evidence stays the 20k pair (100k before-leg still ~2h — fix can't speed the pin). Next: autoindex item, then 100k pair + Tier-6 close.**
+- **Current milestone: autoindex ACCEPTED (t3d +4 pure addition, 260/260, 510 tests; reopen probe holds). M38 gate CLOSES over all nine workloads (W3/W6/W2/W7 improved, rest equal-by-numerator-rule; W9 unevaluated harness gap). Next: 100k pair (2h before-leg) + Tier-6 close.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
