@@ -65,8 +65,10 @@ class ReplicationConflict(ReplicationError):
             detail += f" (seq {local_seq_range[0]}..{local_seq_range[1]})"
         if file_changed and not local_commits:
             detail += " (file changed outside the replication log)"
+        outcome = (f"batch {expected_seq} refused" if expected_seq is not None
+                   else "no batch to ship, resolve required")
         super().__init__(f"replication conflict: replica diverged from base seq {base_seq} — "
-                         f"{detail}; batch {expected_seq} refused")
+                         f"{detail}; {outcome}")
 
     def report(self):
         return {"base_seq": self.base_seq, "refused_seq": self.refused_seq,
@@ -170,15 +172,17 @@ class Replica:
     # -- shipping ------------------------------------------------------------
     def sync(self, primary):
         seq, shipped_sha = self.marker()
-        pending = primary.batches_since(seq)
-        if not pending:
-            return SyncReport(0, seq, seq, sha256_file(self.path), self.lag(primary))
-
         current = sha256_file(self.path)
         local, local_range = self.local_commits()
+        pending = primary.batches_since(seq)
+        # Divergence is refused even when there is nothing to ship: a replica that drifted and
+        # reports lag 0 because the primary has not committed since is the silent shape this
+        # policy exists to prevent.
         if current != shipped_sha or local:
-            raise ReplicationConflict(seq, pending[0][0], local, local_range,
+            raise ReplicationConflict(seq, pending[0][0] if pending else None, local, local_range,
                                       current != shipped_sha)
+        if not pending:
+            return SyncReport(0, seq, seq, current, self.lag(primary))
 
         from_seq = seq
         for expected, batch in enumerate(pending, start=seq + 1):

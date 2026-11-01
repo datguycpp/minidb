@@ -211,6 +211,21 @@ class TestDivergence(ReplicationCase):
         self.assertEqual((sha256_file(self.replica_path), primary.sha()), before)
         primary.close()
 
+    def test_divergence_is_refused_even_with_no_batch_to_ship(self):
+        primary = self.seed(rows=2)
+        replica = Replica(self.replica_path)
+        replica.sync(primary)
+        handle = replica.open()
+        handle.run("INSERT INTO t VALUES (88, 'local-only', 0.0, X'88')")
+        handle.close()
+        self.assertEqual(primary.head(), replica.marker()[0])      # nothing new to ship
+        with self.assertRaises(ReplicationConflict) as ctx:
+            replica.sync(primary)
+        self.assertEqual(ctx.exception.local_commits, 1)
+        self.assertIsNone(ctx.exception.refused_seq)
+        self.assertIn("no batch to ship", str(ctx.exception))
+        primary.close()
+
     def test_a_change_outside_the_replication_log_is_still_refused(self):
         primary = self.seed(rows=2)
         replica = Replica(self.replica_path)
