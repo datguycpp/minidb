@@ -161,7 +161,7 @@ def main():
     picked = [w for w in args.workloads.split(",") if w]
 
     print("BENCH first-full-run  module-sqlite %s  N=%d  scale=%d  lookups=%d"
-          % (sqlite3.sqlite_version, args.n, args.scale, args.lookups))
+          % (sqlite3.sqlite_version, args.n, args.scale, args.lookups), flush=True)
     print("note: benchmark runs the PYTHON module (timing-only reference per the "
           "spec!); the CLI's 3.54.0 is the pinned corpus reference — module-version "
           "skew accepted for timing and recorded here (the skew rule, not a "
@@ -183,14 +183,14 @@ def main():
         try:
             sq_out, md_out = run_sq(), run_md()
         except Exception as e:
-            print("%s  %-40s ERROR: %r" % (wid, name, e))
+            print("%s  %-40s ERROR: %r" % (wid, name, e), flush=True)
             discards.append(wid)
             continue
         ok = sq_out == md_out
         if not ok:
             print("%s  %-40s DISCARDED: outputs differ (first mismatch: %r vs %r)"
                   % (wid, name, sq_out if not isinstance(sq_out, list) else sq_out[:1],
-                     md_out if not isinstance(md_out, list) else md_out[:1]))
+                     md_out if not isinstance(md_out, list) else md_out[:1]), flush=True)
             discards.append(wid)
             continue
 
@@ -207,7 +207,7 @@ def main():
         print("%s  %-40s rows=%d" % (wid, name, shapesq))
         print("     sqlite_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_sq), " ".join("%.2f" % x for x in t_sq)))
         print("     minidb_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_md), " ".join("%.2f" % x for x in t_md)))
-        print("     ratio=%.3f  output: OK" % ratio)
+        print("     ratio=%.3f  output: OK" % ratio, flush=True)
         ratios.append(ratio)
 
         s.close()
