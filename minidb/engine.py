@@ -852,6 +852,20 @@ class Column:
                 self.check_text = constraint.text
 
 
+def _integer_rowid(column):
+    """A single-column PRIMARY KEY over INTEGER is the rowid in both engines."""
+    return column.type_name.strip().upper() == "INTEGER"
+
+
+def _is_rowid_alias(column):
+    """SQLite aliases the rowid only for a PRIMARY KEY whose declared type is exactly INTEGER.
+
+    `INT PRIMARY KEY`, `TEXT PRIMARY KEY` and a composite PRIMARY KEY all get an autoindex; a
+    table-level `PRIMARY KEY (a)` on an INTEGER column aliases exactly like the column-level form.
+    """
+    return column.primary_key and column.type_name.strip().upper() == "INTEGER"
+
+
 @lru_cache(maxsize=1024)
 def _parse_cached(sql):
     """Parsing is pure and the AST is read-only during execution, so the same statement text can
@@ -1006,6 +1020,7 @@ class Database:
             table = Table(entry["name"], columns, entry)
             self.tables[entry["name"].lower()] = table
             self._rebuild_indexes(table)
+            self._derive_constraints(table, statement)
 
     def _load_sqlite_file(self, path):
         from .sql.parser import parse
@@ -1022,6 +1037,7 @@ class Database:
                     table.rows.append(tuple(values))
                 table.next_rowid = len(table.rows) + 1
                 self.tables[statement.name.lower()] = table
+                self._derive_constraints(table, statement)
         for obj in source.schema_objects():
             sql = obj.get("sql")
             if not sql:
@@ -1184,18 +1200,59 @@ class Database:
         else:
             self.tables[key] = Table(node.name, columns)
         table = self.tables[key]
+        # Column-level constraints are read from the definition, not from the derived flags: a
+        # table-level PRIMARY KEY sets `unique` on its column too, and feeding that into this loop
+        # would give the rowid alias the index the reference does not show.
+        column_level = [position for position, definition in enumerate(node.columns)
+                        if any(c.kind in ("UNIQUE", "PRIMARY KEY") for c in definition.constraints)]
+        self._derive_constraints(table, node)
+        # The reference shows an autoindex exactly where a constraint is not the rowid: every
+        # column-level UNIQUE, every column-level PRIMARY KEY except the `INTEGER` rowid alias,
+        # and every table-level constraint except a single-column `INTEGER` PRIMARY KEY. Numbering
+        # follows the schema text — column constraints in column order, then table constraints —
+        # because the names are visible in sqlite_master and a case can pin them.
+        number = 1
+        for position in column_level:
+            column = table.columns[position]
+            if column.primary_key and _is_rowid_alias(column):
+                continue
+            self._add_autoindex(table, number, [position], [column.name])
+            number += 1
         for constraint in getattr(node, "table_constraints", []):
             if constraint.kind in ("PRIMARY KEY", "UNIQUE"):
                 positions = [table.index_of[name.lower()] for name in constraint.columns]
-                name = f"sqlite_autoindex_{node.name}_{len(table.indexes) + 1}"
-                index = Index(name, table.name, positions, list(constraint.columns), True)
-                table.indexes[name.lower()] = index
-                if self.storage is not None:
-                    self._persist_indexes(table)
+                if (constraint.kind == "PRIMARY KEY" and len(positions) == 1
+                        and _integer_rowid(table.columns[positions[0]])):
+                    pass                  # see _derive_constraints: enforced without an index
+                else:
+                    self._add_autoindex(table, len(table.indexes) + 1, positions,
+                                        list(constraint.columns))
             elif constraint.kind == "CHECK":
                 table.checks = getattr(table, "checks", [])
                 table.checks.append((constraint.expr, constraint.text))
         return None
+
+    def _derive_constraints(self, table, statement):
+        """The state a schema implies but its column list does not carry.
+
+        A table-level `PRIMARY KEY (x)` over INTEGER is the rowid: no autoindex is created, so the
+        constraint needs the uniqueness set — and it must be re-derived on load, because the
+        catalog stores the SQL, not the derived flag. Without this a reopened file accepts the
+        duplicate the fresh one refused.
+        """
+        for constraint in getattr(statement, "table_constraints", []):
+            if constraint.kind != "PRIMARY KEY" or len(constraint.columns) != 1:
+                continue
+            position = table.index_of.get(constraint.columns[0].lower())
+            if position is not None and _integer_rowid(table.columns[position]):
+                table.columns[position].unique = True
+
+    def _add_autoindex(self, table, number, positions, names):
+        name = f"sqlite_autoindex_{table.name}_{number}"
+        index = Index(name, table.name, list(positions), list(names), True)
+        table.indexes[name.lower()] = index
+        if self.storage is not None:
+            self._persist_indexes(table)
 
     def _materialise_table_function(self, node):
         if node.name.lower() != "json_each":

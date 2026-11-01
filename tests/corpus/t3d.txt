@@ -1,0 +1,40 @@
+-- t3d (owner: Engineer). Subject: the sqlite_master autoindex surface — where
+-- the reference shows `sqlite_autoindex_*`, where it does not, and which
+-- constraint gets which number. Ordered by M38's autoindex item.
+-- The rule under test: an index appears for every constraint that is not the
+-- rowid, i.e. column-level UNIQUE (any type), column-level PRIMARY KEY unless
+-- the declared type is exactly INTEGER, and table-level constraints unless the
+-- PRIMARY KEY is a single INTEGER column. Names are visible in sqlite_master,
+-- so this is a conformance surface, not an implementation detail.
+
+CREATE TABLE a (id INTEGER PRIMARY KEY, v TEXT);
+CREATE TABLE b (id INT PRIMARY KEY, v TEXT);
+CREATE TABLE c (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE d (k TEXT UNIQUE, v TEXT);
+CREATE TABLE e (k TEXT UNIQUE COLLATE NOCASE, v TEXT);
+CREATE TABLE h (x INTEGER, y INTEGER, PRIMARY KEY (x));
+CREATE TABLE i (x INTEGER, y INTEGER, UNIQUE (x, y));
+SELECT type, name, tbl_name FROM sqlite_master ORDER BY type, name;
+
+-- Numbering follows the schema text: column constraints in column order, then
+-- table constraints. m3's PRIMARY KEY is the column constraint (b) and the
+-- UNIQUE is the table constraint (a), so the numbers are the reverse of the
+-- column order you would get from a naive left-to-right scan.
+
+CREATE TABLE m3 (a TEXT, b TEXT PRIMARY KEY, UNIQUE (a));
+SELECT type, name FROM sqlite_master ORDER BY type, name;
+
+-- A table-level single-column INTEGER PRIMARY KEY is the rowid: no index in
+-- the catalog, and the constraint still refuses a duplicate (the enforcement
+-- is the rowid's, not a b-tree's).
+
+CREATE TABLE h2 (x INTEGER, y TEXT, PRIMARY KEY (x));
+INSERT INTO h2 VALUES (1, 'a');
+INSERT INTO h2 VALUES (1, 'b');
+
+-- A column-level TEXT PRIMARY KEY is not the rowid: it gets an autoindex and
+-- refuses a duplicate with the same message shape.
+
+CREATE TABLE c2 (k TEXT PRIMARY KEY, v TEXT);
+INSERT INTO c2 VALUES ('a', 1);
+INSERT INTO c2 VALUES ('a', 2);
