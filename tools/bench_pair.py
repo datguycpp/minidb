@@ -3,9 +3,15 @@
 A benchmark process can exit 0 and still leave an artifact that *exists and contains nothing* (a
 killed run leaves the header it printed at startup; a SIGTERM'd one leaves a plausible prefix).
 Quoting either would look like "the benchmark ran". So this tool asserts the shape before it
-computes anything: every expected workload present, every workload carrying its medians, its
-ratio, and `output: OK`. A missing or partial workload is a hard failure (exit 2), never a shorter
-table; a workload whose answers differed is a correctness failure (exit 3), never a ratio.
+computes anything: every expected workload present, and every workload carrying a terminal line.
+
+Three failure classes, kept apart on purpose:
+  * a *missing* or *truncated* workload is a killed run                    -> exit 2, no table
+  * a workload that DISCARDED (answers differed) or ERRORed is a finding
+    to triage, and it is *present* — counting only OK-lines would read it
+    as a killed run                                                     -> exit 3, named
+  * an artifact whose own arithmetic disagrees with itself (ratio vs its
+    medians) has been edited, truncated or interleaved                      -> exit 4
 
 Usage:
     python3 tools/bench_pair.py before.txt after.txt
@@ -19,7 +25,10 @@ import sys
 WORKLOADS = ("W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W10")
 EQUAL_BAND = 0.05          # within +-5% is equal: the box moves more than that between runs
 
-HEADER = re.compile(r"^(W\d+)\s{2,}(.+?)\s{2,}rows=(\d+)\s*$")
+HEADER = re.compile(r"^(W\d+)\s{2,}(.+)$")
+ROWS = re.compile(r"\s{2,}rows=(\d+)\s*$")
+DISCARD = re.compile(r"DISCARDED:\s*(.*)$")
+ERRORED = re.compile(r"ERROR:\s*(.*)$")
 SQLITE = re.compile(r"^\s+sqlite_ms median=([\d.]+)")
 MINIDB = re.compile(r"^\s+minidb_ms median=([\d.]+)")
 RATIO = re.compile(r"^\s+ratio=([\d.]+)\s+output:\s*(\S+)")
@@ -30,13 +39,28 @@ def parse(path):
     runs, current = {}, None
     with open(path, encoding="utf-8") as handle:
         for lineno, line in enumerate(handle, 1):
-            header = HEADER.match(line)
+            header = HEADER.match(line) if not line[:1].isspace() else None
             if header:
+                # A workload section is present if *any* terminal line names it. A discarded or
+                # errored workload is a finding to triage, not a hole in the artifact: counting
+                # only OK-lines would read a legitimate discard as a killed run.
                 name = header.group(1)
                 if name in runs:
                     raise ValueError(f"{path}:{lineno}: workload {name} appears twice")
-                current = runs[name] = {"title": header.group(2).strip(),
-                                        "rows": int(header.group(3))}
+                title = header.group(2).strip()
+                current = runs[name] = {"title": title, "status": None}
+                rows = ROWS.search(title)
+                if rows:
+                    current["rows"] = int(rows.group(1))
+                    current["title"] = title[:rows.start()].strip()
+                    continue
+                discard, errored = DISCARD.search(title), ERRORED.search(title)
+                if discard:
+                    current["status"], current["detail"] = "DISCARDED", discard.group(1)
+                elif errored:
+                    current["status"], current["detail"] = "ERROR", errored.group(1)
+                else:
+                    current["title"] = title
                 continue
             for pattern, key in ((SQLITE, "sqlite_ms"), (MINIDB, "minidb_ms"), (RATIO, "ratio")):
                 match = pattern.match(line)
@@ -44,7 +68,7 @@ def parse(path):
                     if current is None:
                         raise ValueError(f"{path}:{lineno}: {key} before any workload header")
                     if key == "ratio":
-                        current["ratio"], current["output"] = float(match.group(1)), match.group(2)
+                        current["ratio"], current["status"] = float(match.group(1)), match.group(2)
                     else:
                         current[key] = float(match.group(1))
                     break
@@ -61,9 +85,12 @@ def check(label, runs, expected):
         run = runs.get(name)
         if run is None:
             continue
-        gaps = [key for key in ("sqlite_ms", "minidb_ms", "ratio", "output") if key not in run]
-        if gaps:
-            problems.append(f"{label}: workload {name} has no {', '.join(gaps)} — partial row")
+        if run["status"] is None:
+            problems.append(f"{label}: workload {name} has no terminal line — partial row")
+        elif run["status"] == "OK":
+            gaps = [key for key in ("sqlite_ms", "minidb_ms", "ratio") if key not in run]
+            if gaps:
+                problems.append(f"{label}: workload {name} has no {', '.join(gaps)} — partial row")
     return problems
 
 
@@ -122,9 +149,16 @@ def main(argv=None):
             print(f"  - {problem}", file=sys.stderr)
         return 4
 
-    bad = [name for name in expected if before[name]["output"] != "OK" or after[name]["output"] != "OK"]
-    if bad:
-        print(f"bench_pair: refusing to pair — answers differed on {', '.join(bad)}", file=sys.stderr)
+    unpairable = [(name, side, run) for side, runs in (("before", before), ("after", after))
+                  for name in expected
+                  if (run := runs[name])["status"] != "OK"]
+    if unpairable:
+        print("bench_pair: refusing to pair — a workload is present but not a number:", file=sys.stderr)
+        for name, side, run in unpairable:
+            print(f"  - {name} ({side}): {run['status']}"
+                  + (f" — {run.get('detail', '')[:80]}" if run.get("detail") else ""), file=sys.stderr)
+        print("  (discarded/errored is a finding to triage; a missing section is a killed run)",
+              file=sys.stderr)
         return 3
 
     print(f"{'W':4s} {'workload':28s} {'sqlite ms':>17s} {'minidb ms':>19s} "

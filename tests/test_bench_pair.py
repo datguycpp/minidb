@@ -26,7 +26,8 @@ RATIOS = {"W1": 50479.0, "W2": 900.0, "W3": 77.6, "W4": 144.2, "W5": 70.0,
           "W6": 16.2, "W7": 30.0, "W8": 40.0, "W10": 60.0}
 
 
-def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ratio_override=None):
+def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ratio_override=None,
+              discard=(), errored=(), bare=()):
     """A file in the harness's printed shape: header, then per-workload blocks.
 
     The two sides move independently so a denominator-only move can be modelled: that is the
@@ -35,6 +36,15 @@ def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ra
     lines = ["BENCH first-full-run  module-sqlite 3.53.1  N=7  scale=20000  lookups=1000", ""]
     for name, ratio in RATIOS.items():
         if name in drop:
+            continue
+        if name in discard:
+            lines.append(f"{name}  synthetic {name}          DISCARDED: outputs differ (first mismatch: [(1,)] vs [(2,)])")
+            continue
+        if name in errored:
+            lines.append(f'{name}  synthetic {name}          ERROR: OperationalError("boom")')
+            continue
+        if name in bare:
+            lines.append(f"{name}  synthetic {name}          rows=1")
             continue
         base = 0.02 if name == "W1" else 10.0
         sqlite_ms = base * sqlite_shift
@@ -82,6 +92,19 @@ class BenchPairTest(unittest.TestCase):
     def test_an_answer_mismatch_is_refused(self):
         mismatched = write_run(self.path("m.txt"), output="MISMATCH")
         self.assertEqual(self.run_pair(mismatched, write_run(self.path("a.txt"))), 3)
+
+    def test_a_discarded_workload_is_a_finding_not_a_hole(self):
+        # Present but not a number: exit 3 (triage), never exit 2 (killed run).
+        self.assertEqual(self.run_pair(write_run(self.path("d.txt"), discard=("W6",)),
+                                       write_run(self.path("a.txt"))), 3)
+
+    def test_an_errored_workload_is_a_finding_not_a_hole(self):
+        self.assertEqual(self.run_pair(write_run(self.path("e.txt"), errored=("W7",)),
+                                       write_run(self.path("a.txt"))), 3)
+
+    def test_a_section_without_a_terminal_line_is_incomplete(self):
+        self.assertEqual(self.run_pair(write_run(self.path("b.txt"), bare=("W3",)),
+                                       write_run(self.path("a.txt"))), 2)
 
     def test_a_denominator_only_move_is_visible(self):
         # MiniDB's own medians are identical; only SQLite's moved, so every ratio halves.
