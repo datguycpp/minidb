@@ -15,8 +15,8 @@ from .pager import Pager, StorageError
 
 
 class DiskStorage:
-    def __init__(self, path, readonly=False):
-        self.pager = Pager(path, readonly=readonly)
+    def __init__(self, path, readonly=False, repl_log=False):
+        self.pager = Pager(path, readonly=readonly, repl_log=repl_log)
         self.tree = BTree(self.pager)
         self.catalog = {}          # lower(name) -> {"name", "sql", "root", "next_rowid", "key"}
         self._ensure_catalog()

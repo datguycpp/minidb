@@ -55,13 +55,49 @@ never after.
 
 ## M36 — replication to a second instance
 
-- **No reference exists; invariant acceptance only** (the M25 class):
-  committed-then-replicated state identical on both ends; divergence after
-  partition healed per the declared policy (last-writer-wins or reject —
-  policy stated in the milestone, chosen before testing); replication lag
-  never yields a torn logical row (all-or-nothing per transaction).
+- **No reference exists; invariant acceptance only** (the M25 class).
+- **Divergence policy: REJECT, declared before testing** (per this spec's
+  own rule — chosen ahead of the build, not discovered during it): a ship
+  whose base seq does not match the replica's state is refused with a
+  typed error naming the base seq; no merge is attempted. Recorded
+  rationale: last-writer-wins over batch/page shipping is whole-page
+  overwrite — a committed row vanishes under a structurally valid file
+  (`integrity_check` cannot see row-level absence); true row-level LWW
+  needs per-row versions (file format v3) and a logical clock, and wall
+  clock is disqualified by our own `date('now')` SGT finding. LWW would
+  also silently discard same-key losers *by design*, which the M27 ruling
+  (silent wrong data fails) does not permit.
+- **Quantified identity invariant** (the M25/M30 discipline: unreachable
+  as plain prose, replaced in writing): *whenever a ship succeeds, the
+  replica file is byte-identical to the primary's post-commit file* (log
+  shipping through the pager; replay idempotent). After divergence the
+  ends are not identical and the ship is refused — divergence is visible
+  and typed, never merged.
+- **Heal semantics:** primary is authoritative. A divergent replica's
+  local commits are reported (count and seq range) by the typed error
+  before resolution discards them — losing divergent replica-local
+  writes is allowed by policy; *silent* loss is not (M27's rule).
+- **Divergence stays API-reachable** (replica-local writes permitted in
+  the partitioned state), so the refusal invariant is testable rather
+  than unreachable by construction.
+- Replication lag never yields a torn logical row (all-or-nothing per
+  transaction); lag is a declared readout, not an inference.
 - Deterministic tests drive the replica through scripted partitions
-  (seeded, replayable — M24's seed discipline), not timing races.
+  (seeded, replayable — M24's seed discipline), not timing races. The
+  replica apply path inherits M24's crash sweep with its site-coverage
+  table (`died_here` per site) — coverage, not just a pass count.
+
+**M36 acceptance invariants (priced, six):** (1) convergence without
+partition — replica byte-identical after N commits, corpus run against
+the replica file, not spot selects; (2) batch atomicity — kill inside
+apply leaves pre- or post-state, never mixed, applied through the pager
+so M24's crash sites apply unchanged; (3) replay idempotence — applying
+the same batch twice leaves the file unchanged; (4) divergence refused —
+typed error naming the base seq, both files byte-unchanged (sha
+before/after), no committed row lost (the milestone's negative control);
+(5) no silent loss after any heal — checked by row comparison, never by
+`integrity_check`; (6) lag observable — replica answers from its own
+committed state while partitioned, lag a declared readout.
 
 ## M37 — planner that learns from query history
 

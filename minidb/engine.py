@@ -944,11 +944,12 @@ class Database:
     behave exactly as before — the conformance runner is untouched and still in-memory.
     """
 
-    def __init__(self, path=None, readonly=False):
+    def __init__(self, path=None, readonly=False, repl_log=False):
         self.path = path
         foreign = bool(path) and is_sqlite_file(path)
         try:
-            self.storage = None if foreign else (DiskStorage(path, readonly=readonly) if path else None)
+            self.storage = None if foreign else (
+                DiskStorage(path, readonly=readonly, repl_log=repl_log) if path else None)
         except StorageError as exc:
             if str(exc) == "database is locked":
                 raise ExecError(str(exc)) from None

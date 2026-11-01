@@ -14,6 +14,12 @@ the database is back to its last committed state.
 
 This is a redo log, not SQLite's WAL: one writer, no concurrent readers during recovery, no
 incremental checkpointing. Those are M25 and M18.
+
+Optional replication log (milestone 36, opt-in): with `repl_log=True` every committed batch is
+also appended to `<db>.replog` with a sequence number, and recovery re-logs any batch it replays.
+The file format is untouched — the log is a sidecar — which is what keeps M36 a milestone rather
+than a format version. Identical consecutive batches are skipped: a commit whose pages match its
+predecessor byte for byte changed no state, so the replica's bytes already agree.
 """
 
 import fcntl
@@ -42,19 +48,64 @@ WAL_COMMIT = 0xFFFFFFFF
 FRAME_SIZE = 4 + PAGE_SIZE + 4       # page_id | page | crc32(page)
 COMMIT_SIZE = 12                     # 0xFFFFFFFF | frame_count | crc32(frames)
 
-
 class StorageError(Exception):
     pass
+
+
+REPL_MAGIC = b"MREPL001"
+REPL_HEADER = 8                      # seq | frame_count
+REPL_FRAME = 4 + PAGE_SIZE           # page_id | page (one CRC covers the whole record)
+
+
+def read_repl_log(path):
+    """Complete replication batches, oldest first: [(seq, {page_id: page})].
+
+    A torn tail (crash inside the append) ends the stream the same way the WAL's does: the batch
+    was never acknowledged, and recovery re-logs it from the WAL. Corrupt bytes anywhere else are
+    a real fault and raise rather than silently shortening the log.
+    """
+    if not os.path.exists(path) or os.path.getsize(path) <= len(REPL_MAGIC):
+        return []
+    with open(path, "rb") as log:
+        blob = log.read()
+    if not blob.startswith(REPL_MAGIC):
+        raise StorageError(f"{path}: not a MiniDB replication log")
+    records = []
+    offset = len(REPL_MAGIC)
+    while offset + REPL_HEADER + 4 <= len(blob):
+        seq, count = struct.unpack_from("<II", blob, offset)
+        end = offset + REPL_HEADER + count * REPL_FRAME + 4
+        if count == 0 or end > len(blob):
+            break                                   # torn tail: the append never finished
+        body = blob[offset:end - 4]
+        if zlib.crc32(body) != struct.unpack_from("<I", blob, end - 4)[0]:
+            break
+        frames = {}
+        for index in range(count):
+            frame = offset + REPL_HEADER + index * REPL_FRAME
+            page_id = struct.unpack_from("<I", blob, frame)[0]
+            frames[page_id] = blob[frame + 4:frame + 4 + PAGE_SIZE]
+        records.append((seq, frames))
+        offset = end
+    return records
 
 
 CACHE_PAGES = int(os.environ.get("MINIDB_CACHE_PAGES", "512"))
 
 
 class Pager:
-    def __init__(self, path, readonly=False):
+    def __init__(self, path, readonly=False, repl_log=False):
         self.path = path
         self.readonly = readonly
         self.wal_path = path + ".wal"
+        self.repl_log = bool(repl_log) and not readonly
+        self.repl_path = path + ".replog"
+        self.repl_seq = 0
+        self._last_log_pages = None
+        if self.repl_log:
+            records = read_repl_log(self.repl_path)
+            if records:
+                self.repl_seq, self._last_log_pages = records[-1]
         exists = os.path.exists(path) and os.path.getsize(path) > 0
         self.fh = open(path, "rb" if readonly and exists else ("r+b" if exists else "w+b"))
         # Readers share the file; a writer takes it exclusively and waits for readers to finish.
@@ -100,6 +151,30 @@ class Pager:
 
     def _stage_header(self):
         self.dirty[0] = self._header_page()
+
+    def _append_repl_batch(self, pages):
+        """Record a committed batch for shipping; returns its sequence number.
+
+        Identical consecutive batches are skipped rather than numbered: a commit that wrote the
+        same bytes as its predecessor changed no state, so the replica is already at that state.
+        The dedupe also makes recovery's re-log a no-op when the crash landed after this append.
+        """
+        if pages == self._last_log_pages:
+            return self.repl_seq
+        frames = sorted(pages.items())
+        body = (struct.pack("<II", self.repl_seq + 1, len(frames))
+                + b"".join(struct.pack("<I", page_id) + page for page_id, page in frames))
+        record = body + struct.pack("<I", zlib.crc32(body))
+        fresh = not os.path.exists(self.repl_path) or os.path.getsize(self.repl_path) == 0
+        with open(self.repl_path, "ab") as log:
+            if fresh:
+                log.write(REPL_MAGIC)
+            log.write(record)
+            log.flush()
+            os.fsync(log.fileno())
+        self.repl_seq += 1
+        self._last_log_pages = {page_id: bytes(page) for page_id, page in frames}
+        return self.repl_seq
 
     def _read_header(self):
         data = self._read_page_bytes(0)
@@ -225,6 +300,11 @@ class Pager:
         os.fsync(self.fh.fileno())
         self._crash("db_after_fsync")
 
+        # Log the batch before the WAL is truncated: a crash in between replays the batch on the
+        # next open, and the replay re-logs it (skipped when the pages are already logged).
+        if self.repl_log:
+            self._append_repl_batch(dict(ordered))
+
         self._crash("truncate_before")
         os.truncate(self.wal_path, 0)
         self._crash("truncate_after")
@@ -267,6 +347,8 @@ class Pager:
                         self.fh.write(page)
                     self.fh.flush()
                     os.fsync(self.fh.fileno())
+                    if self.repl_log:
+                        self._append_repl_batch(dict(frames))
                     offset += COMMIT_SIZE
                     applied = True
                     break
