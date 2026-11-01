@@ -69,6 +69,9 @@ accumulate(Group *group, PyObject *row, Py_ssize_t nspecs,
             group->counts[i] += 1;
             continue;
         }
+        if (columns[i] < 0 || columns[i] >= PyTuple_GET_SIZE(row)) {
+            return 0;                      /* a row that does not match the schema: let Python say so */
+        }
         value = PyTuple_GET_ITEM(row, columns[i]);
         if (value == Py_None) {
             continue;                      /* SQL: NULLs are not aggregated */
@@ -234,6 +237,9 @@ group_aggregate(PyObject *module, PyObject *args)
         int status;
 
         if (!PyTuple_Check(row)) {
+            goto unsupported;
+        }
+        if (key_index >= PyTuple_GET_SIZE(row)) {
             goto unsupported;
         }
         if (key_index >= 0) {
