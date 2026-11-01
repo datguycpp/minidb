@@ -2140,7 +2140,7 @@ class Database:
             return                      # a wide lookup already paid; remembering it costs memory
         if len(self._plan_cache) >= PLAN_CACHE_MAX:
             self._plan_cache.clear()
-        self._plan_cache[key] = {"decision": decision, "hits": 0}
+        self._plan_cache[key] = decision
 
     def _choose_access(self, table, where, node=None):
         """M5's choice layer. The rule, in order:
@@ -2491,8 +2491,7 @@ class Database:
         plan_key = self._plan_key(table, node)
         remembered = self._plan_cache.get(plan_key) if plan_key is not None else None
         if remembered is not None:
-            decision = remembered["decision"]
-            remembered["hits"] += 1
+            decision = remembered
         else:
             decision = self._choose_access(table, node.where, node=node)
             if plan_key is not None:
