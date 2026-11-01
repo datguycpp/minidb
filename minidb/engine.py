@@ -936,6 +936,10 @@ class Table:
         self.entry = entry                      # catalog entry when backed by disk
         self.index_of = {c.name.lower(): i for i, c in enumerate(columns)}
         self.indexes = {}                       # lower(index name) -> Index
+        # Column-level UNIQUE/PRIMARY KEY constraints: position -> set of values seen. Built on
+        # first insert and maintained per insert; cleared by any other row change (M38's
+        # write-path item: the old check scanned the table per row, which is O(n^2) to load).
+        self.unique_sets = {}
         self.next_rowid = 1                     # in-memory rowids; disk keeps its own counter
 
     @property
@@ -1511,6 +1515,7 @@ class Database:
                 targets.append(index)
 
         for row in node.rows:
+            pending_unique = []
             if len(row) != len(targets):
                 raise ExecError(
                     f"table {table.name} has {len(targets)} columns but {len(row)} values were supplied"
@@ -1546,16 +1551,13 @@ class Database:
                 if column.check is not None and not truthy(self._eval(column.check, table, dict(zip(table.column_names, values)))):
                     raise ExecError(f"CHECK constraint failed: {column.check_text}")
                 if column.unique:
-                    for existing in self._rows(table):
-                        same = existing[i]
-                        if (column.collation == "NOCASE" and isinstance(same, str)
-                                and isinstance(values[i], str)):
-                            same = same.lower()
-                            compared = values[i].lower()
-                        else:
-                            compared = values[i]
-                        if same == compared:
-                            raise ExecError(f"UNIQUE constraint failed: {table.name}.{column.name}")
+                    bucket = self._unique_bucket(table, i, column)
+                    key = self._unique_key(column, values[i])
+                    if key in bucket:
+                        raise ExecError(f"UNIQUE constraint failed: {table.name}.{column.name}")
+                    # Added only once the row has actually landed: an insert that fails a later
+                    # check (foreign key, unique index, trigger) must not reserve its key.
+                    pending_unique.append((bucket, key))
             for check_expr, check_text in getattr(table, "checks", []):
                 if not truthy(self._eval(check_expr, table, dict(zip(table.column_names, values)))):
                     raise ExecError(f"CHECK constraint failed: {check_text}")
@@ -1577,6 +1579,8 @@ class Database:
                 table.rows.append(tuple(values))
                 rowid = table.next_rowid
                 table.next_rowid += 1
+            for bucket, key in pending_unique:
+                bucket.add(key)
             for index in table.indexes.values():
                 if self._index_applies(index, table, values):
                     index.add(rowid, values)
@@ -1845,6 +1849,7 @@ class Database:
     # -- ALTER TABLE ---------------------------------------------------------
     def _alter(self, node: ast.AlterTable):
         table = self.table(node.table)
+        table.unique_sets.clear()      # a new column changes the shape the set was built for
         if node.action == "add":
             column = Column(node.column)
             if column.name.lower() in table.index_of:
@@ -1954,6 +1959,7 @@ class Database:
 
     def _update(self, node: ast.Update):
         table = self._modified_table(node)
+        table.unique_sets.clear()      # a rewrite can change or remove any key
         positions = []
         for column, _ in node.assignments:
             position = table.index_of.get(column.lower())
@@ -2004,6 +2010,7 @@ class Database:
 
     def _delete(self, node: ast.Delete):
         table = self._modified_table(node)
+        table.unique_sets.clear()      # a removed row frees its key
         if table.on_disk:
             kept = []
             changed = 0
@@ -2149,6 +2156,21 @@ class Database:
         if len(self._plan_cache) >= PLAN_CACHE_MAX:
             self._plan_cache.clear()
         self._plan_cache[key] = decision
+
+    @staticmethod
+    def _unique_key(column, value):
+        """The value as the constraint compares it: NOCASE folds strings, everything else is
+        itself. Python equality already treats 1 and 1.0 as one key, which is SQLite's rule too."""
+        if column.collation == "NOCASE" and isinstance(value, str):
+            return value.lower()
+        return value
+
+    def _unique_bucket(self, table, position, column):
+        bucket = table.unique_sets.get(position)
+        if bucket is None:
+            bucket = {self._unique_key(column, row[position]) for row in self._rows(table)}
+            table.unique_sets[position] = bucket
+        return bucket
 
     def _choose_access(self, table, where, node=None):
         """M5's choice layer. The rule, in order:
