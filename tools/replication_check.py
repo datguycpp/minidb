@@ -117,6 +117,21 @@ def probe(primary, replica_path):
     replica.sync(primary)
     print(f"  lag                : partitioned {lag} -> healed {replica.lag(primary)}; "
           f"replica answered from its own state ({own} rows) while behind")
+
+    # 7. VACUUM rebuilds the file, so it ships as one full-image checkpoint batch
+    primary.run("CREATE TABLE big (id INTEGER, body TEXT)")
+    payload = "z" * 900
+    for i in range(1, 21):
+        primary.run(f"INSERT INTO big VALUES ({i}, '{payload}')")
+    replica.sync(primary)
+    size_before = os.path.getsize(primary.path)
+    primary.run("DELETE FROM big WHERE id > 3")
+    primary.run("VACUUM")
+    size_after = os.path.getsize(primary.path)
+    replica.sync(primary)
+    print(f"  vacuum rebuild     : {size_before} -> {size_after} bytes (shrank: "
+          f"{size_after < size_before}), shipped as a checkpoint; replica == primary: "
+          f"{sha256_file(replica_path) == primary.sha()}")
     return 0
 
 

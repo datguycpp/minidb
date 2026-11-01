@@ -52,7 +52,7 @@ class ReplicationCase(unittest.TestCase):
         primary.run("CREATE TABLE t (id INTEGER, v TEXT, n REAL, b BLOB)")
         primary.run("CREATE INDEX idx_v ON t (v)")
         for i in range(1, rows + 1):
-            primary.run(f"INSERT INTO t VALUES ({i}, 'x{i}', {i}.5, X'0{i}')")
+            primary.run(f"INSERT INTO t VALUES ({i}, 'x{i}', {i}.5, X'{i:02X}')")
         primary.run("INSERT INTO t VALUES (NULL, NULL, NULL, NULL)")
         return primary
 
@@ -104,6 +104,84 @@ class TestConvergence(ReplicationCase):
         once = sha256_file(self.replica_path)
         replica._apply(batch)
         self.assertEqual(sha256_file(self.replica_path), once)
+        primary.close()
+
+
+class TestSchemaAndShrink(ReplicationCase):
+    def test_schema_changes_replicate_byte_identically(self):
+        primary = self.seed(rows=2)
+        replica = Replica(self.replica_path)
+        replica.sync(primary)
+        primary.run("CREATE INDEX idx_n ON t (n)")
+        replica.sync(primary)
+        self.assertEqual(sha256_file(self.replica_path), primary.sha())
+        primary.run("ALTER TABLE t ADD COLUMN extra TEXT")
+        replica.sync(primary)
+        self.assertEqual(sha256_file(self.replica_path), primary.sha())
+        primary.run("CREATE TABLE other (k INTEGER PRIMARY KEY, payload BLOB)")
+        primary.run("INSERT INTO other VALUES (1, X'DEADBEEF')")
+        replica.sync(primary)
+        self.assertEqual(sha256_file(self.replica_path), primary.sha())
+        primary.close()
+
+    def test_vacuum_that_shrinks_the_file_still_converges(self):
+        primary = Primary(self.primary_path)
+        primary.run("CREATE TABLE big (id INTEGER, body TEXT)")
+        payload = "x" * 900
+        for i in range(1, 21):
+            primary.run(f"INSERT INTO big VALUES ({i}, '{payload}')")
+        replica = Replica(self.replica_path)
+        replica.sync(primary)
+        size_before = os.path.getsize(self.primary_path)
+        primary.run("DELETE FROM big WHERE id > 3")
+        primary.run("VACUUM")
+        size_after = os.path.getsize(self.primary_path)
+        self.assertLess(size_after, size_before)
+        replica.sync(primary)
+        self.assertEqual(sha256_file(self.replica_path), primary.sha())
+        self.assertEqual(os.path.getsize(self.replica_path), size_after)
+        check = Database(self.replica_path)
+        try:
+            self.assertEqual(check.run("SELECT count(*) FROM big")[1], [(3,)])
+        finally:
+            check.close()
+        primary.close()
+
+
+    def test_crash_between_vacuum_rename_and_checkpoint_fails_loudly(self):
+        """The declared residual: a VACUUM crash in the rename window leaves the log one
+        checkpoint behind. The next ship must fail the identity check, never converge silently."""
+        primary = Primary(self.primary_path)
+        primary.run("CREATE TABLE big (id INTEGER, body TEXT)")
+        payload = "y" * 900
+        for i in range(1, 16):
+            primary.run(f"INSERT INTO big VALUES ({i}, '{payload}')")
+        replica = Replica(self.replica_path)
+        replica.sync(primary)
+        primary.close()
+
+        pid = os.fork()
+        if pid == 0:
+            try:
+                db = Database(self.primary_path, repl_log=True)
+                os.environ["MINIDB_CRASH_POINT"] = "vacuum_after_replace"
+                db.run("DELETE FROM big WHERE id > 3")
+                db.run("VACUUM")
+            except BaseException:
+                os._exit(70)
+            os._exit(0)
+        _, status = os.waitpid(pid, 0)
+        os.environ.pop("MINIDB_CRASH_POINT", None)
+        self.assertEqual(os.waitstatus_to_exitcode(status), 9)
+
+        primary = Primary(self.primary_path)
+        with self.assertRaises(ReplicationError) as ctx:
+            replica.sync(primary)
+        self.assertNotIsInstance(ctx.exception, ReplicationConflict)
+        self.assertIn("identity invariant broken", str(ctx.exception))
+        resolution = replica.resolve(primary)
+        self.assertGreaterEqual(resolution.discarded, 0)
+        self.assertEqual(sha256_file(self.replica_path), primary.sha())
         primary.close()
 
 

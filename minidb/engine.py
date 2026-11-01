@@ -965,6 +965,7 @@ class Database:
         self._sql = None
         self.last_plan = None
         self.tx_snapshot = None
+        self.repl_log = bool(repl_log)
         self.read_only = bool(readonly)
         if foreign:
             # A file the reference wrote is read-only by the M23 scope decision: MiniDB answers
@@ -1658,8 +1659,12 @@ class Database:
         os.replace(temp_path, self.path)
         if os.environ.get("MINIDB_CRASH_POINT") == "vacuum_after_replace":
             os._exit(9)
-        reopened = Database(self.path)
+        reopened = Database(self.path, repl_log=self.repl_log)
+        # A file rebuild is one full-image batch: page-level shipping cannot express a page that
+        # vanished, so the replica gets the new file's pages wholesale.
         self.storage = reopened.storage
+        if self.repl_log:
+            self.storage.pager.checkpoint()
         self.tables = reopened.tables
         self.views = reopened.views
         self.triggers = reopened.triggers

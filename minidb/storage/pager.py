@@ -176,6 +176,24 @@ class Pager:
         self._last_log_pages = {page_id: bytes(page) for page_id, page in frames}
         return self.repl_seq
 
+    def checkpoint(self):
+        """Log the whole file as one batch — the honest form of "VACUUM replaced this file".
+
+        Page-level shipping has no incremental way to describe a file rebuild, so a full image is
+        what it means. Declared residual: a crash between VACUUM's rename and this append leaves
+        the log one checkpoint behind, and the next ship fails the identity check rather than
+        converging silently — resolve() rebuilds the replica from the primary.
+        """
+        if not self.repl_log:
+            return None
+        # The file's own bytes: `read()` returns the payload with the checksum trailer zeroed,
+        # which is right for consumers but wrong for a batch — the replica writes pages verbatim.
+        with open(self.path, "rb") as handle:
+            raw = handle.read()
+        pages = {page_id: raw[page_id * PAGE_SIZE:(page_id + 1) * PAGE_SIZE]
+                 for page_id in range(self.page_count)}
+        return self._append_repl_batch(pages)
+
     def _read_header(self):
         data = self._read_page_bytes(0)
         if len(data) < HEADER_SIZE or data[_OFF_MAGIC:_OFF_MAGIC + 8] != MAGIC:

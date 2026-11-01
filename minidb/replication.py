@@ -26,7 +26,10 @@ Declared limits, stated before they are discovered:
 - resolution rebuilds the replica from the primary's file — it never merges, because a merge is
   exactly what this policy forbids;
 - a commit whose pages are byte-identical to its predecessor is not logged (it changed no state,
-  so the replica's bytes already agree).
+  so the replica's bytes already agree);
+- VACUUM rebuilds the file, so it ships as one full-image checkpoint batch. A crash between the
+  rename and that append leaves the log one checkpoint behind: the next ship fails the identity
+  check rather than converging silently, and resolve() rebuilds the replica.
 """
 
 import json
