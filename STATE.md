@@ -84,9 +84,7 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: t6a LANDED 255/256 (8/8 vs 7–8 band = in-band hit, tally 9/3/5;
-  key pin fails honestly as owned gap). t6b band CORRECTED to under-miss #3 (fired at
-  9/16 landing; 16/16 is the fix round's number). Next: M36/M37 invariant specs.**
+- **Current milestone: key pin CLOSED 256/256 (100.0%); M34 accepted over declared FTS subset (t6a 8/8 in-band, tally 9/3/5; t6b band stands as under-miss #3). Next: M36/M37 invariant specs.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
