@@ -16,6 +16,12 @@ import re
 import string
 
 from .sql import ast
+# The C accelerator is optional: without it the Python path below runs, which is the reference
+# every conformance case pins. A machine without a compiler loses speed, never answers.
+try:
+    from . import _native
+except ImportError:
+    _native = None
 from .storage.disk import DiskStorage
 from .storage.pager import PAGE_SIZE, StorageError
 from .storage.sqlite_file import SQLiteFile, is_sqlite_file
@@ -857,6 +863,8 @@ def _parse_cached(sql):
 RANDOM_ACCESS_COST = 20      # measured: ~250us random row fetch vs ~10us sequential row read
 PLAN_CACHE_MAX = 128         # remembered plans per session; cleared wholesale when full or on a write
 PLAN_CACHE_ROWS = 4096       # don't remember a decision that materialised a huge rowid set
+
+NATIVE_AGGREGATES = {"COUNT": 1, "SUM": 2, "AVG": 3, "MIN": 4, "MAX": 5}
 
 
 class Index:
@@ -2611,8 +2619,94 @@ class Database:
                           "remembered": remembered is not None}
         return items, rows
 
+    def _native_aggregate(self, node):
+        """The single-table aggregate loop, in C (M38); None means "use the Python path".
+
+        Only shapes whose meaning is unambiguous take this path: one base table, no WHERE, JOIN,
+        HAVING, DISTINCT or ORDER BY, at most one GROUP BY column, and every projection item a
+        plain aggregate over a column (or COUNT(*)) or the group key itself. Anything else — a
+        scalar function inside SUM, a derived table, an expression argument — falls back, which is
+        why the corpus cannot tell the difference by construction.
+        """
+        if (_native is None or node.base_select is not None or node.joins or node.having
+                or node.distinct or node.where is not None or node.order_by
+                or len(node.group_by) > 1 or not isinstance(node.table, str)):
+            return None
+        key_expression = node.group_by[0] if node.group_by else None
+        if key_expression is not None and not isinstance(key_expression, ast.ColumnRef):
+            return None
+        table = self.table(node.table)
+        positions = {column.name.lower(): position for position, column in enumerate(table.columns)}
+        key_position = None
+        if key_expression is not None:
+            key_position = positions.get(key_expression.name.lower())
+            if key_position is None:
+                return None
+
+        specs, layout, items = [], [], []
+        for item in node.items:
+            if not isinstance(item, ast.SelectItem):
+                return None
+            expression = item.expr
+            items.append(item.alias or _heading(item))
+            if (key_position is not None and isinstance(expression, ast.ColumnRef)
+                    and expression.name.lower() == key_expression.name.lower()):
+                layout.append(("key", None))
+                continue
+            if not isinstance(expression, ast.FuncCall) or getattr(expression, "distinct", False):
+                return None
+            if expression.star:
+                if expression.name != "COUNT":
+                    return None
+                specs.append((0, -1))
+                layout.append(("value", len(specs) - 1))
+                continue
+            if expression.name not in NATIVE_AGGREGATES or not isinstance(expression.arg, ast.ColumnRef):
+                return None
+            position = positions.get(expression.arg.name.lower())
+            if position is None:
+                return None
+            specs.append((NATIVE_AGGREGATES[expression.name], position))
+            layout.append(("value", len(specs) - 1))
+        if not specs:
+            return None
+
+        rows_in = list(self._rows(table))
+        grouped = _native.group_aggregate(rows_in, -1 if key_position is None else key_position,
+                                          specs)
+        if grouped is None:
+            return None
+        if key_position is None:
+            entries = [(None, grouped.get(None, ()))]
+        else:
+            entries = sorted(grouped.items(), key=lambda entry: _group_sort_key((entry[0],)))
+
+        out = []
+        for key, values in entries:
+            out.append(tuple(key if kind == "key" else values[position]
+                             for kind, position in layout))
+        out = self._apply_limit(node, out)
+
+        alias = (node.alias or node.table).lower()
+        self.last_plan = {
+            "table": node.table,
+            "tables": [alias],
+            "access": "full",
+            "sources": [{"table": alias, "rows": len(rows_in)}],
+            "rows_examined": len(rows_in),
+            "rows_matched": len(out),
+            "reason": "aggregate",
+            "index": None,
+            "candidates": [],
+            "native": True,
+        }
+        return items, out
+
     def _select_complex(self, node: ast.Select):
         """Joins, aggregates, GROUP BY/HAVING. Nested loop, planned and reported as such."""
+        fast = self._native_aggregate(node)
+        if fast is not None:
+            return fast
         envs, examined = self._scan_sources(node)
         if node.where is not None:
             envs = [env for env in envs if truthy(self._eval(node.where, None, env))]

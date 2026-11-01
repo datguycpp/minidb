@@ -4,3 +4,5 @@ __pycache__/
 *.sqlite
 .venv/
 tmp/
+minidb/_native*.so
+native/*.o
