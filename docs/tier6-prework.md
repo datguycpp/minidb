@@ -116,9 +116,31 @@ committed state while partitioned, lag a declared readout.
   estimated vs actual) plus a before/after benchmark delta on repeated
   query sets is the acceptance. A learned planner that changes answers
   fails even if its plans get faster.
-- Guard: learning state is part of the database file → M23's file
-  compatibility question recurs (foreign file + learning state); flagged
-  for the milestone, decided there.
+- **Guard decision (resolved at M37's build, recorded here per the
+  guard's own instruction): learning state is session-scoped by design —
+  it never enters the database file.** Four evidenced reasons,
+  shape-spread first:
+  1. **A shape statistic can't price a literal** (load-bearing): the
+     same `(table, column, >=)` shape plans 11 rows at one literal and
+     20,000 at another on the same data — a shape-level average would
+     replace a fact (this planner's exact hash-bucket estimate) with a
+     worse guess, and not guessing is the planner's entire advantage.
+  2. **A per-literal memory is exact but stale across sessions**: valid
+     persisted state needs a data fingerprint, and computing one costs
+     the probe the memory was meant to save.
+  3. **The M23 recursion answers itself**: foreign SQLite files are
+     read-only by M23's scope decision, so a file-resident statistic
+     would be write-only in exactly the case the guard named; and
+     `sqlite_stat1` contents are already out of conformance (M22's
+     ANALYZE ruling), so no conformance surface exists for it either.
+  4. **Nothing is bought**: the measurable win is in-session (the
+     probe); a reopened-session plan cache is a stale-plan hazard for
+     zero gain.
+  Stated with the decision: the benefit scales with index key
+  cardinality, not data size — a low-key-count index probes cheaply and
+  will show little (declared limit). File format stays v2; the
+  file-compat family receives this written scope decision instead of a
+  new catalog record.
 
 ## M38 — rewrite a hot path in a faster language, prove parity
 
