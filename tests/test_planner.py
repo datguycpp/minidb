@@ -59,9 +59,11 @@ class TestChoiceRule(PlannerBase):
 
     def test_wide_range_falls_back_to_a_scan_by_cost(self):
         db = Database()
-        db.run("CREATE TABLE t (v INTEGER)")
+        # A second column keeps the index from covering the query: with one column, `SELECT *`
+        # is itself covered and the index wins for a different reason (M37).
+        db.run("CREATE TABLE t (v INTEGER, pad INTEGER)")
         for start in range(1, 1001, 100):
-            db.run("INSERT INTO t VALUES " + ", ".join(f"({i % 100})" for i in range(start, start + 100)))
+            db.run("INSERT INTO t VALUES " + ", ".join(f"({i % 100}, 0)" for i in range(start, start + 100)))
         db.run("CREATE INDEX idx_v ON t (v)")
         db.run("SELECT * FROM t WHERE v > 10")
         self.assertEqual(db.last_plan["access"], "full")

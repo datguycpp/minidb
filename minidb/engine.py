@@ -855,6 +855,8 @@ def _parse_cached(sql):
 
 
 RANDOM_ACCESS_COST = 20      # measured: ~250us random row fetch vs ~10us sequential row read
+PLAN_CACHE_MAX = 128         # remembered plans per session; cleared wholesale when full or on a write
+PLAN_CACHE_ROWS = 4096       # don't remember a decision that materialised a huge rowid set
 
 
 class Index:
@@ -964,6 +966,12 @@ class Database:
         self.sequences = {}
         self._sql = None
         self.last_plan = None
+        # Plans this session has already chosen. Any non-read statement clears them: a decision
+        # carries the rowid set it was made from, so a stale entry is a wrong answer, not a stale
+        # statistic. (M37: the ladder's "learns from query history" — the history that is safe
+        # here is the session's own; see docs/tier6-prework.md's M37 decision.)
+        self._plan_cache = {}
+        self.data_epoch = 0
         self.tx_snapshot = None
         self.repl_log = bool(repl_log)
         self.read_only = bool(readonly)
@@ -1065,6 +1073,10 @@ class Database:
         returns. execute() is the statement primitive and leaves that choice to the caller.
         """
         result = self._execute(statement)
+        if not isinstance(statement, (ast.Select, ast.Compound, ast.With, ast.Pragma,
+                                      ast.Analyze, ast.Vacuum)):
+            self.data_epoch += 1
+            self._plan_cache.clear()
         if (autocommit and self.storage is not None and self.tx_snapshot is None
                 and not isinstance(statement, ast.Begin)):
             self.storage.commit()
@@ -1608,7 +1620,8 @@ class Database:
             if statement.group_by:
                 details.append("  GROUP BY")
             return details
-        decision = self._choose_access(self.table(statement.table), statement.where)
+        decision = self._choose_access(self.table(statement.table), statement.where,
+                                       node=statement)
         if decision["access"] == "index":
             index = decision["candidate"]["index"]
             return [f"SEARCH {statement.table} USING INDEX {index.name}",
@@ -2106,7 +2119,30 @@ class Database:
         # No DELETE exists yet, so the next rowid is exactly the number of rows.
         return table.entry["next_rowid"] - 1 if table.on_disk else len(table.rows)
 
-    def _choose_access(self, table, where):
+    def _plan_key(self, table, node):
+        """Statement text + table + projection + predicates: the identity of a plan decision.
+
+        The projection matters because covering is a property of it: a decision made for
+        `SELECT a` must not be reused for `SELECT *`. Two subqueries on one table with different
+        predicates must not share an entry either, and the rendered predicate texts are already
+        the language partial indexes use for that.
+        """
+        if self._sql is None:
+            return None
+        predicates = (tuple(sorted(self._predicate_texts(node.where)))
+                      if node.where is not None else ())
+        projection = tuple("*" if isinstance(item, ast.Star) else _render_expression(item.expr)
+                           for item in node.items)
+        return (self._sql, table.name.lower(), projection, predicates)
+
+    def _remember_plan(self, key, decision):
+        if decision["access"] == "index" and len(decision["candidate"]["rowids"]) > PLAN_CACHE_ROWS:
+            return                      # a wide lookup already paid; remembering it costs memory
+        if len(self._plan_cache) >= PLAN_CACHE_MAX:
+            self._plan_cache.clear()
+        self._plan_cache[key] = {"decision": decision, "hits": 0}
+
+    def _choose_access(self, table, where, node=None):
         """M5's choice layer. The rule, in order:
 
         1. No WHERE, or no index whose every column is constrained -> full scan.
@@ -2165,15 +2201,22 @@ class Database:
         # RANDOM_ACCESS_COST times a sequential row read (~10 us), so a range index only pays when
         # it touches a small fraction of the table. Equality keeps M5's simpler rule because an
         # exact bucket count is already the true row count there.
-        if best["estimated_rows"] >= total:
+        #
+        # A covering index pays no row fetch at all, so neither penalty applies to it: charging one
+        # was the M22 boundary bug (the rule predates covering paths). This is the milestone's
+        # measured correction — a 20x choice, not a 20x constant.
+        covering = node is not None and self._covering_index(node, table, best["index"])
+        if not covering and best["estimated_rows"] >= total:
             return {"access": "full", "reason": "index-not-selective", "candidates": summary,
                     "estimated_rows": total}
-        if best["kind"] == "range" and best["estimated_rows"] * RANDOM_ACCESS_COST >= total:
+        if (not covering and best["kind"] == "range"
+                and best["estimated_rows"] * RANDOM_ACCESS_COST >= total):
             return {"access": "full", "reason": "index-not-selective", "candidates": summary,
                     "estimated_rows": total}
 
         return {"access": "index", "reason": "smallest-estimate", "candidate": best,
-                "candidates": summary, "estimated_rows": best["estimated_rows"]}
+                "candidates": summary, "estimated_rows": best["estimated_rows"],
+                "covering": covering}
 
     # -- query execution -----------------------------------------------------
     AGGREGATES = frozenset({"COUNT", "SUM", "AVG", "MIN", "MAX"})
@@ -2445,7 +2488,15 @@ class Database:
                 projection.append(item)
                 items.append(item.alias or _heading(item))
 
-        decision = self._choose_access(table, node.where)
+        plan_key = self._plan_key(table, node)
+        remembered = self._plan_cache.get(plan_key) if plan_key is not None else None
+        if remembered is not None:
+            decision = remembered["decision"]
+            remembered["hits"] += 1
+        else:
+            decision = self._choose_access(table, node.where, node=node)
+            if plan_key is not None:
+                self._remember_plan(plan_key, decision)
         if decision["access"] == "index" and self._covering_index(node, table, decision["candidate"]["index"]):
             chosen = decision["candidate"]
             index = chosen["index"]
@@ -2472,7 +2523,9 @@ class Database:
             self.last_plan = {"table": table.name, "access": "index", "index": index.name,
                               "rows_examined": sum(len(b) for b in index.map.values()),
                               "rows_matched": len(prepared), "reason": "covering-index",
-                              "estimated_rows": chosen["estimated_rows"], "candidates": decision["candidates"]}
+                              "estimated_rows": chosen["estimated_rows"],
+                              "candidates": decision["candidates"],
+                              "remembered": remembered is not None}
             rows = [tuple(self._eval(item.expr, table, env) for item in projection)
                     for env, _ in prepared]
             if node.distinct:
@@ -2555,7 +2608,8 @@ class Database:
                           "rows_examined": examined, "rows_matched": len(rows),
                           "reason": decision["reason"],
                           "estimated_rows": decision["estimated_rows"],
-                          "candidates": decision["candidates"]}
+                          "candidates": decision["candidates"],
+                          "remembered": remembered is not None}
         return items, rows
 
     def _select_complex(self, node: ast.Select):
