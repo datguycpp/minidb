@@ -84,7 +84,7 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: M38 PARITY PASS @20k declared variant (W3 79.2→1.33, W6 18.7→0.24, W1 equal, W4 equal-by-noise; corpus/fuzz diffs empty; 501 tests). Write-path item landed unreviewed (no report yet). Next: write-path review, then 100k pair + Tier-6 close.**
+- **Current milestone: write-path item ACCEPTED (set-lookup uniqueness, flat inserts, 501 tests; autoindex gap owned as new item). M38 gate evidence stays the 20k pair (100k before-leg still ~2h — fix can't speed the pin). Next: autoindex item, then 100k pair + Tier-6 close.**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
