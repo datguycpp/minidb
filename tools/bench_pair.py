@@ -134,14 +134,32 @@ def verdict(before, after):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("before")
-    parser.add_argument("after")
+    parser.add_argument("after", nargs="?")
     parser.add_argument("--workloads", default=",".join(WORKLOADS),
                         help="comma-separated subset (default: all nine)")
+    parser.add_argument("--gate-only", action="store_true",
+                        help="assert one artifact's completeness and consistency; no pairing")
     parser.add_argument("--allow-foreign", action="store_true",
                         help="pair a hand-made fixture that lacks the harness header (tests only; "
                              "never quote such a pairing as a result)")
     args = parser.parse_args(argv)
     expected = [name.strip() for name in args.workloads.split(",") if name.strip()]
+
+    if args.gate_only:
+        try:
+            runs = parse(args.before, not args.allow_foreign)
+        except (OSError, ValueError) as exc:
+            print(f"bench_pair: unreadable input: {exc}", file=sys.stderr)
+            return 2
+        problems = check(args.before, runs, expected) + consistency(args.before, runs, expected)
+        if problems:
+            print("bench_pair: artifact FAILS the gate:", file=sys.stderr)
+            for problem in problems:
+                print(f"  - {problem}", file=sys.stderr)
+            return 2
+        print(f"artifact COMPLETE: {len(expected)}/{len(expected)} sections terminal, "
+              f"self-consistent, answers OK")
+        return 0
 
     try:
         require = not args.allow_foreign
