@@ -84,7 +84,7 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: autoindex ACCEPTED (t3d +4 pure addition, 260/260, 510 tests; reopen probe holds). M38 gate CLOSES over all nine workloads (W3/W6/W2/W7 improved, rest equal-by-numerator-rule; W9 unevaluated harness gap). Next: 100k pair (2h before-leg) + Tier-6 close.**
+- **Current milestone: TIER-6 CLOSED (M38 parity PASS — nine ratios improved-or-equal, zero regressions; 100k pair gated+paired; corpus 260/260, 533 tests. Band #20 miss → tally 10/3/7. Trigger-registered: growth band first post-close; aliasing acceptances on item order; loadavg duty live).**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
