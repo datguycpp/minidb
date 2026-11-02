@@ -57,7 +57,17 @@ engines from one generator — same logical rows, both formats.
 - **Warm-up run discarded, then N=7 timed runs per (engine, workload);
   report median and all 7 raw values.** Medians, because one scheduler
   hiccup must not move a gate number.
-- Machine state noted (this box, idle/not — recorded per run).
+- Machine state noted **quantitatively: `loadavg` recorded beside each
+  workload**, not a per-run idle/not flag. The ±5% equal-band used for pair
+  comparisons is a *quiet-box* property: on a box with standing load, a
+  millisecond-scale reference median records descheduling at double-digit
+  percentages while multi-second medians absorb the same event (measured
+  2026-11-01: both flagged references +26% under sustained loadavg ≈ 3.4,
+  minidb +7%/+15%). On a loaded box the discriminator is the reference's own
+  raw7 spread — the smallest measurement in the file is the most sensitive
+  thermometer. A leg intended for cross-era comparison runs near loadavg 1,
+  or its recorded load travels with the numbers so no reader reconstructs it
+  from system logs later.
 - Ratio = minidb_ms ÷ sqlite_ms **per workload**, reported individually and
   as the median of per-workload ratios (never total-time/total-time: W7
   would drown everything).
