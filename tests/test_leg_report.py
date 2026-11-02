@@ -126,6 +126,24 @@ class ReportTest(unittest.TestCase):
         self.assertIn("nothing here may be quoted as a result", text)
         self.assertLess(text.index("DEMO --"), text.index("W1 "))
 
+    def test_the_demo_reconstructs_the_published_before_leg_within_the_display_quantum(self):
+        """Pin target: record-reconstruction from *displayed* medians, not formula consistency.
+
+        The demo multiplies each printed reference median by the printed ratio, so its absolute
+        carries the reference's two-decimal display rounding scaled by the ratio -- W1's true 3.47114
+        shown as 3.47 leaves ~255 ms on a 779,943 ms workload, W8's 10.0717 as 10.07 leaves ~119 ms.
+        The tolerance below is exactly that half-quantum (0.005 ms x ratio / ops), so a future reader
+        cannot mistake the display residual for the first arithmetic drift. Pinning against the raw
+        medians would fail today by design; that is the quantum's signature, not a bug.
+        """
+        published = {"W1": 779.94348, "W8": 702.69758}          # this leg's own published figures
+        for name, expected in published.items():
+            ops = leg_report.OPS[name]
+            demo = leg_report.DEMO_SQLITE[name] * leg_report.DEMO_BASE[name] / ops
+            quantum = 0.005 * leg_report.DEMO_BASE[name] / ops
+            self.assertLessEqual(abs(demo - expected), quantum,
+                                 f"{name}: demo {demo:.3f} vs published {expected:.3f}")
+
     def test_a_leg_that_fails_the_gate_produces_no_table(self):
         before = write_leg(self.path("b.txt"), drop=("W6",))
         after = write_leg(self.path("a.txt"))
