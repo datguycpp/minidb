@@ -116,6 +116,16 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("cross-box reading: the reference moved with it", out)
 
+    def test_the_demo_is_labelled_before_it_shows_anything(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = leg_report.main(["--demo"])
+        text = out.getvalue()
+        self.assertEqual(code, 0)
+        self.assertTrue(text.startswith("DEMO --"), text[:80])
+        self.assertIn("nothing here may be quoted as a result", text)
+        self.assertLess(text.index("DEMO --"), text.index("W1 "))
+
     def test_a_leg_that_fails_the_gate_produces_no_table(self):
         before = write_leg(self.path("b.txt"), drop=("W6",))
         after = write_leg(self.path("a.txt"))

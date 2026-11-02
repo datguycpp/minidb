@@ -34,6 +34,22 @@ BAND = bench_pair.EQUAL_BAND
 # here is expected equal: the rewrite's scope is the aggregate loop, and the write-path item's is
 # the uniqueness set, so every other path should not move.
 DEFAULT_EXPECT = {"W3": "improve", "W6": "improve", "W7": "improve"}
+
+# A demo is a fixture, and a fixture shown anywhere must say so in the line that shows it: the very
+# numbers below were once pasted into a report unlabelled and read for two rounds as a leg result.
+DEMO_BANNER = ("DEMO -- synthetic numbers from a built-in fixture. No benchmark ran, no leg data is "
+               "shown, and nothing here may be quoted as a result.")
+# The reference medians and ratios below are the finished before leg's own, so the demo's table is
+# a faithful replica of a real artifact: if the tool's arithmetic drifts, the demo stops matching
+# the numbers the record already published.
+DEMO_SQLITE = {"W1": 3.47, "W2": 39.27, "W3": 9.21, "W4": 14.56, "W5": 6.31,
+               "W6": 69.05, "W7": 21.00, "W8": 10.07, "W10": 7.84}
+DEMO_BASE = {"W1": 224694.208, "W2": 40.731, "W3": 90.423, "W4": 171.255, "W5": 199.669,
+             "W6": 13.796, "W7": 305.249, "W8": 69769.476, "W10": 0.776}
+# W6 and W7 improve as expected, W3 does not (an unmet expectation), W5 regresses on a stable
+# reference -- one demo shows both failure species, and the tool calls the second one an engine
+# finding before anything else.
+DEMO_AFTER = dict(DEMO_BASE, W6=0.27, W7=13.0, W5=215.0)
 ATTRIBUTION = {
     "W3": "C module (M38)",
     "W6": "C module (M38)",
@@ -83,12 +99,48 @@ def parse_expect(text):
     return expect
 
 
+def write_demo_leg(path, ratios):
+    """A leg in the harness's printed shape, marked `demo=true` in its own header."""
+    lines = ["BENCH first-full-run  module-sqlite 3.53.1  N=7  scale=100000  lookups=1000  demo=true", ""]
+    for name in ORDER:
+        ops = OPS.get(name, 1)
+        sqlite_ms = DEMO_SQLITE[name]
+        minidb_ms = sqlite_ms * ratios[name]
+        lines += [f"{name}  synthetic {name:26s} rows={ops}",
+                  f"     sqlite_ms median={sqlite_ms:.2f}  raw7=[ {sqlite_ms:.2f} ]",
+                  f"     minidb_ms median={minidb_ms:.2f}  raw7=[ {minidb_ms:.2f} ]",
+                  f"     ratio={ratios[name]:.3f}  output: OK"]
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+    return path
+
+
+def demo():
+    """Print the report against a built-in fixture, under a banner that says so first."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as scratch:
+        before = write_demo_leg(os.path.join(scratch, "demo-before.txt"), DEMO_BASE)
+        after = write_demo_leg(os.path.join(scratch, "demo-after.txt"), DEMO_AFTER)
+        print(DEMO_BANNER)
+        print()
+        main([before, after])
+    print("\ndemo: a real report with these numbers would exit 1; this run exits 0 because nothing "
+          "was measured.")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="gate, compare, tabulate, and price a two-leg pair")
-    parser.add_argument("before")
-    parser.add_argument("after")
+    parser.add_argument("before", nargs="?")
+    parser.add_argument("after", nargs="?")
+    parser.add_argument("--demo", action="store_true",
+                        help="print a labelled fixture report (synthetic numbers, nothing measured)")
     parser.add_argument("--expect", default="", help="NAME=equal|improve|regress,... (overrides defaults)")
     args = parser.parse_args(argv)
+    if args.demo:
+        return demo()
+    if not args.before or not args.after:
+        parser.error("two leg artifacts are required (or --demo for a labelled fixture)")
     expect = parse_expect(args.expect)
 
     parsed = {}
