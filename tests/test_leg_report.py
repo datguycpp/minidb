@@ -84,7 +84,8 @@ class ReportTest(unittest.TestCase):
         after = write_leg(self.path("a.txt"))            # nothing improved
         code, out, _ = self.run_tool(before, after)
         self.assertEqual(code, 1)
-        self.assertIn("W3 (wanted improve, got equal)", out)
+        self.assertIn("W3  wanted improve, got equal", out)
+        self.assertIn("unmet expectations that are not regressions", out)
 
     def test_a_reference_side_move_is_named_before_the_table(self):
         before = write_leg(self.path("b.txt"))
@@ -94,6 +95,26 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("comparability: reference side moved beyond +/-5%", out)
         self.assertLess(out.index("comparability"), out.index("W1 "))
+
+    def test_a_regression_on_a_stable_reference_is_an_engine_finding(self):
+        after_ratios = dict(BASE, W5=80.0)              # W5 ratio rises, reference unchanged
+        before = write_leg(self.path("b.txt"))
+        after = write_leg(self.path("a.txt"), ratios=after_ratios)
+        expect = "".join(f"{name}=equal," for name in BASE).rstrip(",")
+        code, out, _ = self.run_tool(before, after, ("--expect", expect))
+        self.assertEqual(code, 1)
+        self.assertIn("regressions -- the parity clause", out)
+        self.assertIn("stable reference: engine side", out)
+        self.assertNotIn("unmet expectations that are not regressions", out)
+
+    def test_a_regression_whose_reference_moved_is_a_cross_box_reading(self):
+        after_ratios = dict(BASE, W5=80.0)
+        before = write_leg(self.path("b.txt"))
+        after = write_leg(self.path("a.txt"), ratios=after_ratios, sqlite_shift=1.2)
+        expect = "".join(f"{name}=equal," for name in BASE).rstrip(",")
+        code, out, _ = self.run_tool(before, after, ("--expect", expect))
+        self.assertEqual(code, 1)
+        self.assertIn("cross-box reading: the reference moved with it", out)
 
     def test_a_leg_that_fails_the_gate_produces_no_table(self):
         before = write_leg(self.path("b.txt"), drop=("W6",))

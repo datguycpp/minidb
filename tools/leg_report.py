@@ -146,8 +146,25 @@ def main(argv=None):
             print(f"  {name} per row-visit  {per_row:.3f} us  ({ROWS:,} rows)")
 
     if failures:
-        print("\nverdict: the frozen expectation was not met for "
-              + ", ".join(f"{name} (wanted {want}, got {got})" for name, want, got in failures))
+        # A regression and a miss are different species: only a regression touches the parity
+        # clause, and it can only be judged with its own reference-side delta beside it. A ratio
+        # that rose while the reference rose is a cross-box reading; one that rose against a stable
+        # reference is an engine finding and reaches the gate before anything else does.
+        regressions = [item for item in failures if item[2] == "regress"]
+        misses = [item for item in failures if item[2] != "regress"]
+        if regressions:
+            print("\nregressions -- the parity clause's event, named separately:")
+            for name, _want, _got in regressions:
+                b, a = before[name], after[name]
+                moved = ((a["sqlite_ms"] - b["sqlite_ms"]) / b["sqlite_ms"]) if b["sqlite_ms"] else 0.0
+                side = ("cross-box reading: the reference moved with it" if abs(moved) > BAND
+                        else "stable reference: engine side -- a gate finding before anything else")
+                print(f"  {name}  ratio {b['ratio']:.3f} -> {a['ratio']:.3f} "
+                      f"({(a['ratio'] / b['ratio'] - 1.0):+.1%})  reference {moved:+.1%}  -- {side}")
+        if misses:
+            print("\nunmet expectations that are not regressions:")
+            for name, want, got in misses:
+                print(f"  {name}  wanted {want}, got {got}")
         return 1
     print("\nverdict: every workload landed as frozen")
     return 0
