@@ -26,7 +26,8 @@ WORKLOADS = ("W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W10")
 EQUAL_BAND = 0.05          # within +-5% is equal: the box moves more than that between runs
 
 HEADER = re.compile(r"^(W\d+)\s{2,}(.+)$")
-ROWS = re.compile(r"\s{2,}rows=(\d+)\s*$")
+ROWS = re.compile(r"\s{2,}rows=(\d+)")
+LOADAVG = re.compile(r"\s{2,}loadavg=([\d.]+)")   # optional: older legs never wrote it
 DISCARD = re.compile(r"DISCARDED:\s*(.*)$")
 ERRORED = re.compile(r"ERROR:\s*(.*)$")
 SQLITE = re.compile(r"^\s+sqlite_ms median=([\d.]+)")
@@ -66,6 +67,9 @@ def parse(path, require_header=True):
                 if rows:
                     current["rows"] = int(rows.group(1))
                     current["title"] = title[:rows.start()].strip()
+                    load = LOADAVG.search(title)
+                    if load:
+                        current["loadavg"] = float(load.group(1))
                     continue
                 discard, errored = DISCARD.search(title), ERRORED.search(title)
                 if discard:

@@ -148,6 +148,20 @@ WORKLOADS["W10"] = ("overflow rows (1k x 4KB full scan)", w10_setup,
     lambda m: m.run("SELECT SUM(length(b)) FROM t10")[1])
 
 
+def loadavg():
+    """1-minute load average as this workload starts, or None when unreadable.
+
+    Recorded beside each workload because a leg's box state is invisible in the artifact
+    afterwards: identical medians come out of a quiet machine and a loaded one, and only this
+    number (next to the reference's raw7 spread) separates the two readings.
+    """
+    try:
+        with open("/proc/loadavg", "r", encoding="ascii") as handle:
+            return float(handle.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def main():
     global ROWS, LOOKUPS
     ap = argparse.ArgumentParser()
@@ -204,7 +218,9 @@ def main():
 
         ratio = statistics.median(t_md) / statistics.median(t_sq)
         shapesq = (len(sq_out) if isinstance(sq_out, list) else 1)
-        print("%s  %-40s rows=%d" % (wid, name, shapesq))
+        load = loadavg()
+        print("%s  %-40s rows=%d  loadavg=%s"
+              % (wid, name, shapesq, "n/a" if load is None else "%.2f" % load))
         print("     sqlite_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_sq), " ".join("%.2f" % x for x in t_sq)))
         print("     minidb_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_md), " ".join("%.2f" % x for x in t_md)))
         print("     ratio=%.3f  output: OK" % ratio, flush=True)
