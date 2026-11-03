@@ -2071,7 +2071,11 @@ Nothing above the first entry was edited in the move.
   statements — **56% lexer**, matching the 57% profiled share rather than contradicting it.
   So the parse slice's remaining 1550 ms splits 865 lexer / 685 grammar, and at 41.6% of the
   loop the lexer alone is ~23% of the wall time.
-  *Ceiling arithmetic this fixes for the build:* the loop must fall 1952 ms to 1953 ms; a parse
-  that went to **zero** would only give 1550 back, so the chain must shed **at least 402 ms**
-  even in the impossible perfect-parser case, and realistically far more because the lexer cannot
-  reach zero. Both halves stay load-bearing; the split just makes the shares quantitative.
+  *Ceiling arithmetic this fixes for the build:* the loop must fall 1952.7 ms to reach 1953. A
+  parser that went to **zero** returns the frozen parse 1626.3 of that, so the chain must shed
+  **at least 326.4 ms** even in the impossible perfect-parser case — [corrected from 402, which
+  mixed the frozen baseline with the current 1550 parse and counted the first fix's 76 ms gain as
+  still available; both consistent framings give 326.4, matching the `854c6be` scope note]. With
+  a realistic scanner-plus-grammar yield (parse -> ~750 ms) the chain must shed **~1,076 ms, about
+  47% of non-parse** — within a point of the 45% predicted before any of these numbers existed.
+  Both halves stay load-bearing; the split just makes the shares quantitative.
