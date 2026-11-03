@@ -2043,3 +2043,19 @@ Nothing above the first entry was edited in the move.
   Both literatures are the all-mismatch count, not a filtered rate. Gate 4's "same literal counts"
   now points at a run of *this* revision's engine, and the anchor is confirmed rather than assumed.
   Corpus needs no capture: `make verify` runs 293/293 at every landing.
+
+- **Goal 6, parse profile archived pre-edit (`52cb9e8`, engine clean)** — `tests/skeptic/profile_g6_parse.py`.
+  Statements: `SELECT count(*) FROM t WHERE id > {i}`, `i` in `range(2000)`, all distinct so every
+  one misses the 1024-entry LRU at `engine.py:894`. The fixture is irrelevant to parsing (no table
+  is read), which is why the earlier capture that ran these against a 100k database measured the
+  wrong thing. Cumulative profile, reproducible by running the committed script (exit 2 if the
+  lexer stops being dominant, so a stale claim is detectable rather than trusted):
+  `_parse_cached` 1.160 s; `parse` 1.142 s; **`lexer.tokenize` 0.644 s = 57% of parse**;
+  `parse_statement` 0.490 s; `parse_compound` 0.403 s; `parse_select` 0.385 s;
+  `at_keyword` 104,000 calls (52 per statement), 0.167 s.
+  *Consequences fixed for the build, both halves load-bearing per the pass-path arithmetic:*
+  parse is 41.6% of the loop, so a perfect parser still leaves 2279.1 ms > the 1952.7 ms ceiling —
+  the lexer/grammar work alone cannot pass gate 3, and a 50% non-parse cut alone gives 2766 ms
+  either. Both are required. Equivalence evidence for a regex scanner on identical inputs comes
+  from the battery that already reaches it: t3a's 3,939-character literals, round-1 case 16's
+  non-ASCII, the seeded fuzz stream, and the syntax suite's error texts.
