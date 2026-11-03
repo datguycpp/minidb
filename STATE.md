@@ -67,6 +67,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
 - Rowid writes: UPDATE SET rowid, explicit rowid on alias tables, negative/zero/
   NULL rowids, AUTOINCREMENT interplay | — | t6d declared-out | —.
 - Fuzzer dialect = 16 features | wider surface unfuzzed | spec | declared.
+- Error-text expectations are shell-version-specific (14/293 cases under a non-pinned
+  SQLite shell) | corpus scores comparable only at the pinned 3.54.0 | goal 4 /
+  `docs/reference-check.md` | the `(NN)` suffix + quote-hint are shell formatting, not
+  SQL semantics; normalizing was declined on purpose (it would loosen the pinned oracle).
 
 ## Next tasks (Phase-2 order, reasons in LOG.md)
 1. ~~`make verify`~~ **DONE** — `make verify` runs build + tests + corpus + crash

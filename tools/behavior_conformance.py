@@ -76,8 +76,14 @@ def _levenshtein(a, b):
     return prev[-1]
 
 
+# The reference CLI is overridable so the corpus can be run against another SQLite build
+# (goal 4's independent check): MINIDB_SQLITE=/path/to/sqlite3. Default stays the pinned PATH
+# binary, so every existing score line means what it always meant.
+SQLITE_BIN = os.environ.get("MINIDB_SQLITE", "sqlite3")
+
+
 def sqlite_version():
-    out = subprocess.run(["sqlite3", "--version"], capture_output=True, text=True, check=True)
+    out = subprocess.run([SQLITE_BIN, "--version"], capture_output=True, text=True, check=True)
     return out.stdout.split()[0]
 
 
@@ -150,7 +156,7 @@ def run_sqlite(phases):
             assert REOPEN_TMPDIR is not None, "multi-phase case without a temp dir"
             db_path = os.path.join(REOPEN_TMPDIR, "sqlite.db")
         proc = subprocess.run(
-            ["sqlite3", "-json", db_path],
+            [SQLITE_BIN, "-json", db_path],
             input=script, capture_output=True, text=True, timeout=20,
         )
         if proc.returncode != 0 or proc.stderr.strip():
@@ -421,7 +427,7 @@ def main():
                     help="corpus file or glob; repeatable. Default: behavior.txt + t1*.txt")
     args = ap.parse_args()
 
-    if shutil.which("sqlite3") is None:
+    if shutil.which(SQLITE_BIN) is None:
         print("reference binary 'sqlite3' not found on PATH", file=sys.stderr)
         return 2
 

@@ -1404,3 +1404,71 @@ Nothing above the first entry was edited in the move.
   the key. Both are already named as t6d/scope-outs in the limits table; they are
   recorded here because a fixture hunt found them by accident, which is the class
   of finding `make verify` exists to make cheap to re-check.
+
+- **Skeptic round 1 — PRE-REGISTERED by Research (2026-11-03 evening, after Goal 2's
+  21:57+0800 entry; charter goal 5), written before any probe ran.**
+  *Surfaces this round* (charter list, differential-probeable half): nested
+  subqueries (depth-4 correlation, correlation in ORDER BY/HAVING/EXISTS, correlated
+  FROM-subquery), NULL-heavy joins (anti-join, NOT IN-with-NULL, NULL=NULL ON,
+  COUNT col-vs-star, NULL-only aggregates, NULL sort order ASC and DESC, NULL
+  grouping and DISTINCT), odd collations and type ordering (NOCASE on non-ASCII,
+  NOCASE in joins, storage-class ORDER BY, affinity in cross-type comparisons),
+  huge rows (local vs overflow boundary, multi-page round trip, blob overflow,
+  UPDATE grow-across-boundary, rowid fetch of an overflow row, DELETE+VACUUM+
+  reinsert), plus fresh-code edges (resolver inner-scope-first vs ambiguity,
+  fail-open view bodies, rowid on a derived table, UPDATE SET rowid).
+  *Round 2 (next):* concurrent clients, kill -9 during VACUUM, replication under
+  crash and divergence — invariant probes, no reference to diff against.
+  *Finding definition, fixed before running:* a FINDING is a differential mismatch
+  on a well-defined probe (both engines given the same specified behavior — no
+  unordered ties, no multi-row scalar without LIMIT). A probe whose behavior SQLite
+  leaves unspecified is classified LIMITS, not finding, and labelled as such.
+  A confirmed already-declared scope-out (UPDATE SET rowid, view-body validation)
+  is a LIMITS.md confirmation, not a new finding. Round-2 invariant violations are
+  findings without a reference.
+  *Zero rule:* zero findings must be reported with coverage counts (N probes, M
+  blocks per surface) and a per-surface "why nothing was found" — never asserted.
+  *Method:* `tests/skeptic/round1.txt` (blank-line corpus format) executed through
+  `tools/behavior_conformance.py --corpus` — the same normalizer and the pinned
+  CLI as the scored corpus; raw output preserved to
+  `tests/skeptic/round1-results.txt` with command, revision and version in its
+  header. NO corpus edits, NO fixes from Research: findings become corpus cases
+  (after an engineer fix) or LIMITS.md entries (goal 3). Skeptic veto stands —
+  any reproducible failing case can mark a milestone not-accepted; override only
+  by fixing the case or logging it as a declared limit.
+  *Sequencing answered to engineer's parallel question:* goal 4 (independent
+  reference check) may run alongside this round — it is read-only against the tree
+  I am attacking and moves nothing; LIMITS.md (goal 3) waits for these findings as
+  he proposed. His two accidental finds fold into this round's outputs:
+  WITHOUT ROWID (syntax surface) and UPDATE SET rowid (carried as probe S27 so its
+  LIMITS entry ships with a reproducible differential rather than a prose note).
+
+- **Goal 2 ACCEPTED by Default (clean-worktree run, rev 4ddfaab): `make verify` →
+  RESULT: PASS (5/5): build OK, tests 554/0/0, corpus 293/293 over 21 files,
+  crash 100/100, docs 7/7 (16 skipped). Revision + loadavg printed in block.**
+  Scope note: crash stage is a 100-iteration smoke of crash_torture.py
+  (--iterations flag; 300 measured at 79s), not the 12-site ×200 full sweep —
+  the count prints raw, so the scope is declared, not hidden. Skeptic
+  pre-registration above is Research's (uncommitted in tree at this write).
+
+- **Goal 4 DONE (2026-11-03T22:56:22+0800) — independent reference check against 3.51.0 and 3.45.1.**
+  Mechanism added: `MINIDB_SQLITE=<path>` overrides the reference CLI for the corpus and the
+  fuzzer (default unchanged: `sqlite3` on PATH, so every historical score means what it did);
+  `tools/reference_check.py` classifies each case three ways (pinned / alternate / MiniDB) and
+  separates "the oracle moved" from "MiniDB is wrong". Report: `docs/reference-check.md`.
+  *Results:* 3.51.0 → 13 oracle movements, 3.45.1 → 14; **all in error text, none in rows or
+  column headings; MiniDB matched the pinned build on all 293 cases in both runs, and no case
+  matched neither build** (that last count is the genuine-finding column and it is 0).
+  *Why the movements:* the shell dropped the `(NN)` result-code suffix and changed
+  `Runtime error` → `Error` between 3.51.0 and 3.54.0 (13 cases), and the double-quoted
+  identifier hint appeared between 3.45.1 and 3.51.0 (1 case). Verified as upstream shell
+  behaviour, not packaging: the sqlite.org 3.54.0 prebuilt matches the Arch binary's text on
+  every case.
+  *Fuzzer:* seeds 1/1000 and 7/500 → **0 mismatches under all three oracles** (literal
+  all-mismatch counts, no filtered rate).
+  *Two tool bugs found and fixed while building the check (disclosed):* a shared reopen
+  directory leaked a `sqlite.db` between runs and produced one phantom "matches neither"
+  finding; and including `syntax.txt` made the total 298 instead of the harness's 293.
+  *Decision recorded, not silently taken:* the `(NN)` strip could make the corpus
+  version-robust, but it would loosen the pinned oracle on purpose, so it is filed as a
+  declared limit instead (error-text expectations are shell-version-specific).
