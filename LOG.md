@@ -2095,3 +2095,13 @@ Nothing above the first entry was edited in the move.
   downstream. Scheduled with the scanner commit, not before — a differential against a scanner
   that does not exist yet would compare the fallback with itself and prove nothing, which is the
   vacuous-test failure the project already names.
+
+- **Goal 6, gate-run scheduling rule (`82ef247`).** Gate runs are taken only when loadavg lands in
+  **[1.0, 3.0]** — the operative baseline is the quiet capture at 2.00 with the ±1.0 matched-pair
+  tolerance, and building the extension, running the suite and iterating on the scanner all push
+  the box above it. A gate run taken straight after a build cycle would read >3.0 and return
+  INCONCLUSIVE for reasons unrelated to the engine, costing a re-run. So: finish the build, let the
+  box settle, then take **one settled session covering block, loop, parse-only and tokenize
+  together**, so both gates and every component read from the same load-matched pair rather than
+  two sessions at different loads. The rule exists to stop load deciding gates; the schedule
+  should respect it rather than discover it.
