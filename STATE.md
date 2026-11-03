@@ -74,6 +74,9 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   fixed, 0 standing limits). Goal 3 DONE (f5e7088; LIMITS.md 15 rows, both
   disciplines in preamble, research-verified; make verify 5/5 in-tree).
   Remaining: goal 6 rewrite + read-path order.
+  Goal 6 PRE-REGISTERED (57aec57, LOG only, no engine code): mechanism >
+  calibrated band, W9 ≤60x reference, parse loop ≥50%, parity = 293/293 + same
+  fuzz counts + verify 5/5 + round-3 battery. Build pending.
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
