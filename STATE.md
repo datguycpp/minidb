@@ -85,6 +85,8 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   gate ≤259.0; load-matched-pair calling rule (|Δload|≤1.0 else INCONCLUSIVE);
   loud capture kept as contrast. Scope note: gate 3 needs whole per-statement
   chain, not parser alone. Build open.
+  Scope FIXED pre-edit (0c7575f, engine clean): gate 3 targets whole
+  per-statement chain; C path behind measured APIs (BTree.scan/record.decode).
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
