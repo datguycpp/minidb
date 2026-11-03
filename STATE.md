@@ -80,14 +80,14 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   Baselines FROZEN (d50a2f8, LOG+script only, engine clean): parse median
   8430.8ms (gate ≤4215), block median 784.0ms (38% spread); gate-3 shape
   amended pre-result (10k all-distinct, LRU citation). Build open.
-  Quiet RE-CAPTURE adopted (898e730, engine clean verified): loadavg 2.00,
-  parse-only 1626.3 (41.6% of loop), loop 3905.4 → gate ≤1952.7, block 329.1 →
-  gate ≤259.0; load-matched-pair calling rule (|Δload|≤1.0 else INCONCLUSIVE);
-  loud capture kept as contrast. Scope note: gate 3 needs whole per-statement
-  chain, not parser alone. Build open.
+  Quiet floor (898e730, clean, loadavg 2.00): parse-only 1626.3 (41.6%), loop
+  3905.4 → gate ≤1952.7, block 329.1 → gate ≤259.0; matched-pair rule
+  (|Δload|≤1.0 else INCONCLUSIVE). Scope: gate 3 = whole chain. Build open.
   Scope FIXED pre-edit (0c7575f, clean): gate 3 = whole chain; C behind APIs.
   Fuzz anchor (a74294e, clean): seeds 1/7 structured 0/0. Profile (7e49ac5):
   lexer 57% of parse; both halves required, chain ≈45% cut load-bearing.
+  First change (a7f8d89, verified 562+293): Token.upper once — parse −5.6%,
+  not gate progress; KEYWORD-only attempt failed 172 tests, suite caught it.
 
 ## Open items
 - Read-path order: SUBSUMED by goal 6's gates (gate 2 ≤60x forces candidate (a);
