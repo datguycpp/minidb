@@ -154,7 +154,7 @@ def r1_setup(tag, workdir):
     primary.close()
     pre_sha = sha256_file(rp)
     primary_sha = sha256_file(pp)
-    acknowledged = rows_of(pp, "SELECT count(*) FROM t")
+    acknowledged = rows_of(pp, "SELECT count(*) FROM t")[0]   # scalar, not the row
     return d, pp, rp, pre_sha, primary_sha, acknowledged
 
 
@@ -204,9 +204,14 @@ def r1(workdir):
         if rc != -signal.SIGKILL:
             err = (proc.stderr.read() or "").strip()
             violate(f"R1 it{i}: victim exit {rc} expected -9; stderr={err[:300]!r}")
-        state_sha = sha256_file(rp)
-        state = ("pre" if state_sha == pre_sha
-                 else "post" if state_sha == primary_sha else "OTHER")
+        state_sha = sha256_file(rp)        # None = the file is absent
+        if state_sha is None:
+            state = "MISSING"
+            violate(f"R1 it{i}: replica file ABSENT after kill (resolve's "
+                    f"unlink-rename window) — not pre, not post")
+        else:
+            state = ("pre" if state_sha == pre_sha
+                     else "post" if state_sha == primary_sha else "OTHER")
         say(f"R1 it{i} delta={delta * 1000:.2f}ms rc={rc} state={state}")
         if state == "OTHER":
             violate(f"R1 it{i}: replica state neither pre nor post "
@@ -258,8 +263,10 @@ def r2(workdir):
             if seqs != list(range(1, len(seqs) + 1)):
                 violate(f"R2 it{i}: torn parse has a gap: {seqs}")
             page_limit = os.path.getsize(pp)
+            # page ids are zero-based (established by the landed test's
+            # tightened assertion); page pid occupies [pid*4096, (pid+1)*4096)
             bad = [pid for _, pages in records for pid in pages
-                   if pid < 1 or pid * 4096 > page_limit + 4096]
+                   if pid < 0 or (pid + 1) * 4096 > page_limit]
             if bad:
                 violate(f"R2 it{i}: garbage page ids {bad[:5]} "
                         f"(file size {page_limit})")
@@ -456,8 +463,12 @@ def r5(workdir):
     seed_payload(primary, rows=40)
     replica = Replica(rp)
     replica.sync(primary)
-    primary.run("INSERT INTO t VALUES (91001, 'in-flight-a')")
-    primary.run("INSERT INTO t VALUES (91002, 'in-flight-b')")
+    # one batch big enough that stratified SIGKILL delays have a real window
+    # to land in: a single 100-row transaction (~22 pages of apply work)
+    primary.run("BEGIN")
+    for i in range(100):
+        primary.run(f"INSERT INTO t VALUES ({92000 + i}, '{'x' * 900}')")
+    primary.run("COMMIT")
     base_seq = replica.marker()[0]
     batch = primary.batches_since(base_seq)[0]
     primary.close()
@@ -473,6 +484,10 @@ def r5(workdir):
     post_sha = sha256_file(shadow)
     say(f"R5 control: D5={D5 * 1000:.1f}ms post!=pre={post_sha != pre_sha}")
     os.remove(shadow)
+    if post_sha == pre_sha:
+        raise RuntimeError("R5 control: apply left the file byte-identical "
+                           "(pre==post) — window unmeasurable, refusing "
+                           "to run blind")
 
     rng = random.Random(SEED + 5)
     for i in range(15):
@@ -560,19 +575,26 @@ def main():
     say(f"seed: {SEED}  hang bound: {HANG}s  "
         f"counts: R1 10+1, R2 12, R3 5x20, R4 3, R5 15+1, R6 3")
     workdir = tempfile.mkdtemp(prefix="sk2-repl-")
+    probe_errors = []
     try:
-        r1(workdir)
-        r2(workdir)
-        r3(workdir)
-        r4(workdir)
-        r5(workdir)
-        r6(workdir)
+        for name, fn in (("R1", r1), ("R2", r2), ("R3", r3),
+                         ("R4", r4), ("R5", r5), ("R6", r6)):
+            try:
+                fn(workdir)
+            except Exception as exc:  # noqa: BLE001 - instrument defect
+                probe_errors.append(f"{name}: {exc!r}")
+                say(f"PROBE-ERROR {name}: {exc!r}")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
-    print(f"violations: {len(VIOLATIONS)}")
+    for item in probe_errors:
+        print(f"  PROBE-ERROR {item}")
+    print(f"violations: {len(VIOLATIONS)}  probe errors: {len(probe_errors)}")
     if VIOLATIONS:
         print("RESULT: FAIL")
         return 1
+    if probe_errors:
+        print("RESULT: ERROR")
+        return 2
     print("RESULT: PASS")
     return 0
 

@@ -1,8 +1,9 @@
 """Skeptic round 2, surface 2 — concurrent clients against the M30 server.
 
-Pre-registered in LOG.md before this file existed: 5 seeded rounds of four
-phases, socket timeout 10 s (hang bound). Violation = any response outside its
-phase's allowlist, any timeout, any count mismatch.
+Pre-registered in LOG.md: 5 rounds (labels 20261103+round — no RNG: thread
+interleaving is the declared nondeterminism) of four phases, socket timeout
+10 s. Violation = any response outside its phase's allowlist, any timeout,
+any count mismatch.
 
   P1  readers during an open transaction answer only from
       {pre-state rows, post-commit rows, typed `database is locked`}
@@ -14,7 +15,13 @@ phase's allowlist, any timeout, any count mismatch.
       every answer satisfies sum == 7 * count with count in [50, 80]
       (`database is locked` allowed and counted; anything else is a violation)
 
-Raw per-op lines; summary block; exit 1 on any violation.
+Round-1 defect note (re-authored, disclosed): the v1 allowlist was a set of
+tuples containing lists — unhashable — and crashed before any phase ran, so
+the 5x4 matrix produced no evidence. It is a list now, and phase-level crashes
+are recorded as PROBE-ERROR (exit 2) instead of killing the run, so one
+instrument defect cannot zero the matrix again.
+
+Raw per-op lines; summary block. Exit 1 on violations, 2 on probe errors only.
 """
 import json
 import os
@@ -32,6 +39,7 @@ SEED_BASE = 20261103
 ROUNDS = 5
 TIMEOUT = 10.0
 VIOLATIONS = []
+PROBE_ERRORS = []
 LOCKED = "database is locked"
 
 
@@ -102,7 +110,8 @@ def run_phase1(host, port, rnd):
         if t.is_alive():
             violate(f"r{rnd} P1 reader thread hung")
 
-    allowed_during = {("rows", [[100]]), ("err", LOCKED)}
+    # list, not set: the row payloads are lists (unhashable) — round-1 defect
+    allowed_during = [("rows", [[100]]), ("err", LOCKED)]
     for item in during:
         say(f"r{rnd} P1 during {item}")
         if item not in allowed_during:
@@ -113,7 +122,7 @@ def run_phase1(host, port, rnd):
         violate(f"r{rnd} P1 COMMIT errored: {commit['error']!r}")
     writer_sock.close()
 
-    for i in range(4):
+    for _ in range(4):
         resp = one_shot(host, port, "SELECT count(*) FROM p1")
         say(f"r{rnd} P1 after {resp}")
         if "error" in resp or resp["rows"] != [[101]]:
@@ -152,8 +161,8 @@ def run_phase2(host, port, rnd):
 
     for thread_id, op, tag in outcomes:
         say(f"r{rnd} P2 t{thread_id} op{op} {tag}")
-        if tag != "ok" and tag != "locked":
-            violate(f"r{rnd} P2 outcome {tag!r} outside {ok|locked}")
+        if tag not in ("ok", "locked"):
+            violate(f"r{rnd} P2 outcome {tag!r} outside ok|locked")
 
     count = one_shot(host, port, "SELECT count(*) FROM p2")
     say(f"r{rnd} P2 final count={count} successes={successes[0]}")
@@ -206,18 +215,16 @@ def run_phase4(host, port, rnd):
     one_shot(host, port, "DELETE FROM p4")
     one_shot(host, port, "INSERT INTO p4 VALUES " + ",".join("(7)" for _ in range(50)))
 
-    done = threading.Event()
     locked_seen = [0]
 
     def writer():
-        for i in range(30):
+        for _ in range(30):
             try:
                 resp = one_shot(host, port, "INSERT INTO p4 VALUES (7)")
                 if "error" in resp and not is_locked(resp):
                     violate(f"r{rnd} P4 writer error {resp['error']!r}")
             except Exception as exc:  # noqa: BLE001
                 violate(f"r{rnd} P4 writer raised {exc!r}")
-        done.set()
 
     def reader(thread_id):
         for op in range(20):
@@ -257,6 +264,10 @@ def run_phase4(host, port, rnd):
         violate(f"r{rnd} P4 final state {final!r} != [[80, 560]]")
 
 
+PHASES = (("P1", run_phase1), ("P2", run_phase2),
+          ("P3", run_phase3), ("P4", run_phase4))
+
+
 def main():
     server = serve(port=0)
     host, port = server.server_address
@@ -264,26 +275,32 @@ def main():
     thread.start()
     say(f"command: {' '.join(sys.argv)}")
     say(f"server: {host}:{port}  rounds: {ROUNDS}  "
-        f"seeds: {SEED_BASE}..{SEED_BASE + ROUNDS - 1}  timeout: {TIMEOUT}s")
-    say("note: seeds name the rounds for the record; the phases are "
-        "deterministic in structure — thread interleaving is the variable")
+        f"labels: {SEED_BASE}..{SEED_BASE + ROUNDS - 1}  timeout: {TIMEOUT}s")
+    say("note: thread interleaving is the nondeterminism; there is no RNG")
 
     try:
         for rnd in range(ROUNDS):
-            say(f"--- round {rnd} (seed {SEED_BASE + rnd}) ---")
-            run_phase1(host, port, rnd)
-            run_phase2(host, port, rnd)
-            run_phase3(host, port, rnd)
-            run_phase4(host, port, rnd)
+            say(f"--- round {rnd} (label {SEED_BASE + rnd}) ---")
+            for name, fn in PHASES:
+                try:
+                    fn(host, port, rnd)
+                except Exception as exc:  # noqa: BLE001 - instrument defect
+                    PROBE_ERRORS.append(f"r{rnd} {name}: {exc!r}")
+                    say(f"  PROBE-ERROR r{rnd} {name}: {exc!r}")
     finally:
         server.shutdown()
         server.server_close()
 
+    for item in PROBE_ERRORS:
+        print(f"  PROBE-ERROR {item}")
     print(f"rounds: {ROUNDS}  phases per round: 4  "
-          f"violations: {len(VIOLATIONS)}")
+          f"violations: {len(VIOLATIONS)}  probe errors: {len(PROBE_ERRORS)}")
     if VIOLATIONS:
         print("RESULT: FAIL")
         return 1
+    if PROBE_ERRORS:
+        print("RESULT: ERROR")
+        return 2
     print("RESULT: PASS")
     return 0
 
