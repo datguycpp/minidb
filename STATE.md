@@ -42,10 +42,12 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
 - Tier-6 CLOSED. Post-close items LANDED: rowid aliasing (f0ef025), Gap 2
   resolver (d46618e), W9 in default list (7ec0c1f). Read-path brief measured,
   UN-ORDERED (docs/readpath-prework.md).
-- Zero open items from Phase-1 close. Skeptic round 1 ran (25/32; 2 regressions
-  fixed + PK-NULL aligned; 7 FAILs open for research triage: 16/19/20/21
-  collation-affinity family, 22 output-alias ORDER BY, 25 zeroblob, 30 rowid
-  write declared-out).
+- Skeptic round 1 CLOSED on fix side (31/32; only case 30 declared-out remains;
+  6 findings fixed e8aaba2, cold-verified; 562 tests. Triage corrected case 16
+  direction: NOCASE over-folds non-ASCII → narrowed to ASCII). Charter note: a
+  force-push by the build lane (own commit only, parent intact) is recorded as
+  a boundary violation with no exception — the compliant move was LOG note.
+  Round 2 pre-registered (SIGKILL VACUUM, concurrency, replication probes).
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
