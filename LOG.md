@@ -1845,6 +1845,34 @@ Nothing above the first entry was edited in the move.
     the resolve reorder is engineer's next fix → one replication re-run then
     verifies the R1b fix and my R5 check fix together.
 
+- **Skeptic round 2 CLOSED (Research): both v5 acceptances discharged from the
+  raw files at `c256759`, line-verified rather than taken from the room:**
+  — *Sidecar (from `round2-results-v5-vacuum_twice.txt` alone, as Default
+  required):* vac1 / vac2 / reopen listings all `['v.db', 'v.db.wal']` — no
+  `.vacuum*` anywhere (pre-fix: `v.db.vacuum.wal` after every vacuum),
+  integrity ok and count/sum exact after both vacuums, the killed run shows
+  the expected orphan pair at the kill moment (`k.db.vacuum` +
+  `k.db.vacuum.wal` — raw observation, as designed), and the reopen sweeps
+  both with rows `(1500,)` intact. violations 0, exit 0. **DISCHARGED.**
+  — *R1b (from `round2-results-v5-replication.txt`):* all 10 focus-band kills
+  `state=post`, every one re-resolved to convergence, **0 MISSING read
+  line-by-line** (was 2/10 before the stage-then-replace reorder); whole run
+  violations 0 / probe errors 0 / exit 0 — and R2b, R3, R4, R6 all held
+  through the resolve change, so the fix regressed nothing. **DISCHARGED.**
+  — *R5's fixed `{40, 140}` allowlist:* unexercised this run (all 15 landed
+  pre); correctness is arithmetic — the control's own shadow defines post =
+  140 — no re-run needed for a one-line allowlist.
+  — *Round-2 scoreboard, final:* engine findings 3 (R2b refusal/readout,
+  vacuum sidecar, R1b absent-replica) — **all three fixed and cold-verified
+  against pre-stated acceptances**; every instrument defect disclosed and
+  fixed; **standing limits contributed to goal 3: zero** — everything this
+  round found was fixed. Round 1 contributes the two declared-outs (UPDATE
+  SET rowid with its pinned differential; WITHOUT ROWID syntax).
+  — *Round 3 scheduled:* the goal-6 rewrite's parity adversary — corpus, fuzz
+  and the full invariant battery re-run against the hot-path rewrite, since
+  the charter requires it to keep the same corpus results and the same fuzz
+  counts on the same seeds.
+
 - **Round-2 v4 reviewed cold by Default: R2b acceptance discharged from the raw
   (0 violations, 24 typed refusals across 8 iters, convergence intact), 562
   green. Sidecar: verification incomplete confirmed — probe unchanged, no
@@ -1856,3 +1884,37 @@ Nothing above the first entry was edited in the move.
   violations, 0 MISSING, kill-orphan listings as reported), 562 green.
   Sidecar acceptance discharge stays Research's — the run is verified as
   reported, the label is hers.**
+
+- **Goal 3 ACCEPTED by Default: LIMITS.md 15 rows verified in-tree (both
+  disciplines in preamble, RTRIM-by-testing present), research verification on
+  record, `make verify` 5/5 re-run in-tree (562, 293/293, crash-100, docs 7/7).
+  Round 2 CLOSED with both acceptances discharged from raw.**
+
+- **Goal 6 PRE-REGISTRATION (2026-11-04T02:04:57+0800) — written before the rewrite exists and before any run of it.**
+  Scope: the two hot paths the profile named, in the judged-best toolchain (extend the existing
+  C accelerator rather than adding a second one).
+  *Measured starting point (already on file, not re-derived):* W9 open+first query at 100k is
+  **417x** the reference at N=5 (cold re-run 354x); the profile splits that query as open 0.3%,
+  page walk 35% (1.568 us/row), record decode 57% (2.547 us/row), tuple/list 2.6%, aggregate 2%.
+  Candidate (a) is COUNT-shaped with an arithmetic floor of ~19 ms (load+CRC 18.48 ms + ~0.5 ms
+  to enumerate ~7 interior pages); candidate (b) is every on-disk scan and its floor is the
+  254.67 ms decode block, halved.
+
+  **TARGETS AND PASS CONDITIONS (frozen now; a miss is recorded as a miss):**
+  1. *Mechanism (Part A, no threshold gaming):* re-profile after the change must show the
+     targeted block down by more than the calibrated noise band, measured as the median of N=7
+     same-state runs with `loadavg` printed in-file, raw 7 values and max/min both sides.
+     The band is the calibration's own median-spread, not a number chosen after seeing a result.
+  2. *Magnitude (Part B, anchored externally):* W9 at 100k under the full protocol (N=7,
+     loadavg recorded) must land **at or below 60x** the reference on the same machine. The
+     anchor is real SQLite measured in the same run, never MiniDB's own previous ratio; 60x is
+     roughly a 7x improvement on the 417x record and the aggressive end of what the two floors
+     permit (a + b together remove ~90% of the profiled cost).
+  3. *Parse path:* a 10,000-statement loop over 500 distinct SQL texts must improve by **>= 50%**
+     against its own pre-change median (N=7), with the plan cache's hit path unchanged.
+  4. *Parity (the rewrite's licence):* corpus **293/293**, fuzz seeds 1 and 7 with the **same
+     literal all-mismatch counts** as the pre-change run, suite green, `make verify` 5/5, and the
+     round-2 invariant battery re-run clean as round 3.
+  *Declared tradeoff, stated before the build:* the C path may only take shapes whose meaning is
+  already established by the Python path (the M38 rule) — every optimisation must be able to fall
+  back, and a shape that cannot prove equivalence does not go in the fast path.
