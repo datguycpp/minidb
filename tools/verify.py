@@ -166,9 +166,18 @@ def main():
             if result["ok"]:
                 continue
             print()
-            print("---- %s: raw output tail " % name + "-" * (50 - len(name)))
-            tail = [line for line in result["tail"].splitlines() if line.strip()][-25:]
-            for line in tail:
+            print("---- %s: raw failure output " % name + "-" * (48 - len(name)))
+            lines = [line for line in result["tail"].splitlines() if line.strip()]
+            # The score lines at the end of a harness's output are the summary; the mismatch that
+            # caused the failure sits above them. Show the diagnostic lines first, then the tail,
+            # so a failure is readable rather than merely present.
+            diagnostic = [line for line in lines
+                          if re.search(r"\bFAIL\b|\bERROR\b|DISCARD|Traceback|mismatch", line)]
+            for line in diagnostic[:20]:
+                print("  " + line)
+            if diagnostic:
+                print("  ...")
+            for line in lines[-12:]:
                 print("  " + line)
 
     return 0 if not failed else 1

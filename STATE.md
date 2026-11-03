@@ -69,8 +69,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
 - Fuzzer dialect = 16 features | wider surface unfuzzed | spec | declared.
 
 ## Next tasks (Phase-2 order, reasons in LOG.md)
-1. `make verify`: one command (tests, corpus, crash sweep, docs examples, clean
-   clone) printing one summary block with raw counts + git revision.
+1. ~~`make verify`~~ **DONE** — `make verify` runs build + tests + corpus + crash
+   sweep + docs and prints one summary block with raw counts and the revision;
+   verified from a fresh clone (54 s, 5/5) and its failure path on a labelled
+   fixture clone (exit 1, mismatch line named).
 2. Skeptic round (Research adversarial): each finding becomes a corpus case or a
    LIMITS.md entry; zero findings explained.
 3. docs/LIMITS.md: every partial/limit/divergence in one table (extends above).
@@ -78,8 +80,14 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
 5. Performance: hot paths (on-disk scan, per-statement parsing) in the judged-best
    toolchain; parity rules hold (same corpus, same fuzz counts on same seeds).
 
-## How to verify (until `make verify` lands)
-- `python3 -m unittest discover -s tests` (554 green).
+## How to verify
+- **`make verify`** — one command, one summary block, raw counts, git revision.
+  Stages: build (optional C accelerator; SKIP without a compiler), tests, corpus,
+  crash sweep (`--iterations`, default 100), docs examples. Exit 0 only when every
+  stage passes; a failing stage prints FAIL, keeps its counts, and reproduces its
+  raw failure output below the table.
+- The same stages individually:
+  `python3 -m unittest discover -s tests` (554 green).
 - `python3 tools/behavior_conformance.py` (293/293).
 - `python3 tools/replication_check.py` (tail: 12/12 sites, 0 failures).
 - `python3 tools/docs_runner.py` (docs examples; M33 bidirectional drift assertion).

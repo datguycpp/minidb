@@ -1382,3 +1382,25 @@ Nothing above the first entry was edited in the move.
   300 (79 s measured); `--iterations` raises it. Rationale: `make verify` must be cheap
   enough that people run it, and 100 still covers 100 distinct random crash points.
   *Threshold:* none — this goal has no performance claim, so nothing to anchor.
+
+- **Goal 2 DONE (2026-11-03T21:57:33+0800) — `make verify`, pre-registration above honoured.**
+  *Clean-clone run* (`git clone` of the commit, no `.so`, no `__pycache__`):
+  `[OK] build 0.8s · tests 554 tests, 0 failures, 0 errors · corpus 293/293 across
+  21 files · crash 100/100 iterations clean · docs 7/7 blocks ran, 16 skipped`,
+  `RESULT: PASS (5/5)`, revision printed, 54 s wall clock.
+  *Failure path* — demonstrated on a **labelled fixture clone** (`/tmp/verify-broken`,
+  NOT this tree): one corpus case appended that MiniDB cannot pass, then
+  `make verify` → **exit 1**, `[FAIL] corpus 293/294`, summary `RESULT: FAIL`,
+  and the diagnostic line reproduced under the table
+  (`FAIL tests/corpus/t1a.txt case 23: CREATE TABLE wr ... WITHOUT ROWID`).
+  Failures are printed with counts, never absorbed.
+  *Bug found in my own first run, disclosed:* the corpus file count printed
+  `across 0 files` because the per-file regex was anchored to column 0 while the
+  harness indents its score lines; fixed and re-verified (21 files).
+  *Two declared-limit divergences surfaced while hunting a fixture mismatch* (not
+  caused by this goal; both belong in `docs/LIMITS.md` at goal 3):
+  `CREATE TABLE ... WITHOUT ROWID` → MiniDB `syntax error` where SQLite accepts;
+  `UPDATE t SET rowid = 9` → MiniDB `no such column: rowid` where SQLite renumbers
+  the key. Both are already named as t6d/scope-outs in the limits table; they are
+  recorded here because a fixture hunt found them by accident, which is the class
+  of finding `make verify` exists to make cheap to re-check.
