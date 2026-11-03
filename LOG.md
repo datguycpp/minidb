@@ -1918,3 +1918,55 @@ Nothing above the first entry was edited in the move.
   *Declared tradeoff, stated before the build:* the C path may only take shapes whose meaning is
   already established by the Python path (the M38 rule) — every optimisation must be able to fall
   back, and a shape that cannot prove equivalence does not go in the fast path.
+
+- **Skeptic round 3 PRE-REGISTERED by Research (before the goal-6 build exists, so triage
+  cannot drift after results):**
+  *Scope — the full committed battery, not only round 2's:* `round1.txt` (32 differential
+  blocks), `round2_kill9.py`, `round2_concurrent.py`, `round2_replication.py`,
+  `round2_vacuum_twice.py`, each run at the build's revision with the standard header
+  (command, revision, pinned oracle, date). Round 1 is in scope deliberately: gate 3 rewrites
+  the parse path, and round 1 is where alias resolution, error texts, collation and affinity are
+  pinned — gate 4's phrase "round-2 invariant battery" reads as this full set, matching the
+  room message's "the parity battery … as round 3".
+  *Expected outcomes, frozen now — a deviation is a parity finding:*
+  — round1: **31/32** — case 30 (`UPDATE SET rowid`) is the only permitted failure; any other
+  failure = rewrite regression = gate-4 failure.
+  — kill9: **zero engine violations**. The known K5 timing miss (an in-window victim
+  completing before its scheduled kill — v2's `in-29`) is **pre-classified instrument**, exactly
+  as v2 triaged it: if it recurs it is a coverage note, never a rewrite regression.
+  — concurrent: **PASS** (the P3 model as fixed).
+  — replication: **0 violations / 0 probe errors**, all eight surfaces as verified at v5 —
+  R1 8-pre/2-post, R1b post-only with convergence, R2 prefix-parse, R2b typed refusals
+  every time, R3 converged 5/5, R4 named refusals, R5 states within {40, 140}, R6 idempotent.
+  — vacuum_twice: **PASS**, five listings, no `.vacuum*` after completion or reopen, the killed
+  pair swept at open.
+  *Classification, pre-stated:* any violation on a probe that was clean at its last verified run
+  = rewrite regression = parity-gate failure; instrument defects keep the round-1 taxonomy (raw
+  disclosed, re-authored by me, never edited by the fix side); the zero rule carries — coverage
+  counts reported per probe either way.
+  *Sequencing notes to the build (not changes to its frozen gates):* (1) the gate-1 calibration
+  and the gate-3 parse baseline must be measured and recorded **at the pre-rewrite revision
+  before the first engine edit** — a baseline captured after editing begins is not pre-change;
+  (2) nothing else in the build's entry needs amendment — its four gates audit clean (the
+  same-run SQLite anchor in gate 2 is the charter's external-anchor rule satisfied verbatim).
+  *Execution:* engineer's shell as throughout; the delegation pin remains unfixed on my side.
+
+- **Goal 6, gate-3 shape amended + both baselines frozen at `1832abe` (2026-11-04T02:32:11+0800), before any engine edit.**
+  *Amendment, with its reason and citation (threshold untouched):* gate 3's loop is now **10,000
+  statements over 10,000 all-distinct texts** on a three-row fixture, not 500 distinct. Reason:
+  `engine.py:894` puts `@lru_cache(maxsize=1024)` on `_parse_cached`, so 500 distinct texts parse
+  once each and the remaining statements are hit-path — a ≥50% pass on that shape would credit
+  parse for a fetch/execute win. All-distinct forces every statement through the parser, which is
+  what the gate is named for. The 10,000 count is unchanged from the pre-registration; the earlier
+  2,000-vs-10,000 slip is reconciled here in the same line.
+  *Three instrument errors found and fixed before any number was recorded (mine, disclosed):* a
+  100k-fixture scan inside the parse loop (measured row work, timed out); `BTree(pager, 2)` from a
+  stale signature; `record.decode(payload, [])` likewise. None touched the engine.
+  **Frozen baselines at `1832abe` (pre-change, `loadavg` 5.77):**
+  - `PARSE` — 10k all-distinct statements, N=7 ms: `7031.1, 8141.0, 8155.0, 8430.8, 8730.4, 11138.5, 11908.9`;
+    **median 8430.8**, min 7031.1, max 11908.9 (spread 58%).
+  - `BLOCK` — 100k-row page walk + `record.decode`, N=7 ms: `727.1, 772.5, 780.2, 784.0, 825.9, 987.4, 1022.9`;
+    **median 784.0**, min 727.1, max 1022.9 (spread 38%).
+  Both spreads are wider than the ~16% band that started this argument and are the calibration gate 1
+  must beat: a targeted block down inside 38–58% proves nothing. Ceiling: parse must reach ≤4215 ms
+  (≥50%); the block must fall outside its own spread before its magnitude counts.
