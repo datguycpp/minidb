@@ -1919,6 +1919,33 @@ Nothing above the first entry was edited in the move.
   already established by the Python path (the M38 rule) — every optimisation must be able to fall
   back, and a shape that cannot prove equivalence does not go in the fast path.
 
+- **Goal-6 baseline validity conditions (Research, pre-build — conditions for CALLING gates 1
+  and 3; thresholds untouched, same status as the round-3 sequencing notes):**
+  *Verified arithmetic from the frozen capture:* parse median 8430.8 → gate-3 ceiling
+  ≤ 4215.4 ms (engineer's 4215 ✓); band = (max − min) / median = 57.9% (parse) and 37.7%
+  (block) → gate 1's block must land ≤ ≈ 488 ms (down ≥ 37.7%). Both ceilings are derived
+  from the baseline by definition, not independently chosen.
+  *The hole:* gates 1 and 3 compare across TIME (frozen baseline vs post-run); gate 2 is
+  same-run against real SQLite and therefore immune — which is exactly why the charter
+  anchors externally in-run. The baselines were captured at **loadavg 5.77**: the block
+  median 784 ms is ≈ 1.9× the profiled 411 ms for the same work, and the parse loop runs
+  0.84 ms/statement against ~0.1 ms expected — load artifacts of the same class as
+  W4/W5/W8's +26% at loadavg 3.4. A quiet post-run could "pass" gate 3 without parse
+  improving; a loaded one could bury a real gate-1 win inside a 38% band.
+  *Conditions, frozen before the build:*
+  (1) **A gate is called only on a load-matched pair:** |loadavg_post − loadavg_baseline|
+  ≤ 1.0 between the two N=7 runs (tolerance anchored to the project's own +26%-at-3.4
+  sensitivity). On mismatch the gate result is INCONCLUSIVE — neither pass nor miss — and
+  **both sides re-run at a chosen matched load**; the baseline side runs from a worktree of
+  the frozen pre-change revision (committed, engine-clean per Default), so the comparison
+  is always same-load. Time travel is free; an unmatched pair is not a result.
+  (2) *Optional upgrade while the engine is untouched:* re-capture both baselines in a quiet
+  window for a tighter, more sensitive band — the ceiling follows the median by definition,
+  so a re-capture restates derived numbers, never thresholds.
+  (3) *Enrichment if cheap:* record parse-only and db.run()-only medians beside the loop
+  median, so any gate-3 pass or miss is attributable to a component instead of argued —
+  the misattribution the shape amendment already prevented, pre-empted at the number level.
+
 - **Skeptic round 3 PRE-REGISTERED by Research (before the goal-6 build exists, so triage
   cannot drift after results):**
   *Scope — the full committed battery, not only round 2's:* `round1.txt` (32 differential
@@ -1970,3 +1997,23 @@ Nothing above the first entry was edited in the move.
   Both spreads are wider than the ~16% band that started this argument and are the calibration gate 1
   must beat: a targeted block down inside 38–58% proves nothing. Ceiling: parse must reach ≤4215 ms
   (≥50%); the block must fall outside its own spread before its magnitude counts.
+
+- **Goal 6, quiet re-capture adopted (2026-11-04T02:42:05+0800, revision `d89f689`, engine still untouched).**
+  Research's load finding was right and the numbers prove it: the same work at loadavg **2.00**
+  instead of 5.77 lands at **40% of the time** — the first capture was a load artifact inside a
+  frozen reference, exactly the acquisition-independence failure the round-2 rules were written
+  for. Quiet baselines are now the ones gates 1 and 3 are called against, with the 5.77 capture
+  kept on file as the loud-box contrast rather than deleted.
+  **Frozen baselines at `d89f689`, loadavg 2.00, N=7, enrichment included:**
+  - `PARSEONLY` (parser alone, cache cleared per run) ms: `1428.8, 1514.4, 1577.6, 1626.3, 1637.3, 1815.1, 1890.3`
+    — **median 1626.3**, min 1428.8, max 1890.3, spread **28.4%**.
+  - `LOOP` (gate 3's subject: 10k all-distinct `db.run`) ms: `3726.0, 3815.5, 3892.0, 3905.4, 4052.7, 4406.7, 4451.3`
+    — **median 3905.4**, min 3726.0, max 4451.3, spread **18.6%**. **Ceiling: ≤1952.7 ms.**
+  - `BLOCK` (gate 1's subject: 100k-row walk + decode) ms: `306.7, 311.8, 320.7, 329.1, 348.6, 365.7, 376.7`
+    — **median 329.1**, min 306.7, max 376.7, spread **21.3%**. **Ceiling: ≤259.0 ms.**
+  *Component attribution now exists*: parse is **41.6%** of the loop's median (1626.3 / 3905.4), so a
+  gate-3 pass or miss can be attributed rather than argued.
+  *Calling conditions (Research's, adopted):* gates 1 and 3 are called only on a load-matched pair
+  (|Δloadavg| ≤ 1.0); a mismatch is INCONCLUSIVE and both sides re-run, the baseline side from the
+  frozen pre-change revision. Thresholds unchanged: the ceilings are derived from these medians,
+  so a re-capture moves the ceiling and never the rule.
