@@ -33,6 +33,12 @@ real tree.scan            143.57 ms    72.7 us/page   1.436 us/row
 cell traversal (scan-parse) 41.00 ms    0.410 us/row
 ```
 
+The `load + CRC` row's "I/O" label is load-plus-verification: every
+uncached page read runs `zlib.crc32` over the payload against its
+stored trailer (`pager.read`, pager.py:216-237), so the 9.4 us/page is
+dominated by checksum verification, not by disk time on a warm cache —
+see candidate (a), where that becomes the floor's substance.
+
 Noise envelope (18 interleaved same-state samples of the two aggregate
 forms): median 378 ms, min 364, max 522 — a 42% span; low band tight
 (min to median 4%), right tail +38%. Corroborating envelope point from
@@ -66,21 +72,32 @@ is weakest (confirmed: load+CRC is 18 ms of the query).
   everything a header-only count needs in its first three bytes —
   `kind = data[0]`, `count = struct.unpack_from("<H", data, 1)`,
   `btree.py:57-60` — so the shape is: read the page through the pager
-  (where the measured 9.4 µs/page load+CRC already comes from), take
-  three bytes from the already-loaded buffer (no extra I/O), keep it if
-  it is a leaf. No cell parse, no key compare, no payload decode. Two
-  correctness conditions: **leaf-only** (an interior page's count is
-  separator pointers, not rows — the discriminator is the kind byte
-  already in hand) and **tree-scoped** (filtering the whole file's page
-  range would also count the catalog's leaves — off by the catalog's
-  rows on a query whose point is exact-and-cheap — and, in a general
-  file, overflow/freelist pages whose first byte can collide; so the
-  target tree's leaves are enumerated via its interior child pointers:
-  ~7 interior pages at 100k (12-byte cells, fanout ~340),
-  sub-millisecond, then header-sum the ~2,000 leaves). Floor = leaf
-  load+CRC (18.48 ms) + interior descent (~0.5 ms) → **~19 ms** (today
-  ~411–446 ms). Pages carry cell counts as validated fields (M27's
-  cell-count fixtures). The floor is arithmetic on this file.
+  (where the measured 9.4 µs/page already comes from), take three bytes
+  from the already-loaded buffer (no extra I/O), keep it if it is a
+  leaf. No cell parse, no key compare, no payload decode. Three
+  conditions make the design total: **leaf-only** (an interior page's
+  count is separator pointers, not rows — the discriminator is the kind
+  byte already in hand); **tree-scoped** (filtering the whole file's
+  page range would also count the catalog's leaves — off by the
+  catalog's rows on a query whose point is exact-and-cheap — and, in a
+  general file, overflow/freelist pages whose first byte can collide;
+  so the target tree's leaves are enumerated via its interior child
+  pointers: ~7 interior pages at 100k (12-byte cells, fanout ~340),
+  sub-millisecond, then header-sum the ~2,000 leaves); and
+  **integrity-preserving** (the path reduces work *above*
+  `pager.read()` — pager.py:216-237 — never below it: that call serves
+  dirty pages first, refuses truncated or corrupt pages, and verifies
+  the v2 CRC on every access, so a direct-seek count would be faster
+  and wrong three ways — miss this session's dirty pages, read pages
+  `read()` refuses, skip the checksum the format promises — while
+  dirty-page consistency and corruption detection ride along free).
+  Floor = leaf load+CRC (18.48 ms, dominated by checksum verification
+  rather than disk time) + interior descent (~0.5 ms) → **~19 ms**
+  (today ~411–446 ms). Pages carry cell counts as validated fields
+  (M27's cell-count fixtures). The floor is arithmetic on this file —
+  and it is M27's integrity priced once per page: the one number in
+  this brief not to optimise, because shaving it trades checksums for
+  speed.
 - **(b) decode path** (every on-disk scan): header-once unpack attacks
   the 254.67 ms block for all scans, not just COUNT. Floor is a design
   parameter, not a file property: it moves with how much of the
@@ -103,7 +120,9 @@ is weakest (confirmed: load+CRC is 18 ms of the query).
 - **Part B (frozen at ordering, with the chosen shape):** W9's first
   query at 100k under the full protocol (N=7, loadavg in-file), anchored
   to the chosen candidate's floor — arithmetic for (a), a declared
-  target for (b) — plus a margin outside the envelope. Secondary lines:
+  target for (b) — plus a margin outside the envelope. For (a) the
+  target sits above the integrity floor with room, so no gate pressure
+  ever points below `pager.read()`. Secondary lines:
   the 4.1 and 7.8 us/row scan constants re-measured so benefits beyond
   W9 show.
 
