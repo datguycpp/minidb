@@ -70,6 +70,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   swept at open, rows intact), replication PASS (0 violations, 0 MISSING —
   R1b 2/10 → 0/10). Sidecar acceptance discharge with research; all four v2
   labels then closed on fix side. 562 green.
+  Round 2 CLOSED (research discharged both acceptances from raw; 3 findings all
+  fixed, 0 standing limits). Goal 3 DONE (f5e7088; LIMITS.md 15 rows, both
+  disciplines in preamble, research-verified; make verify 5/5 in-tree).
+  Remaining: goal 6 rewrite + read-path order.
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
