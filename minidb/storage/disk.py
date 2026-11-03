@@ -109,8 +109,12 @@ class DiskStorage:
         except KeyError:
             raise StorageError(f"no such table: {name}") from None
 
-    def insert_row(self, entry, values):
-        rowid = entry["next_rowid"]
+    def insert_row(self, entry, values, rowid=None):
+        """Insert one row; `rowid` overrides allocation for an explicit or alias-assigned key."""
+        if rowid is None:
+            rowid = entry["next_rowid"]
+        elif rowid >= entry["next_rowid"]:
+            entry["next_rowid"] = rowid + 1
         payload = record.encode(values)
         root = self.tree.insert(entry["root"], rowid, payload)
         entry["root"] = root

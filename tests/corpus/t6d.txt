@@ -1,0 +1,139 @@
+-- t6d (owner: Research; landed by Engineer with the aliasing item). Subject: the
+-- rowid namespace — reads, allocation, holes, renumbering, and the alias's error
+-- texts. Denominator 265 -> 281 (16 cases, pure addition), landed as the item's
+-- conformance surface.
+-- Pre-build baseline was taken by Engineer BEFORE these drafts were written, so
+-- every reference shape below was measured on both sides independently: his
+-- baseline table and this tranche are two readings of the same pinned binary,
+-- which is a two-source check on the surface itself (drafts-first, t2b discipline).
+-- Landing note: case H is a [pin] — byte-identical before and after aliasing (the
+-- INTEGER PRIMARY KEY duplicate keeps its declared-column text).
+--
+-- Declared subset, IN:
+--   * rowid / _rowid_ / oid reads (all three spellings), qualified t.rowid
+--   * WHERE rowid = ? point lookup, rowid > ? range
+--   * explicit INSERT (rowid, ...); next auto = max+1 after an explicit
+--     insert, after a hole, and restarting after a full-table delete
+--   * holes preserved across DELETE
+--   * VACUUM renumbering of rowids
+--   * error texts: explicit duplicate -> UNIQUE constraint failed: t.rowid;
+--     INTEGER PRIMARY KEY duplicate keeps its declared-column text (p.id) --
+--     byte-identical today, must stay identical after aliasing
+--   * shadowing: a real column named rowid/_rowid_/oid wins over the alias
+-- Declared OUT (named, not hidden):
+--   * UPDATE ... SET rowid (reassignment)
+--   * explicit rowid on INTEGER PRIMARY KEY alias tables (write side)
+--   * negative / zero / NULL explicit rowids
+--   * AUTOINCREMENT x explicit-rowid interplay
+--   * WITHOUT ROWID tables (M23 declared limit, unchanged)
+--
+-- Priorities: the empty-table block and the VACUUM blocks go in first. A
+-- naive implementation gets those two wrong in opposite directions — eager
+-- resolution errors where the reference returns zero rows; row-time-only
+-- resolution works on populated tables and passes the empty one vacuously —
+-- so the pair brackets the naive implementation rather than sampling it.
+--
+-- Not a corpus case, declared here for the build: the replication re-test —
+-- primary DELETE + VACUUM (renumbering) -> ship -> replica byte-identical,
+-- SELECT rowid answers equal on both ends, replay idempotent. Lives in
+-- tools/replication_check.py as the item's non-corpus acceptance.
+--
+-- Cases: one blank-line-separated block each: setup, then the assertion
+-- (final statement). Labels: [t] = test, [pin] = pins behaviour that is
+-- byte-identical today (no prediction credit; a break is an investigation).
+
+-- [t] A: the namespace exists — basic read, heading taken from the reference.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y');
+SELECT rowid, a FROM t ORDER BY rowid;
+
+-- [t] B: qualified form.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x');
+SELECT t.rowid FROM t;
+
+-- [t] C1: _rowid_ alias spelling.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y');
+SELECT _rowid_ FROM t ORDER BY _rowid_;
+
+-- [t] C2: oid alias spelling.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y');
+SELECT oid FROM t ORDER BY oid;
+
+-- [t] D (priority): empty table. Reference answers zero rows; an eager
+-- implementation errors here, a phantom-column implementation diverges on the
+-- column list if the harness compares it (see tranche note at landing).
+CREATE TABLE e (a TEXT);
+SELECT rowid FROM e;
+
+-- [t] E1: point lookup by rowid — the shape the frozen acceptance prices.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y'), ('z');
+SELECT a FROM t WHERE rowid = 2;
+
+-- [t] E2: rowid range.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y'), ('z');
+SELECT a FROM t WHERE rowid > 1 ORDER BY rowid;
+
+-- [t] F: explicit insert, then an auto insert — next auto = max+1 (8), not 3.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y');
+INSERT INTO t (rowid, a) VALUES (7, 'z');
+INSERT INTO t (a) VALUES ('w');
+SELECT rowid, a FROM t ORDER BY rowid;
+
+-- [t] G: explicit duplicate — error names t.rowid.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x');
+INSERT INTO t (rowid, a) VALUES (1, 'dup');
+
+-- [pin] H: INTEGER PRIMARY KEY duplicate keeps the declared-column text.
+-- Byte-identical today; aliasing must not start reporting p.rowid here.
+CREATE TABLE p (id INTEGER PRIMARY KEY, a TEXT);
+INSERT INTO p VALUES (1, 'x');
+INSERT INTO p VALUES (1, 'y');
+
+-- [t] I: holes preserved — delete the middle row, rowid 2 stays gone.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y'), ('z');
+DELETE FROM t WHERE a = 'y';
+SELECT rowid, a FROM t ORDER BY rowid;
+
+-- [t] I2: allocation skips the hole — next auto = max+1 (4), not 2.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y'), ('z');
+DELETE FROM t WHERE a = 'y';
+INSERT INTO t (a) VALUES ('w');
+SELECT rowid FROM t ORDER BY rowid;
+
+-- [t] J: full-table delete restarts numbering at 1.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y');
+DELETE FROM t;
+INSERT INTO t (a) VALUES ('z');
+SELECT rowid FROM t;
+
+-- [t] K (priority): VACUUM renumbers — 2,3 become 1,2 after the hole at 1
+-- is reclaimed.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y'), ('z');
+DELETE FROM t WHERE a = 'x';
+VACUUM;
+SELECT rowid, a FROM t ORDER BY rowid;
+
+-- [t] K2: allocation after a renumbering VACUUM follows the NEW numbering.
+CREATE TABLE t (a TEXT);
+INSERT INTO t VALUES ('x'), ('y'), ('z');
+DELETE FROM t WHERE a = 'x';
+VACUUM;
+INSERT INTO t (a) VALUES ('w');
+SELECT rowid, a FROM t ORDER BY rowid;
+
+-- [t] L: shadowing — a real column named rowid wins over the alias, so the
+-- user's value comes back, not the physical key.
+CREATE TABLE s (rowid TEXT, a TEXT);
+INSERT INTO s VALUES ('shadow', 'v');
+SELECT rowid, a FROM s;

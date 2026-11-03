@@ -132,6 +132,32 @@ def probe(primary, replica_path):
     print(f"  vacuum rebuild     : {size_before} -> {size_after} bytes (shrank: "
           f"{size_after < size_before}), shipped as a checkpoint; replica == primary: "
           f"{sha256_file(replica_path) == primary.sha()}")
+
+    # 8. rowid renumbering survives the ship. A DELETE + VACUUM renumbers the surviving rows, so
+    #    byte identity alone is not the question -- the replica must answer the same keys, and the
+    #    renumbering checkpoint must still be idempotent when replayed.
+    primary.run("CREATE TABLE r (a TEXT)")
+    for step in range(1, 6):
+        primary.run(f"INSERT INTO r VALUES ('v{step}')")
+    replica.sync(primary)
+    marker = replica.marker()[0]
+    primary.run("DELETE FROM r WHERE a = 'v1'")
+    primary.run("VACUUM")
+    pending = primary.batches_since(marker)
+    primary_rowids = primary.db.run("SELECT rowid, a FROM r ORDER BY rowid")[1]
+    replica.sync(primary)
+    replica_rowids = rows(replica_path, "SELECT rowid, a FROM r ORDER BY rowid")
+    replay_ok = True
+    if pending:
+        replica._apply(pending[-1])
+        once = sha256_file(replica_path)
+        replica._apply(pending[-1])
+        replay_ok = sha256_file(replica_path) == once
+    print(f"  rowid renumbering  : primary {primary_rowids} vs replica {replica_rowids} -> "
+          f"equal: {primary_rowids == replica_rowids}; byte-identical: "
+          f"{sha256_file(replica_path) == primary.sha()}; replayed checkpoint idempotent: {replay_ok}")
+    if primary_rowids != replica_rowids or not replay_ok:
+        return 1
     return 0
 
 

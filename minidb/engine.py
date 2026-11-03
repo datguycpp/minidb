@@ -9,6 +9,7 @@ Error text is part of the contract: SQLite's messages are what the conformance h
 compares, so they are produced here rather than reworded by a caller.
 """
 
+import bisect
 import copy
 import os
 from functools import lru_cache
@@ -866,6 +867,9 @@ def _is_rowid_alias(column):
     return column.primary_key and column.type_name.strip().upper() == "INTEGER"
 
 
+ROWID_SPELLINGS = ("rowid", "_rowid_", "oid")
+
+
 @lru_cache(maxsize=1024)
 def _parse_cached(sql):
     """Parsing is pure and the AST is read-only during execution, so the same statement text can
@@ -955,6 +959,10 @@ class Table:
         # write-path item: the old check scanned the table per row, which is O(n^2) to load).
         self.unique_sets = {}
         self.next_rowid = 1                     # in-memory rowids; disk keeps its own counter
+        # In-memory rowids, parallel to `rows`. None means "positional" -- 1..n, which is what the
+        # synthetic tables (views, CTEs, sqlite_master) want. Real tables keep the list so a DELETE
+        # leaves a hole and an explicit rowid survives, exactly as the B+tree's keys do on disk.
+        self.rowids = None
 
     @property
     def on_disk(self):
@@ -1555,9 +1563,34 @@ class Database:
             table.indexes[definition["name"].lower()] = index
 
     def _rows_with_ids(self, table):
+        """(rowid, row) pairs, lazily: an UPDATE that already knows its rowids must not
+        materialise a hundred thousand pairs to reach one of them."""
         if table.on_disk:
-            return list(self.storage.iter_rows_with_ids(table.entry))
-        return list(enumerate(table.rows, start=1))
+            return self.storage.iter_rows_with_ids(table.entry)
+        if table.rowids is None:
+            return enumerate(table.rows, start=1)
+        return zip(table.rowids, table.rows)
+
+    def _rowid_alias_position(self, table):
+        """Position of the INTEGER PRIMARY KEY that *is* the rowid, or None.
+
+        Only a single-column PRIMARY KEY whose declared type is exactly INTEGER aliases; the
+        autoindex rule in _derive_constraints uses the same predicate, so the two surfaces cannot
+        disagree about which tables have an implicit key.
+        """
+        primary = [i for i, column in enumerate(table.columns) if column.primary_key]
+        if len(primary) == 1 and _is_rowid_alias(table.columns[primary[0]]):
+            return primary[0]
+        return None
+
+    def _ensure_rowids(self, table):
+        """Materialise positional rowids before the first mutation that could leave a hole."""
+        if table.rowids is None:
+            table.rowids = list(range(1, len(table.rows) + 1))
+        return table.rowids
+
+    def _next_memory_rowid(self, table):
+        return max([table.next_rowid] + (table.rowids or [])) if table.rowids else table.next_rowid
 
     # -- INSERT --------------------------------------------------------------
     def _insert(self, node: ast.Insert):
@@ -1565,6 +1598,7 @@ class Database:
             # SQLite views are read-only unless they have INSTEAD OF triggers (not in scope yet).
             raise ExecError(f"cannot modify {node.table} because it is a view")
         table = self.table(node.table)
+        alias_position = self._rowid_alias_position(table)
         if node.columns is None:
             targets = list(range(len(table.columns)))
         else:
@@ -1572,6 +1606,11 @@ class Database:
             for name in node.columns:
                 index = table.index_of.get(name.lower())
                 if index is None:
+                    # `INSERT INTO t (rowid, a)` writes the rowid itself; the three spellings are
+                    # the reference's, and a real column of the same name wins (t6d's case L).
+                    if name.lower() in ("rowid", "_rowid_", "oid"):
+                        targets.append(None)
+                        continue
                     raise ExecError(f"table {table.name} has no column named {name}")
                 targets.append(index)
 
@@ -1582,8 +1621,12 @@ class Database:
                     f"table {table.name} has {len(targets)} columns but {len(row)} values were supplied"
                 )
             values: list = [None] * len(table.columns)
-            supplied = set(targets)
+            supplied = {target for target in targets if target is not None}
+            forced_rowid = None
             for index, expr in zip(targets, row):
+                if index is None:
+                    forced_rowid = self._eval(expr, table, None)
+                    continue
                 values[index] = self._eval(expr, table, None)
             for i, column in enumerate(table.columns):
                 if i in supplied:
@@ -1631,15 +1674,30 @@ class Database:
             if violation:
                 raise ExecError(violation)
             self._fire(table, "INSERT", "BEFORE", None, values)
+            if forced_rowid is None and alias_position is not None:
+                # An INTEGER PRIMARY KEY *is* the rowid: an explicit value sets it, and an omitted
+                # one is allocated exactly as the alias column's value.
+                if values[alias_position] is not None:
+                    forced_rowid = values[alias_position]
+                else:
+                    forced_rowid = self._next_memory_rowid(table) if not table.on_disk \
+                        else max(table.entry["next_rowid"], 1)
+                    values[alias_position] = forced_rowid
+            if forced_rowid is not None and self._row_by_id(table, forced_rowid) is not None:
+                name = table.name if alias_position is None else table.columns[alias_position].name
+                who = "rowid" if alias_position is None else name
+                raise ExecError(f"UNIQUE constraint failed: {table.name}.{who}")
             if table.on_disk:
                 try:
-                    rowid = self.storage.insert_row(table.entry, values)
+                    rowid = self.storage.insert_row(table.entry, values, rowid=forced_rowid)
                 except StorageError as exc:
                     raise ExecError(str(exc)) from None
             else:
+                rowid = forced_rowid if forced_rowid is not None else table.next_rowid
+                self._ensure_rowids(table)      # before the append: it numbers the existing rows
                 table.rows.append(tuple(values))
-                rowid = table.next_rowid
-                table.next_rowid += 1
+                table.rowids.append(rowid)
+                table.next_rowid = max(table.next_rowid, rowid) + 1
             for bucket, key in pending_unique:
                 bucket.add(key)
             for index in table.indexes.values():
@@ -1709,6 +1767,13 @@ class Database:
         fresh file also drops orphaned overflow chains left by row rewrites.
         """
         if self.storage is None:
+            # VACUUM rebuilds the storage, and a rebuild renumbers the rowids: 1..n in row order.
+            # In memory there is no file to rewrite, but the renumbering is part of the contract
+            # (t6d's case K), so it happens here too.
+            for table in self.tables.values():
+                if table.rowids is not None:
+                    table.rowids = list(range(1, len(table.rows) + 1))
+                    table.next_rowid = len(table.rows) + 1
             return None
         temp_path = self.path + ".vacuum"
         if os.path.exists(temp_path):
@@ -1997,11 +2062,18 @@ class Database:
             return _order_sort_key(value.lower())
         return _order_sort_key(value)
 
-    def _row_env(self, table, row):
+    def _row_env(self, table, row, rowid=None):
         env = {}
         for column, value in zip(table.columns, row):
             env[column.name.lower()] = value
             env[f"{table.name.lower()}.{column.name.lower()}"] = value
+        # The rowid namespace, unless the table declares a column of that name -- the reference
+        # gives the real column precedence (t6d case L), so this must not overwrite one.
+        if rowid is not None:
+            for spelling in ROWID_SPELLINGS:
+                if spelling not in env:
+                    env[spelling] = rowid
+                    env[f"{table.name.lower()}.{spelling}"] = rowid
         return env
 
     def _modified_table(self, node):
@@ -2010,11 +2082,11 @@ class Database:
         return self.table(node.table)
 
     def _matching_rowids(self, table, where):
-        """Rowids an index can hand back for this predicate, or None when a scan is needed."""
+        """Rowids the access path can hand back for this predicate, or None when a scan is needed."""
         if where is None:
             return None
         decision = self._choose_access(table, where)
-        if decision["access"] != "index":
+        if decision["access"] not in ("index", "rowid"):
             return None
         return decision["candidate"]["rowids"]
 
@@ -2035,7 +2107,7 @@ class Database:
             for rowid, row in source:
                 if row is None:
                     continue
-                env = self._row_env(table, row)
+                env = self._row_env(table, row, rowid)
                 if node.where is not None and not truthy(self._eval(node.where, table, env)):
                     continue
                 values = list(row)
@@ -2051,10 +2123,14 @@ class Database:
 
         wanted = self._matching_rowids(table, node.where)
         changed = 0
-        for index, row in enumerate(list(table.rows)):
-            if wanted is not None and (index + 1) not in wanted:
+        if wanted is not None:
+            source = [(rowid, self._row_by_id(table, rowid)) for rowid in sorted(wanted)]
+        else:
+            source = self._rows_with_ids(table)
+        for rowid, row in source:
+            if row is None:
                 continue
-            env = self._row_env(table, row)
+            env = self._row_env(table, row, rowid)
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 continue
             values = list(row)
@@ -2063,9 +2139,9 @@ class Database:
                 values[position] = apply_affinity(self._eval(expression, table, env),
                                                   table.columns[position].affinity)
             self._fire(table, "UPDATE", "BEFORE", row, values)
-            table.rows[index] = tuple(values)
+            table.rows[self._rowid_index(table, rowid)] = tuple(values)
             self._fire(table, "UPDATE", "AFTER", row, values)
-            self._maintain_indexes(table, index + 1, row, values)
+            self._maintain_indexes(table, rowid, row, values)
             changed += 1
         return changed
 
@@ -2080,7 +2156,7 @@ class Database:
                 if wanted is not None and rowid not in wanted:
                     kept.append((rowid, row))
                     continue
-                env = self._row_env(table, row)
+                env = self._row_env(table, row, rowid)
                 if node.where is not None and not truthy(self._eval(node.where, table, env)):
                     kept.append((rowid, row))
                 else:
@@ -2088,20 +2164,28 @@ class Database:
                     changed += 1
             if changed:
                 self.storage.rewrite_rows(table.entry, kept)
+                table.entry["next_rowid"] = (max(rowid for rowid, _ in kept) + 1) if kept else 1
+                self.storage.save_catalog_entry(table.entry)
             self._reindex(table)
             return changed
         kept = []
+        kept_rowids = []
         changed = 0
-        for row in table.rows:
-            env = self._row_env(table, row)
+        for rowid, row in self._rows_with_ids(table):
+            env = self._row_env(table, row, rowid)
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 kept.append(row)
+                kept_rowids.append(rowid)
             else:
                 self._check_no_action(table, row)
                 self._fire(table, "DELETE", "BEFORE", row, None)
                 self._fire(table, "DELETE", "AFTER", row, None)
                 changed += 1
         table.rows = kept
+        table.rowids = kept_rowids
+        # Allocation is max(rowid)+1, not a monotone counter: deleting the last rows returns the
+        # counter to the reference's value (a full DELETE makes the next row 1 again, t6d case J).
+        table.next_rowid = (max(kept_rowids) + 1) if kept_rowids else 1
         self._reindex(table)
         return changed
 
@@ -2121,10 +2205,21 @@ class Database:
                     index.add(rowid, values)
 
     # -- SELECT --------------------------------------------------------------
+    def _rowid_index(self, table, rowid):
+        """Position of `rowid` in table.rows (memory tables only)."""
+        if table.rowids is None:
+            return rowid - 1
+        return bisect.bisect_left(table.rowids, rowid)
+
     def _row_by_id(self, table, rowid):
         if table.on_disk:
             return self.storage.search_row(table.entry, rowid)
-        return table.rows[rowid - 1]
+        if table.rowids is None:
+            return table.rows[rowid - 1] if 0 < rowid <= len(table.rows) else None
+        position = bisect.bisect_left(table.rowids, rowid)
+        if position < len(table.rowids) and table.rowids[position] == rowid:
+            return table.rows[position]
+        return None
 
     def _equalities(self, table, where):
         """Equality constraints usable by an index: only conjunctions of column = literal.
@@ -2149,6 +2244,37 @@ class Database:
 
         collect(where)
         return equalities
+
+    def _rowid_equality(self, table, where):
+        """The rowid a `rowid = <int>` or alias-column = <int> conjunct pins, or None.
+
+        This is the access path the frozen acceptance prices: with an INTEGER PRIMARY KEY aliasing
+        the rowid, a point lookup is one key rather than a table scan. A real column that happens
+        to be called `rowid` is not the key, so it never reaches this path.
+        """
+        alias = self._rowid_alias_position(table)
+        found = None
+
+        def collect(node):
+            nonlocal found
+            if isinstance(node, ast.BinaryOp) and node.op == "AND":
+                collect(node.left)
+                collect(node.right)
+            elif isinstance(node, ast.BinaryOp) and node.op == "=":
+                left, right = node.left, node.right
+                if isinstance(right, ast.ColumnRef) and isinstance(left, ast.Literal):
+                    left, right = right, left
+                if not (isinstance(left, ast.ColumnRef) and isinstance(right, ast.Literal)):
+                    return
+                name = left.name.lower()
+                position = table.index_of.get(name)
+                is_key = (position is None and name in ROWID_SPELLINGS) or \
+                         (position is not None and position == alias)
+                if is_key and isinstance(right.value, int) and not isinstance(right.value, bool):
+                    found = right.value
+
+        collect(where)
+        return found
 
     def _predicate_texts(self, where):
         texts = set()
@@ -2250,6 +2376,15 @@ class Database:
 
         equalities = self._equalities(table, where)
         ranges = self._ranges(table, where)
+        rowid_value = self._rowid_equality(table, where)
+        if rowid_value is not None:
+            found = self._row_by_id(table, rowid_value) is not None
+            rowids = {rowid_value} if found else set()
+            candidate = {"index": None, "key": rowid_value, "rowids": rowids,
+                         "estimated_rows": len(rowids), "kind": "rowid",
+                         "columns": ["rowid"]}
+            return {"access": "rowid", "reason": "rowid-equality", "candidates": [candidate],
+                    "candidate": candidate, "estimated_rows": len(rowids)}
         candidates = []
         query_predicates = self._predicate_texts(where)
         for index in table.indexes.values():
@@ -2604,6 +2739,10 @@ class Database:
                     for name, value in zip(names, key):
                         env[name] = value
                         env[f"{table.name.lower()}.{name}"] = value
+                    for spelling in ROWID_SPELLINGS:
+                        if spelling not in env:
+                            env[spelling] = rowid
+                            env[f"{table.name.lower()}.{spelling}"] = rowid
                     if node.where is not None and not truthy(self._eval(node.where, table, env)):
                         continue
                     prepared.append((env, tuple(env.get(name) for name in table.column_names)))
@@ -2623,7 +2762,11 @@ class Database:
             rows = self._apply_limit(node, rows)
             return items, rows
 
-        if decision["access"] == "index":
+        if decision["access"] == "rowid":
+            rowid = decision["candidate"]["key"]
+            row = self._row_by_id(table, rowid)
+            candidates = [(rowid, row)] if row is not None else []
+        elif decision["access"] == "index":
             chosen = decision["candidate"]
             rowids = chosen["rowids"]
             if len(rowids) * 4 >= self._row_count(table):
@@ -2639,15 +2782,10 @@ class Database:
         index_name = decision["candidate"]["index"].name if access == "index" else None
 
         prepared = []
-        for _, row in candidates:
+        for rowid, row in candidates:
             if row is None:
                 continue
-            # Both bare and qualified names: `SELECT t.a FROM t` is valid SQLite on a single
-            # table, and multi-table work made the qualified form obvious to write.
-            env = {}
-            for column, value in zip(table.columns, row):
-                env[column.name.lower()] = value
-                env[f"{table.name.lower()}.{column.name.lower()}"] = value
+            env = self._row_env(table, row, rowid)
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 continue
             prepared.append((env, row))
@@ -3203,6 +3341,10 @@ def _group_sort_key(key):
 def _heading(item):
     """SQLite names a plain column reference after the column; anything else after its text."""
     if isinstance(item.expr, ast.ColumnRef):
+        # The three rowid spellings all report the heading `rowid` when qualified or not, because
+        # they name one hidden column; an explicit AS still wins over the column's name.
+        if item.expr.name.lower() in ROWID_SPELLINGS:
+            return "rowid"
         return item.expr.name
     return item.text or _describe(item.expr)
 

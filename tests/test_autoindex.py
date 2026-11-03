@@ -118,15 +118,17 @@ class TestPlannerSeesIt(unittest.TestCase):
         self.assertEqual(db.last_plan["access"], "index")
         self.assertEqual(db.run("SELECT v FROM c WHERE k = 'k050'")[1], [("v50",)])
 
-    def test_an_integer_rowid_key_is_still_a_scan_here(self):
-        # Not a bug introduced by this change: the reference answers this from the rowid, and
-        # MiniDB has no rowid aliasing yet, so the plan is a scan on both sides of the index
-        # question. Pinned so the remaining gap is visible rather than assumed fixed.
+    def test_an_integer_rowid_key_is_a_rowid_lookup_not_a_scan(self):
+        # This assertion has now been correct twice in opposite directions, and the header says so
+        # deliberately: at M38 it pinned a *scan* because the aliasing item had not landed (the
+        # named remaining gap); the item landed, so the same query must now take the rowid path.
+        # What it pins is unchanged -- the plan for the rowid key -- only the expected answer is.
         db = Database()
         db.run("CREATE TABLE a (id INTEGER PRIMARY KEY, v TEXT)")
         db.run("INSERT INTO a VALUES (1, 'x')")
         db.run("SELECT v FROM a WHERE id = 1")
-        self.assertEqual(db.last_plan["access"], "full")
+        self.assertEqual(db.last_plan["access"], "rowid")
+        self.assertEqual(db.last_plan["reason"], "rowid-equality")
 
 
 if __name__ == "__main__":
