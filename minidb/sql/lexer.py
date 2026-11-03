@@ -4,7 +4,7 @@ Produces tokens carrying their source position so parse errors can point at the 
 character instead of a line number nobody can trust.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 KEYWORDS = frozenset("""
 ADD ALL ALTER AND AS ASC BEGIN BETWEEN BY CASE CAST CHECK COLLATE COMMIT CONSTRAINT CREATE
@@ -51,10 +51,19 @@ class Token:
     col: int
     raw: str = ""      # exact source text, for error messages SQLite-style
     quote: str = ""    # '"', "`", "[" when the identifier was quoted
+    _upper: str = field(default="", init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        # The parser asks `tok.upper` on nearly every comparison -- 52 times per statement on a
+        # plain SELECT — so computing it per access allocated 104,000 strings for 2,000 statements
+        # (14% of the parse slice in the goal-6 profile). Uppercased once, at construction.
+        # Every kind: the parser also asks `.upper` of identifiers (function names, type names).
+        object.__setattr__(self, "_upper",
+                           self.value.upper() if isinstance(self.value, str) else self.value)
 
     @property
     def upper(self):
-        return self.value.upper()
+        return self._upper
 
     def __repr__(self):
         return f"Token({self.kind}, {self.value!r}, {self.line}:{self.col})"
