@@ -1,0 +1,92 @@
+command: python3 tests/skeptic/round2_replication.py
+revision: 08ca7c2
+sqlite3: 3.54.0 2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcalt1 (64-bit)
+2026-11-04T00:42:05+08:00
+command: tests/skeptic/round2_replication.py
+seed: 20261103  hang bound: 10.0s  counts: R1 10+1, R2 12, R3 5x20, R4 3, R5 15+1, R6 3
+R1 control: D1=19.3ms converged=True ack_rows=801
+R1 it0 delta=1.43ms rc=-9 state=pre
+R1 it1 delta=2.33ms rc=-9 state=pre
+R1 it2 delta=4.57ms rc=-9 state=pre
+R1 it3 delta=6.92ms rc=-9 state=pre
+R1 it4 delta=8.15ms rc=-9 state=pre
+R1 it5 delta=9.65ms rc=-9 state=pre
+R1 it6 delta=13.22ms rc=-9 state=pre
+R1 it7 delta=14.61ms rc=-9 state=pre
+R1 it8 delta=17.22ms rc=-9 state=post
+R1 it9 delta=18.67ms rc=-9 state=post
+R2 it0 truncate 77992->77852: prefix-1..6 (of size 77992 -> 77852)
+R2 it0 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it0 converged lag=0
+R2 it1 truncate 77992->77941: prefix-1..6 (of size 77992 -> 77941)
+R2 it1 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it1 converged lag=0
+R2 it2 truncate 77992->77856: prefix-1..6 (of size 77992 -> 77856)
+R2 it2 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it2 converged lag=0
+R2 it3 truncate 77992->77966: prefix-1..6 (of size 77992 -> 77966)
+R2 it3 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it3 converged lag=0
+R2 it4 truncate 77992->77847: prefix-1..6 (of size 77992 -> 77847)
+R2 it4 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it4 converged lag=0
+R2 it5 truncate 77992->77930: prefix-1..6 (of size 77992 -> 77930)
+R2 it5 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it5 converged lag=0
+R2 it6 truncate 77992->77859: prefix-1..6 (of size 77992 -> 77859)
+R2 it6 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it6 converged lag=0
+R2 it7 truncate 77992->77970: prefix-1..6 (of size 77992 -> 77970)
+R2 it7 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it7 converged lag=0
+R2 it8 truncate 77992->77859: prefix-1..6 (of size 77992 -> 77859)
+R2 it8 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it8 converged lag=0
+R2 it9 truncate 77992->77938: prefix-1..6 (of size 77992 -> 77938)
+R2 it9 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it9 converged lag=0
+R2 it10 truncate 77992->77951: prefix-1..6 (of size 77992 -> 77951)
+R2 it10 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it10 converged lag=0
+R2 it11 truncate 77992->77904: prefix-1..6 (of size 77992 -> 77904)
+R2 it11 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it11 converged lag=0
+R3 r0 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r0 final converged=False lag=0 count=25 sum=175
+  VIOLATION R3 r0: final not converged (sha=False, lag=0, count=25, sum=175)
+R3 r1 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r1 final converged=False lag=0 count=25 sum=175
+  VIOLATION R3 r1: final not converged (sha=False, lag=0, count=25, sum=175)
+R3 r2 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r2 final converged=False lag=0 count=25 sum=175
+  VIOLATION R3 r2: final not converged (sha=False, lag=0, count=25, sum=175)
+R3 r3 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r3 final converged=False lag=0 count=25 sum=175
+  VIOLATION R3 r3: final not converged (sha=False, lag=0, count=25, sum=175)
+R3 r4 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r4 final converged=False lag=0 count=25 sum=175
+  VIOLATION R3 r4: final not converged (sha=False, lag=0, count=25, sum=175)
+PROBE-ERROR R4: ExecError('database is locked')
+R5 control: D5=19.6ms post!=pre=True
+R5 it0 delta=1.29ms rc=-9 state=pre
+R5 it1 delta=1.90ms rc=-9 state=pre
+R5 it2 delta=2.91ms rc=-9 state=pre
+R5 it3 delta=4.31ms rc=-9 state=pre
+R5 it4 delta=5.96ms rc=-9 state=pre
+R5 it5 delta=7.26ms rc=-9 state=pre
+R5 it6 delta=8.72ms rc=-9 state=pre
+R5 it7 delta=9.71ms rc=-9 state=pre
+R5 it8 delta=11.58ms rc=-9 state=pre
+R5 it9 delta=12.69ms rc=-9 state=pre
+R5 it10 delta=13.22ms rc=-9 state=pre
+R5 it11 delta=14.88ms rc=-9 state=pre
+R5 it12 delta=16.57ms rc=-9 state=pre
+R5 it13 delta=18.04ms rc=-9 state=pre
+R5 it14 delta=19.48ms rc=-9 state=pre
+R6 it0 idempotent=True
+R6 it1 idempotent=True
+R6 it2 idempotent=True
+  PROBE-ERROR R4: ExecError('database is locked')
+violations: 5  probe errors: 1
+RESULT: FAIL
+exit: 1

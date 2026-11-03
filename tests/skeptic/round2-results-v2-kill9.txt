@@ -1,0 +1,55 @@
+command: python3 tests/skeptic/round2_kill9.py
+revision: 08ca7c2
+sqlite3: 3.54.0 2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcalt1 (64-bit)
+2026-11-04T00:39:52+08:00
+command: tests/skeptic/round2_kill9.py
+seed: 20261103  rows: 12000  keep: 6000  expected: count=6000 sum=54003000
+kill: real SIGKILL from parent at stratified delays; hang bound 10.0s; fixture keeps its freelist (no build vacuum)
+fixture built in 9.5s
+wal after close: True
+calibration: D = max of 1484.7, 1553.5, 1613.4 ms -> D = 1613.4 ms; pre != post verified on all 3 runs
+iter  0 in  delta=0.0048  rc=-9 state=pre outcome=checked strays=['it0.db.kill.vacuum', 'it0.db.kill.vacuum.wal'] violations=0
+iter  1 in  delta=0.0625  rc=-9 state=pre outcome=checked strays=['it1.db.kill.vacuum', 'it1.db.kill.vacuum.wal'] violations=0
+iter  2 in  delta=0.118   rc=-9 state=pre outcome=checked strays=['it2.db.kill.vacuum', 'it2.db.kill.vacuum.wal'] violations=0
+iter  3 in  delta=0.2145  rc=-9 state=pre outcome=checked strays=['it3.db.kill.vacuum', 'it3.db.kill.vacuum.wal'] violations=0
+iter  4 in  delta=0.259   rc=-9 state=pre outcome=checked strays=['it4.db.kill.vacuum', 'it4.db.kill.vacuum.wal'] violations=0
+iter  5 in  delta=0.2718  rc=-9 state=pre outcome=checked strays=['it5.db.kill.vacuum', 'it5.db.kill.vacuum.wal'] violations=0
+iter  6 in  delta=0.3363  rc=-9 state=pre outcome=checked strays=['it6.db.kill.vacuum', 'it6.db.kill.vacuum.wal'] violations=0
+iter  7 in  delta=0.4162  rc=-9 state=pre outcome=checked strays=['it7.db.kill.vacuum', 'it7.db.kill.vacuum.wal'] violations=0
+iter  8 in  delta=0.468   rc=-9 state=pre outcome=checked strays=['it8.db.kill.vacuum', 'it8.db.kill.vacuum.wal'] violations=0
+iter  9 in  delta=0.4902  rc=-9 state=pre outcome=checked strays=['it9.db.kill.vacuum', 'it9.db.kill.vacuum.wal'] violations=0
+iter 10 in  delta=0.5622  rc=-9 state=pre outcome=checked strays=['it10.db.kill.vacuum', 'it10.db.kill.vacuum.wal'] violations=0
+iter 11 in  delta=0.6018  rc=-9 state=pre outcome=checked strays=['it11.db.kill.vacuum', 'it11.db.kill.vacuum.wal'] violations=0
+iter 12 in  delta=0.68    rc=-9 state=pre outcome=checked strays=['it12.db.kill.vacuum', 'it12.db.kill.vacuum.wal'] violations=0
+iter 13 in  delta=0.7088  rc=-9 state=pre outcome=checked strays=['it13.db.kill.vacuum', 'it13.db.kill.vacuum.wal'] violations=0
+iter 14 in  delta=0.7702  rc=-9 state=pre outcome=checked strays=['it14.db.kill.vacuum', 'it14.db.kill.vacuum.wal'] violations=0
+iter 15 in  delta=0.8466  rc=-9 state=pre outcome=checked strays=['it15.db.kill.vacuum', 'it15.db.kill.vacuum.wal'] violations=0
+iter 16 in  delta=0.8788  rc=-9 state=pre outcome=checked strays=['it16.db.kill.vacuum', 'it16.db.kill.vacuum.wal'] violations=0
+iter 17 in  delta=0.9615  rc=-9 state=pre outcome=checked strays=['it17.db.kill.vacuum', 'it17.db.kill.vacuum.wal'] violations=0
+iter 18 in  delta=0.9811  rc=-9 state=pre outcome=checked strays=['it18.db.kill.vacuum', 'it18.db.kill.vacuum.wal'] violations=0
+iter 19 in  delta=1.0282  rc=-9 state=pre outcome=checked strays=['it19.db.kill.vacuum', 'it19.db.kill.vacuum.wal'] violations=0
+iter 20 in  delta=1.0796  rc=-9 state=pre outcome=checked strays=['it20.db.kill.vacuum', 'it20.db.kill.vacuum.wal'] violations=0
+iter 21 in  delta=1.1411  rc=-9 state=pre outcome=checked strays=['it21.db.kill.vacuum', 'it21.db.kill.vacuum.wal'] violations=0
+iter 22 in  delta=1.2091  rc=-9 state=pre outcome=checked strays=['it22.db.kill.vacuum', 'it22.db.kill.vacuum.wal'] violations=0
+iter 23 in  delta=1.2431  rc=-9 state=pre outcome=checked strays=['it23.db.kill.vacuum', 'it23.db.kill.vacuum.wal'] violations=0
+iter 24 in  delta=1.3104  rc=-9 state=pre outcome=checked strays=['it24.db.kill.vacuum', 'it24.db.kill.vacuum.wal'] violations=0
+iter 25 in  delta=1.3491  rc=-9 state=pre outcome=checked strays=['it25.db.kill.vacuum', 'it25.db.kill.vacuum.wal'] violations=0
+iter 26 in  delta=1.4053  rc=-9 state=pre outcome=checked strays=['it26.db.kill.vacuum', 'it26.db.kill.vacuum.wal'] violations=0
+iter 27 in  delta=1.4943  rc=-9 state=pre outcome=checked strays=['it27.db.kill.vacuum', 'it27.db.kill.vacuum.wal'] violations=0
+iter 28 in  delta=1.5375  rc=-9 state=pre outcome=checked strays=['it28.db.kill.vacuum', 'it28.db.kill.vacuum.wal'] violations=0
+iter 29 in  delta=1.6126  rc=0 state=post outcome=checked strays=['it29.db.kill.vacuum.wal'] violations=1
+iter 30 ctl delta=1.6339  rc=0 state=post outcome=checked strays=['it30.db.kill.vacuum.wal'] violations=0
+iter 31 ctl delta=1.6545  rc=0 state=post outcome=checked strays=['it31.db.kill.vacuum.wal'] violations=0
+iter 32 ctl delta=1.6755  rc=0 state=post outcome=checked strays=['it32.db.kill.vacuum.wal'] violations=0
+iter 33 ctl delta=1.701   rc=0 state=post outcome=checked strays=['it33.db.kill.vacuum.wal'] violations=0
+iter 34 ctl delta=1.7157  rc=0 state=post outcome=checked strays=['it34.db.kill.vacuum.wal'] violations=0
+iter 35 ctl delta=1.7382  rc=0 state=post outcome=checked strays=['it35.db.kill.vacuum.wal'] violations=0
+iter 36 ctl delta=1.7632  rc=0 state=post outcome=checked strays=['it36.db.kill.vacuum.wal'] violations=0
+iter 37 ctl delta=1.7828  rc=0 state=post outcome=checked strays=['it37.db.kill.vacuum.wal'] violations=0
+states: {'pre': 29, 'post': 9, 'OTHER': 0, 'MISSING': 0}  in-window missed (completed before kill): 1/30
+window coverage: an in-window kill landing after the atomic replace shows post, before it shows pre; mid-replace would show OTHER or MISSING (violations)
+iterations: 38 (30 in-window + 8 controls), seed 20261103
+VIOLATIONS: 1
+  in-29: K5 victim exit 0, expected -9 (in-window kill missed the victim); stderr=''
+RESULT: FAIL
+exit: 1
