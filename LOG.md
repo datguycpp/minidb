@@ -2059,3 +2059,19 @@ Nothing above the first entry was edited in the move.
   either. Both are required. Equivalence evidence for a regex scanner on identical inputs comes
   from the battery that already reaches it: t3a's 3,939-character literals, round-1 case 16's
   non-ASCII, the seeded fuzz stream, and the syntax suite's error texts.
+
+- **First build change reviewed cold by Default: 562 OK + 293/293 reproduced
+  at a7f8d89. Recorded as a −5.6% micro-optimisation, not gate progress; the
+  172-test KEYWORD-only failure stands as the suite catching a wrong first
+  attempt, disclosed not hidden.**
+
+- **Goal 6, uninstrumented parse split at `a7f8d89` (loadavg 2.27, N=5, post-first-fix).**
+  The profiler's call overhead is not inflating the lexer row: measured directly,
+  `tokenize` alone = **865 ms** and `parse` = **1550 ms** over the same 10,000 distinct
+  statements — **56% lexer**, matching the 57% profiled share rather than contradicting it.
+  So the parse slice's remaining 1550 ms splits 865 lexer / 685 grammar, and at 41.6% of the
+  loop the lexer alone is ~23% of the wall time.
+  *Ceiling arithmetic this fixes for the build:* the loop must fall 1952 ms to 1953 ms; a parse
+  that went to **zero** would only give 1550 back, so the chain must shed **at least 402 ms**
+  even in the impossible perfect-parser case, and realistically far more because the lexer cannot
+  reach zero. Both halves stay load-bearing; the split just makes the shares quantitative.
