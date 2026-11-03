@@ -216,15 +216,20 @@ class Replica:
         """
         discarded, seq_range = self.local_commits()
         adopted = primary.head()
-        for suffix in ("", ".wal", ".replog", ".shipped", ".rebuild"):
-            target = self.path + suffix
-            if os.path.exists(target):
-                os.remove(target)
-        # Staged and renamed, like VACUUM's replace: a crash mid-rebuild must not leave a
-        # half-copied replica pretending to be one.
+        # Staged first, then renamed -- and the old main file is NOT unlinked beforehand. The
+        # previous order deleted the replica, copied, then renamed, so between the unlink and the
+        # replace the replica did not exist at all: a kill there left no file to recover, and a
+        # concurrent reader saw a database vanish (skeptic round 2, R1b: 2/10 kills in the focus
+        # band landed in exactly that window). os.replace is atomic, so the file is always whole.
         staging = self.path + ".rebuild"
         shutil.copyfile(primary.path, staging)
         os.replace(staging, self.path)
+        # Now that the main file is the primary's, the replica's own sidecars describe a file that
+        # no longer exists -- a WAL from the old image must never be replayed onto the new one.
+        for suffix in (".wal", ".replog", ".shipped"):
+            target = self.path + suffix
+            if os.path.exists(target):
+                os.remove(target)
         digest = self._write_marker(adopted)
         return Resolution(discarded, seq_range, adopted, digest)
 

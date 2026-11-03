@@ -1,0 +1,141 @@
+command: python3 tests/skeptic/round2_replication.py
+revision: c256759 (+resolve reorder)
+sqlite3: 3.54.0 2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcalt1 (64-bit)
+2026-11-04T01:47:29+08:00
+command: tests/skeptic/round2_replication.py
+seed: 20261103  hang bound: 10.0s  counts: R1 10+1, R2 12, R3 5x20, R4 3, R5 15+1, R6 3  + follow-ups R1b 10+1, R2b 8
+R1 control: D1=18.4ms converged=True ack_rows=801
+R1 it0 delta=1.36ms rc=-9 state=pre
+R1 it1 delta=2.22ms rc=-9 state=pre
+R1 it2 delta=4.36ms rc=-9 state=pre
+R1 it3 delta=6.61ms rc=-9 state=pre
+R1 it4 delta=7.78ms rc=-9 state=pre
+R1 it5 delta=9.21ms rc=-9 state=pre
+R1 it6 delta=12.63ms rc=-9 state=pre
+R1 it7 delta=13.96ms rc=-9 state=pre
+R1 it8 delta=16.45ms rc=-9 state=post
+R1 it9 delta=17.84ms rc=-9 state=post
+R1b control: D1=27.2ms converged=True
+R1b it0 delta=20.48ms rc=-9 state=post
+R1b it0 re-resolved to convergence
+R1b it1 delta=21.49ms rc=-9 state=post
+R1b it1 re-resolved to convergence
+R1b it2 delta=22.43ms rc=-9 state=post
+R1b it2 re-resolved to convergence
+R1b it3 delta=22.82ms rc=-9 state=post
+R1b it3 re-resolved to convergence
+R1b it4 delta=23.25ms rc=-9 state=post
+R1b it4 re-resolved to convergence
+R1b it5 delta=23.86ms rc=-9 state=post
+R1b it5 re-resolved to convergence
+R1b it6 delta=25.06ms rc=-9 state=post
+R1b it6 re-resolved to convergence
+R1b it7 delta=25.36ms rc=-9 state=post
+R1b it7 re-resolved to convergence
+R1b it8 delta=26.55ms rc=-9 state=post
+R1b it8 re-resolved to convergence
+R1b it9 delta=26.67ms rc=-9 state=post
+R1b it9 re-resolved to convergence
+R2 it0 truncate 77992->77852: prefix-1..6 (of size 77992 -> 77852)
+R2 it0 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it0 converged lag=0
+R2 it1 truncate 77992->77941: prefix-1..6 (of size 77992 -> 77941)
+R2 it1 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it1 converged lag=0
+R2 it2 truncate 77992->77856: prefix-1..6 (of size 77992 -> 77856)
+R2 it2 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it2 converged lag=0
+R2 it3 truncate 77992->77966: prefix-1..6 (of size 77992 -> 77966)
+R2 it3 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it3 converged lag=0
+R2 it4 truncate 77992->77847: prefix-1..6 (of size 77992 -> 77847)
+R2 it4 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it4 converged lag=0
+R2 it5 truncate 77992->77930: prefix-1..6 (of size 77992 -> 77930)
+R2 it5 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it5 converged lag=0
+R2 it6 truncate 77992->77859: prefix-1..6 (of size 77992 -> 77859)
+R2 it6 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it6 converged lag=0
+R2 it7 truncate 77992->77970: prefix-1..6 (of size 77992 -> 77970)
+R2 it7 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it7 converged lag=0
+R2 it8 truncate 77992->77859: prefix-1..6 (of size 77992 -> 77859)
+R2 it8 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it8 converged lag=0
+R2 it9 truncate 77992->77938: prefix-1..6 (of size 77992 -> 77938)
+R2 it9 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it9 converged lag=0
+R2 it10 truncate 77992->77951: prefix-1..6 (of size 77992 -> 77951)
+R2 it10 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it10 converged lag=0
+R2 it11 truncate 77992->77904: prefix-1..6 (of size 77992 -> 77904)
+R2 it11 sync#0: ok SyncReport(applied=0, seq=7..7, lag=0)
+R2 it11 converged lag=0
+R2b it0 truncate 102616->102504 sync#0: typed "ReplicationError('identity invariant broken: replica 73bcc5e8339c502078ff2e382463a4684a536a034bcb77faec5259d29256a05d != primary a6bc5124711c25c21e06711b
+R2b it0 truncate 102616->102504 sync#1: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it0 truncate 102616->102504 sync#2: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it0 converged count=7
+R2b it1 truncate 102616->102532 sync#0: typed "ReplicationError('identity invariant broken: replica 73bcc5e8339c502078ff2e382463a4684a536a034bcb77faec5259d29256a05d != primary a6bc5124711c25c21e06711b
+R2b it1 truncate 102616->102532 sync#1: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it1 truncate 102616->102532 sync#2: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it1 converged count=7
+R2b it2 truncate 102616->102578 sync#0: typed "ReplicationError('identity invariant broken: replica 73bcc5e8339c502078ff2e382463a4684a536a034bcb77faec5259d29256a05d != primary a6bc5124711c25c21e06711b
+R2b it2 truncate 102616->102578 sync#1: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it2 truncate 102616->102578 sync#2: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it2 converged count=7
+R2b it3 truncate 102616->102561 sync#0: typed "ReplicationError('identity invariant broken: replica 73bcc5e8339c502078ff2e382463a4684a536a034bcb77faec5259d29256a05d != primary a6bc5124711c25c21e06711b
+R2b it3 truncate 102616->102561 sync#1: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it3 truncate 102616->102561 sync#2: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it3 converged count=7
+R2b it4 truncate 102616->102552 sync#0: typed "ReplicationError('identity invariant broken: replica 73bcc5e8339c502078ff2e382463a4684a536a034bcb77faec5259d29256a05d != primary a6bc5124711c25c21e06711b
+R2b it4 truncate 102616->102552 sync#1: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it4 truncate 102616->102552 sync#2: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it4 converged count=7
+R2b it5 truncate 102616->102512 sync#0: typed "ReplicationError('identity invariant broken: replica 73bcc5e8339c502078ff2e382463a4684a536a034bcb77faec5259d29256a05d != primary a6bc5124711c25c21e06711b
+R2b it5 truncate 102616->102512 sync#1: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it5 truncate 102616->102512 sync#2: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it5 converged count=7
+R2b it6 truncate 102616->102567 sync#0: typed "ReplicationError('identity invariant broken: replica 73bcc5e8339c502078ff2e382463a4684a536a034bcb77faec5259d29256a05d != primary a6bc5124711c25c21e06711b
+R2b it6 truncate 102616->102567 sync#1: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it6 truncate 102616->102567 sync#2: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it6 converged count=7
+R2b it7 truncate 102616->102580 sync#0: typed "ReplicationError('identity invariant broken: replica 73bcc5e8339c502078ff2e382463a4684a536a034bcb77faec5259d29256a05d != primary a6bc5124711c25c21e06711b
+R2b it7 truncate 102616->102580 sync#1: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it7 truncate 102616->102580 sync#2: typed "ReplicationConflict('replication conflict: replica diverged from base seq 8 — 0 local commits (file changed outside the replication log); no batch to shi
+R2b it7 converged count=7
+R3 r0 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r0 final converged=True lag=0 count=25 sum=175
+R3 r1 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r1 final converged=True lag=0 count=25 sum=175
+R3 r2 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r2 final converged=True lag=0 count=25 sum=175
+R3 r3 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r3 final converged=True lag=0 count=25 sum=175
+R3 r4 writer rc=0 syncs ok=20 typed=0 hang=0 other=0
+R3 r4 final converged=True lag=0 count=25 sum=175
+R4 cycle0 refused: base_seq=7 local=1 named=True
+R4 cycle1 refused: base_seq=8 local=1 named=True
+R4 cycle2 refused: base_seq=9 local=1 named=True
+R5 control: D5=15.3ms post!=pre=True
+R5 it0 delta=1.00ms rc=-9 state=pre
+R5 it1 delta=1.48ms rc=-9 state=pre
+R5 it2 delta=2.26ms rc=-9 state=pre
+R5 it3 delta=3.36ms rc=-9 state=pre
+R5 it4 delta=4.64ms rc=-9 state=pre
+R5 it5 delta=5.65ms rc=-9 state=pre
+R5 it6 delta=6.79ms rc=-9 state=pre
+R5 it7 delta=7.56ms rc=-9 state=pre
+R5 it8 delta=9.01ms rc=-9 state=pre
+R5 it9 delta=9.87ms rc=-9 state=pre
+R5 it10 delta=10.29ms rc=-9 state=pre
+R5 it11 delta=11.58ms rc=-9 state=pre
+R5 it12 delta=12.90ms rc=-9 state=pre
+R5 it13 delta=14.04ms rc=-9 state=pre
+R5 it14 delta=15.16ms rc=-9 state=pre
+R6 it0 idempotent=True
+R6 it1 idempotent=True
+R6 it2 idempotent=True
+violations: 0  probe errors: 0
+RESULT: PASS
+exit: 0

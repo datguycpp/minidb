@@ -1,0 +1,17 @@
+command: python3 tests/skeptic/round2_vacuum_twice.py
+revision: c256759
+sqlite3: 3.54.0 2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcalt1 (64-bit)
+2026-11-04T01:46:53+08:00
+command: tests/skeptic/round2_vacuum_twice.py
+rows: 3000 with id <= 1500 deleted (freelist kept); expected survivors count=1500 sum=3375750
+after build:  ['v.db', 'v.db.wal']
+after vac1:   ['v.db', 'v.db.wal']
+vac1: integrity='ok' count=1500 sum=3375750 (expected 1500, 3375750)
+after reopen: ['v.db', 'v.db.wal']
+after vac2:   ['v.db', 'v.db.wal']
+vac2: integrity='ok' count=1500 sum=3375750 (expected 1500, 3375750)
+after killed vacuum (rc=-9, Dk=317.5ms, kill at 50%): ['k.db', 'k.db.vacuum', 'k.db.vacuum.wal', 'k.db.wal', 'v.db', 'v.db.wal']
+after killed-vacuum reopen: ['k.db', 'k.db.wal', 'v.db', 'v.db.wal'] rows: [(1500,)]
+violations: 0
+RESULT: PASS  (the after-kill listing above is the artifact observation for triage; assertions are on the completed and reopened states)
+exit: 0
