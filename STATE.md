@@ -61,6 +61,11 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   lag=0-while-bytes-differ, vacuum_twice PASS with .vacuum.wal stray-sidecar
   observation; 562 green). Both open shapes await research triage (R2b fix vs
   LIMITS; sidecar cleanup vs LIMITS row).
+  Round-2 v4 fixes reviewed cold (10f44be): R2b 0 violations, 24 typed refusals,
+  acceptance discharged; sidecar verification INCOMPLETE (no archived raw —
+  room message only); R1b = fix (reorder, no pre-unlink), R5 = instrument
+  (allowlist stale, engine exonerated 3 ways). Vacuum Q3 + resolve reorder +
+  replication re-run pending. 562 green.
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
