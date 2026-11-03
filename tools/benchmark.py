@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Tier-3 gate benchmark harness: W2, W3, W4, W5, W6, W7, W8, W10 per
-docs/benchmark-spec.md. (W1 and W9 are also implemented, see note.)
+"""Tier-3 gate benchmark harness: W1-W10 per docs/benchmark-spec.md.
+
+W9 (open/reopen) times 50 × (open a 100k-row file + first query) against files built before the
+timed region -- it is the only workload that prices open and cold-start cost, and the spec has
+defined it since the first full run left it out.
 
 W1 point lookup runs with small `scale` as the whole 100k prefix — the sqlite
 side's index makes it O(log n) either way, so we run at the full scale for the
@@ -17,6 +20,7 @@ spec's skew rule (timing only).
 
 import argparse
 import os
+import tempfile
 import statistics
 import sqlite3
 import sys
@@ -96,6 +100,8 @@ WORKLOADS["W6"] = ("grouped aggregate (~100 groups)", None,
 
 LOOKUPS = 1000
 SCALE_7 = 10000
+W9_OPENS = 50
+W9_PATHS = []
 
 
 def w7_sq(s):
@@ -162,13 +168,60 @@ def loadavg():
         return None
 
 
+def w9_open_setup(s, m):
+    """Build the two 100k-row files W9 opens, outside every timed region.
+
+    The runner has already built the in-memory pair by the time this runs; those are closed here so
+    the timed lambdas see a cold file and nothing else holding it.
+    """
+    s.close()
+    m.close()
+    scratch = tempfile.mkdtemp(prefix="bench-w9-")
+    sqlite_path = os.path.join(scratch, "w9-sqlite.db")
+    minidb_path = os.path.join(scratch, "w9-minidb.db")
+    build_sqlite = new_sq(sqlite_path)
+    build_sqlite.close()
+    # One transaction: outside a transaction every INSERT is its own commit, and at 14 ms of
+    # commit cost per row the 100k file would take twenty minutes to build. The setup is not the
+    # measurement, so it takes the cheap path the write workload (W7) is there to price.
+    build_minidb = Database(minidb_path)
+    build_minidb.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER, k TEXT)")
+    build_minidb.run("BEGIN")
+    for r in ROWS:
+        build_minidb.run("INSERT INTO t VALUES (%d,%d,'%s')" % r)
+    build_minidb.run("COMMIT")
+    build_minidb.close()
+    W9_PATHS[:] = [sqlite_path, minidb_path]
+
+
+def w9_sqlite(_ignored):
+    answers = []
+    for _ in range(W9_OPENS):
+        conn = sqlite3.connect(W9_PATHS[0])
+        answers.append(conn.execute("SELECT COUNT(*) FROM t").fetchall())
+        conn.close()
+    return answers
+
+
+def w9_minidb(_ignored):
+    answers = []
+    for _ in range(W9_OPENS):
+        db = Database(W9_PATHS[1])
+        answers.append(db.run("SELECT COUNT(*) FROM t")[1])
+        db.close()
+    return answers
+
+
+WORKLOADS["W9"] = ("open/reopen (50 x open + first query)", w9_open_setup, w9_sqlite, w9_minidb)
+
+
 def main():
     global ROWS, LOOKUPS
     ap = argparse.ArgumentParser()
     ap.add_argument("--scale", type=int, default=100000)
     ap.add_argument("--lookups", type=int, default=1000)
     ap.add_argument("--n", type=int, default=7)
-    ap.add_argument("--workloads", default="W1,W2,W3,W4,W5,W6,W7,W8,W10")
+    ap.add_argument("--workloads", default="W1,W2,W3,W4,W5,W6,W7,W8,W9,W10")
     args = ap.parse_args()
     LOOKUPS = args.lookups
     ROWS = build_rows(args.scale)

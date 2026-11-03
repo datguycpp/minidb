@@ -380,6 +380,15 @@ query history; hot-path rewrite in a faster language
     - **W9 (open/reopen) did NOT run in this pass** (an honest harness gap: the
       tool's W9 file-open variant wasn't ready; named before the verdict, not
       after) — W9 joins the next full run.
+      **DISCHARGED (rescored item, after the two ordered items landed):** W9 is
+      implemented in `tools/benchmark.py` and joins the default workload list.
+      Measured at scale 100k, N=5, loadavg 3.07: **sqlite 49.23 ms per 50 opens,
+      minidb 20,542.79 ms — ratio 417.288, output OK.** Per open: 0.98 ms vs
+      410.9 ms. The split matters: `Database(path)` itself is ~1.7 ms on a
+      2.4 MB/30k-row file, so the ratio is the first query's **on-disk scan**
+      (~411 ms against 8.37 ms for the same aggregate in memory, W3) — the M18
+      read path, not open or WAL recovery. Standing finding, not a fix in this
+      item: the on-disk read path is ~50x the in-memory cost per row on a scan.
     - **The two knife-edge findings (research's own pre-registered surprise clauses,
       fired verbatim: ratio > 500× anywhere means a hidden per-operation path) are
       REAL and classified: (a) W8 — the UPDATE path does not route `WHERE id=?`
