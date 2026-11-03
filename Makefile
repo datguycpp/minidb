@@ -22,4 +22,10 @@ $(TARGET): native/rowaggregate.c
 clean:
 	rm -f $(TARGET)
 
-.PHONY: all clean
+# Goal 2: one command that answers "is this tree good?" -- builds the optional accelerator,
+# runs tests, corpus, the seeded crash sweep and the docs examples, and prints one summary
+# block with raw counts and the git revision. Works in a fresh clone (no artifacts assumed).
+verify:
+	$(PYTHON) tools/verify.py
+
+.PHONY: all clean verify
