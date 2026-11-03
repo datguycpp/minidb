@@ -986,7 +986,11 @@ class Database:
         self.views = {}
         self.triggers = {}
         self.trigger_env = None
-        self._outer_env = None          # enclosing row, for correlated subqueries
+        # Enclosing rows, innermost last, for correlated subqueries. A chain rather than a single
+        # env: SQLite resolves a correlated name at any depth, so a subquery nested two levels deep
+        # must still see the outermost query's row. Keeping only the immediate parent loses it —
+        # the growth run's first finding ("no such column: a.k1" on a double-nested IN).
+        self._outer_env = ()
         self._in_trigger = False
         self.foreign_keys = False
         self.sequences = {}
@@ -2940,7 +2944,8 @@ class Database:
     def _scalar_subquery(self, select, env=None):
         saved = self.last_plan
         previous = self._outer_env
-        self._outer_env = env
+        if env is not None:
+            self._outer_env = previous + (env,)
         try:
             _, rows = self._select_node(select)
         finally:
@@ -2954,7 +2959,8 @@ class Database:
         value = self._eval(node.expr, None, env, group)
         saved = self.last_plan
         previous = self._outer_env
-        self._outer_env = env
+        if env is not None:
+            self._outer_env = previous + (env,)
         try:
             _, rows = self._select_node(node.select)
         finally:
@@ -2977,7 +2983,8 @@ class Database:
         if isinstance(node, ast.Exists):
             saved_plan = self.last_plan
             previous = self._outer_env
-            self._outer_env = env
+            if env is not None:
+                self._outer_env = previous + (env,)
             try:
                 _, rows = self._select_node(node.select)
             finally:
@@ -3024,11 +3031,12 @@ class Database:
                     return self.trigger_env[qualified]
             key = (f"{node.table.lower()}.{node.name.lower()}" if node.table
                    else node.name.lower())
-            if (env is None or key not in env) and self._outer_env is not None:
-                # Correlation: the enclosing row is consulted only when this query cannot resolve
-                # the name itself, and a qualified name never falls back to a bare match.
-                if key in self._outer_env:
-                    return self._outer_env[key]
+            if (env is None or key not in env) and self._outer_env:
+                # Correlation: enclosing rows are consulted only when this query cannot resolve the
+                # name itself, innermost scope first, so a name at any depth of nesting resolves.
+                for scope in reversed(self._outer_env):
+                    if key in scope:
+                        return scope[key]
             if env is None or key not in env:
                 # SQLite adds the hint only for double-quoted identifiers, and prints the
                 # quotes back; bracket/backtick forms lose their quotes in the message.

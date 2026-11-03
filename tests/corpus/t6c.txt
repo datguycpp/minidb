@@ -1,0 +1,52 @@
+-- t6c (owner: Engineer). Subject: correlated names at depth — a subquery nested two
+-- or more levels deep can still see the outermost query's row.
+-- Ordered by the growth run that found it: every generated double-nested case failed
+-- with `no such column: a.k1`, because the engine kept only the immediate parent's
+-- row for correlation. SQLite resolves the name at any depth; the nesting depth is
+-- not part of the contract, so it is not part of this subset either.
+-- Cases here are one blank-line-separated block each: setup, then the query.
+
+-- Depth two, IN-subquery: the innermost subquery names a column of the outermost query.
+CREATE TABLE a (id INTEGER, k1 INTEGER);
+CREATE TABLE b (v INTEGER);
+CREATE TABLE c (k1 INTEGER);
+INSERT INTO a VALUES (1, 10), (2, 20);
+INSERT INTO b VALUES (10), (30);
+INSERT INTO c VALUES (10), (20);
+SELECT a.id, (SELECT COUNT(*) FROM b WHERE b.v IN (SELECT c.k1 FROM c WHERE c.k1 = a.k1)) FROM a ORDER BY a.id;
+
+-- Depth two, EXISTS: same resolution rule through a different subquery form.
+CREATE TABLE a (id INTEGER, k1 INTEGER);
+CREATE TABLE b (v INTEGER);
+CREATE TABLE c (k1 INTEGER);
+INSERT INTO a VALUES (1, 10), (2, 20);
+INSERT INTO b VALUES (10), (30);
+INSERT INTO c VALUES (10), (20);
+SELECT a.id FROM a WHERE EXISTS (SELECT 1 FROM b WHERE EXISTS (SELECT 1 FROM c WHERE c.k1 = a.k1)) ORDER BY a.id;
+
+-- Depth two, scalar: the innermost aggregate correlates to the outermost row.
+CREATE TABLE a (id INTEGER, k1 INTEGER);
+CREATE TABLE b (v INTEGER);
+CREATE TABLE c (k1 INTEGER);
+INSERT INTO a VALUES (1, 10), (2, 20);
+INSERT INTO b VALUES (10), (30);
+INSERT INTO c VALUES (10), (20);
+SELECT a.id, (SELECT (SELECT MAX(c.k1) FROM c WHERE c.k1 = a.k1) FROM b LIMIT 1) FROM a ORDER BY a.id;
+
+-- Depth three: the chain must be walked, not merely widened by one level.
+CREATE TABLE a (id INTEGER, k1 INTEGER);
+CREATE TABLE b (v INTEGER);
+CREATE TABLE c (k1 INTEGER);
+INSERT INTO a VALUES (1, 10), (2, 20);
+INSERT INTO b VALUES (10), (30);
+INSERT INTO c VALUES (10), (20);
+SELECT a.id, (SELECT COUNT(*) FROM b WHERE b.v IN (SELECT c.k1 FROM c WHERE c.k1 IN (SELECT b.v FROM b WHERE b.v = a.k1))) FROM a ORDER BY a.id;
+
+-- Shadowing: the inner scope's own column wins over an outer one of the same name.
+-- Both tables here have k1, so a resolution that merely searched outward would
+-- silently bind the wrong row instead of failing loudly.
+CREATE TABLE a (id INTEGER, k1 INTEGER);
+CREATE TABLE c (k1 INTEGER);
+INSERT INTO a VALUES (1, 10), (2, 20);
+INSERT INTO c VALUES (10), (20);
+SELECT a.id, (SELECT (SELECT MAX(c.k1) FROM c WHERE c.k1 = a.k1) FROM c LIMIT 1) FROM a ORDER BY a.id;
