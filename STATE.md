@@ -30,7 +30,7 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   history rewrites, no force-push; network only for installs + SQLite versions.
 
 ## Latest score
-- Corpus 293/293 (100%), 554 tests, syntax 46/46, docs examples 7/7.
+- Corpus 293/293 (100%), 562 tests, syntax 46/46, docs examples 7/7.
 - Prediction tally: 13 in-band / 3 under / 7 generous over 23 bands.
 - Benchmarks, 100k (N=7 unless noted): W1 16.9x (57µs/lookup, ceil 500µs), W8
   88x (1.37ms/update, ceil 5ms), W3 0.928 sub-1, W6 0.219, W7 59.5, W9 354x
@@ -85,12 +85,13 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   gate ≤259.0; load-matched-pair calling rule (|Δload|≤1.0 else INCONCLUSIVE);
   loud capture kept as contrast. Scope note: gate 3 needs whole per-statement
   chain, not parser alone. Build open.
-  Scope FIXED pre-edit (0c7575f, engine clean): gate 3 targets whole
-  per-statement chain; C path behind measured APIs (BTree.scan/record.decode).
+  Scope FIXED pre-edit (0c7575f, engine clean): gate 3 = whole chain; C path
+  behind measured APIs. Fuzz anchor (a74294e, clean): seeds 1/7 structured 0/0.
 
 ## Open items
-- Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
-  scope (b) every on-disk scan (target declared with shape), or neither.
+- Read-path order: SUBSUMED by goal 6's gates (gate 2 ≤60x forces candidate (a);
+  gate 1 ≤259ms forces (b)-style walk/decode work; "or neither" no longer live
+  while goal 6 stands).
 - Phase-2 goals below are Default-ordered and need no approval.
 
 ## Declared limits (item | what is missing | owner | why it matters)
@@ -138,7 +139,7 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   stage passes; a failing stage prints FAIL, keeps its counts, and reproduces its
   raw failure output below the table.
 - The same stages individually:
-  `python3 -m unittest discover -s tests` (554 green).
+  `python3 -m unittest discover -s tests` (562 green).
 - `python3 tools/behavior_conformance.py` (293/293).
 - `python3 tools/replication_check.py` (tail: 12/12 sites, 0 failures).
 - `python3 tools/docs_runner.py` (docs examples; M33 bidirectional drift assertion).
