@@ -2017,3 +2017,18 @@ Nothing above the first entry was edited in the move.
   (|Δloadavg| ≤ 1.0); a mismatch is INCONCLUSIVE and both sides re-run, the baseline side from the
   frozen pre-change revision. Thresholds unchanged: the ceilings are derived from these medians,
   so a re-capture moves the ceiling and never the rule.
+
+- **Goal 6, build scope fixed by the enrichment arithmetic (2026-11-04T02:48:33+0800, `854c6be`).**
+  Two consequences of the quiet baseline that change what the build must touch — recorded before
+  the first engine edit, neither one moving a gate:
+  1. **Gate 3 is not a parser target.** Parse is 41.6% of the loop, so a *perfect* parser still
+     leaves 2279.1 ms of plan+execute+fetch — above the 1952.7 ceiling. Passing requires
+     `parse_new + nonparse_new <= 1952.7`; with parse halved (813 ms) non-parse must fall 50%, and
+     with parse unchanged it must fall 86%. The C work therefore targets **the whole per-statement
+     chain** (~228 us/statement on a three-row fixture), which is M38's W1 subject wearing a
+     narrower name. A parser-only build would miss this gate with a real parser win, and the
+     component record will show exactly that shape.
+  2. **Gate 1 measures the committed script's own calls** — `BTree.scan` + `record.decode`. The
+     fast path must sit *behind those APIs*, per the fallback rule already declared; a new
+     entrypoint beside them would improve the engine while the gate kept timing the old path, and
+     the miss would be by construction rather than by measurement.
