@@ -84,10 +84,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   3905.4 → gate ≤1952.7, block 329.1 → gate ≤259.0; matched-pair rule
   (|Δload|≤1.0 else INCONCLUSIVE). Scope: gate 3 = whole chain. Build open.
   Scope FIXED pre-edit (0c7575f, clean): gate 3 = whole chain; C behind APIs.
-  Fuzz anchor (a74294e, clean): seeds 1/7 structured 0/0. Profile (7e49ac5):
-  lexer 57% of parse; both halves required, chain ≈45% cut load-bearing.
-  First change (a7f8d89, verified 562+293): Token.upper once — parse −5.6%,
-  not gate progress; KEYWORD-only attempt failed 172 tests, suite caught it.
+  Fuzz anchor (a74294e, clean): seeds 1/7 structured 0/0.
+  Profile (7e49ac5): lexer 56% of parse uninstrumented; chain floor ≥326.4
+  (bc9ecee), realistic ≈1076ms ≈47% non-parse.
+  First change (a7f8d89, 562+293): Token.upper once, parse −5.6%, not progress.
 
 ## Open items
 - Read-path order: SUBSUMED by goal 6's gates (gate 2 ≤60x forces candidate (a);
