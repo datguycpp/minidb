@@ -1561,6 +1561,68 @@ Nothing above the first entry was edited in the move.
     header by load_cases — my count was one short; corrected before any score
     existed, which is the order the rule requires.
 
+- **Skeptic round 2 — PRE-REGISTERED by Research (2026-11-04, written before the
+  scripts existed and before any run; continuation of the round-1 entry above):**
+  *Surfaces (as declared in round 1):* concurrent clients, real SIGKILL during
+  VACUUM, replication under crash and divergence. All probes are invariant
+  checks — boolean, no performance claims — so the external-anchoring rule has
+  nothing to anchor; the only time-shaped constant is a **hang bound of 10 s**
+  per operation, pre-registered as a generous constant, not a measurement.
+  *Why SIGKILL is not redundant with `make verify`'s crash stage:* the existing
+  sweep and M24/M36's tests kill at seeded crash POINTS via `os._exit(9)` —
+  cooperative, between operations, by construction. This round sends an actual
+  SIGKILL from the parent at seeded wall-clock delays, which lands where no
+  crash point can be placed: **mid-syscall**. The window is the point.
+  *kill9* (`round2_kill9.py`, seed 20261103): fixture 12k rows with 6k deleted,
+  built once, copied per iteration; a printed calibration run measures vacuum
+  duration D; **30 kills at stratified delays in [0, D] + 8 controls in
+  (D, D+0.2 s]**. Invariants: K1 reopen succeeds or raises a typed (minidb-
+  module) error — no hang; K2 `PRAGMA integrity_check` = 'ok'; K3 **row
+  comparison** — exactly the 6k survivors with the expected id-sum, never
+  integrity_check alone (round-1's lesson); K4 post-kill insert+select
+  round-trip; K5 the victim really died of SIGKILL (returncode −9).
+  *concurrent* (`round2_concurrent.py`, 5 rounds labelled 20261103+round — no
+  RNG: thread interleaving is the declared nondeterminism, socket
+  timeout 10 s): P1 readers during an open transaction answer only from the
+  allowlist {pre-state rows, post-commit rows, typed `database is locked`};
+  P2 racing autocommit writers — every response success or typed lock error,
+  final count = base + successes; P3 disconnect-with-open-transaction storm —
+  lock releases within the bound and the state is rolled back; P4 readers over
+  frozen data racing a writer inserting constant value 7 — every answer satisfies
+  `sum == 7 × count` (a torn read fails this) with count in range. Violation =
+  any response outside its allowlist, any timeout, any count mismatch.
+  *replication* (`round2_replication.py`, seed 20261103): **R1** real SIGKILL
+  during resolve — 10 stratified delays in [0, D1] (D1 = control-measured
+  resolve duration) + 1 control; replica sha ∈ {pre-resolve, primary} after the
+  kill, resolve re-runs to convergence, no acknowledged row lost. **R2** torn
+  replog tail — 12 stratified byte offsets in the last 160 bytes; parse yields a
+  contiguous prefix 1..k or a typed error (typed = raised from a minidb module —
+  a bare `struct.error`-class leak is a violation), never a gap or garbage
+  page ids, and a subsequent sync (≤3 attempts) or resolve restores sha-identity
+  with lag 0 — silent under-ship is a violation. **R3** ship racing primary
+  writes — 5 rounds of a subprocess writer (20 inserts of constant 7) against 20
+  in-process syncs; every sync lands on a state that reopens with count in range
+  and `sum == 7 × count`, or raises typed; final sync converges (lag 0, sha
+  equal). **R4** divergence cycling — 3 refuse→resolve→refuse cycles; refusal
+  names the base seq, both files byte-unchanged after each refusal (sha
+  before/after), heal loses no acknowledged row. **R5** real SIGKILL during
+  `_apply` — 15 stratified delays in [0, D5] + 1 control; sha ∈ {pre, post},
+  reopen works, row comparison — the mid-syscall complement to the landed
+  12-site `os._exit` sweep. **R6** replay-idempotence control — 3 double-applies,
+  byte-identical.
+  *Pass condition:* zero violations across every pre-registered iteration; each
+  iteration's outcome printed raw; a violation is a FINDING carrying its
+  iteration and seed, and the skeptic veto applies with a repro.
+  *Zero rule (carried):* per-invariant coverage counts and a per-surface "why
+  nothing was found" — including the honest case where an invariant is
+  unviolatable by construction (e.g. server-side request serialization makes a
+  torn read impossible), which must be reported as such, not as evidence of
+  strength.
+  *Method:* the three scripts under `tests/skeptic/`, raw output to
+  `tests/skeptic/round2-results-*.txt` with headers (command, revision, seeds,
+  calibration numbers). No corpus edits. Findings route exactly as round 1:
+  fix side to engineer, declared limits to the LIMITS table.
+
 - **Goal 5, round-1 findings FIXED (2026-11-03T23:35:39+0800) — 31/32, the only failure left is the declared-out.**
   Research's triage labels (LOG, below) taken as given, with the case-16 direction correction
   accepted: **the raw line's first side is SQLite**, so MiniDB was over-folding, not under-folding;
@@ -1583,3 +1645,9 @@ Nothing above the first entry was edited in the move.
   **562** green (5 new comparison tests named after their cases), corpus **293/293**,
   `make verify` **5/5**. The three regression checks that mattered most — 293-case corpus,
   crash sweep, docs — all stayed green through the changes.
+
+- **Round-1 fix landing reviewed cold by Default: 31/32 reproduced (only case 30,
+  declared-out), 562 tests green. Force-push disclosure: verified parent
+  8384a73 intact in-chain and tree byte-consistent; recorded as charter-boundary
+  violation with no exception per the entry above — nothing to repair
+  technically, the rule stands as written.**
