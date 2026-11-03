@@ -1003,6 +1003,11 @@ class Database:
 
     def __init__(self, path=None, readonly=False, repl_log=False):
         self.path = path
+        if path and not readonly:
+            # A VACUUM killed before its rename leaves `<db>.vacuum` and its WAL behind. Opening
+            # the database is the only moment that knows the staging name is stale, so the sweep
+            # lives here (skeptic round 2: a killed vacuum's orphans had never been tested).
+            self._clear_vacuum_artifacts(path + ".vacuum")
         foreign = bool(path) and is_sqlite_file(path)
         try:
             self.storage = None if foreign else (
@@ -1790,6 +1795,15 @@ class Database:
         return [f"SCAN {statement.table}", f"  reason: {decision['reason']}"]
 
     # -- VACUUM --------------------------------------------------------------
+    @staticmethod
+    def _clear_vacuum_artifacts(base):
+        """Remove VACUUM's staged files: the temp database and any WAL it wrote beside it."""
+        for candidate in (base, base + ".wal", base + "-wal", base + ".shm", base + "-shm"):
+            try:
+                os.remove(candidate)
+            except OSError:
+                pass
+
     def _vacuum(self):
         """Rebuild the file so pages freed by DELETE/UPDATE are actually returned.
 
@@ -1817,8 +1831,7 @@ class Database:
                 table.unique_sets.clear()
             return None
         temp_path = self.path + ".vacuum"
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        self._clear_vacuum_artifacts(temp_path)
         fresh = Database(temp_path)
         for table in self.tables.values():
             fresh.run(table.entry["sql"])
@@ -1849,6 +1862,10 @@ class Database:
                 handle.truncate(max(0, os.path.getsize(temp_path) // 2))
             os._exit(9)
         os.replace(temp_path, self.path)
+        # The staging handle wrote its own WAL next to the temp file; the rename moved the main
+        # file only, so the sidecar would survive as `<db>.vacuum.wal` (skeptic round 2). It is a
+        # stale WAL with no database beside it, which is the foreign-data-on-open hazard.
+        self._clear_vacuum_artifacts(temp_path)
         if os.environ.get("MINIDB_CRASH_POINT") == "vacuum_after_replace":
             os._exit(9)
         reopened = Database(self.path, repl_log=self.repl_log)

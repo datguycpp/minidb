@@ -182,6 +182,16 @@ class Replica:
             raise ReplicationConflict(seq, pending[0][0] if pending else None, local, local_range,
                                       current != shipped_sha)
         if not pending:
+            # Nothing to ship is not the same as nothing to check. The marker above is written by
+            # _apply, so a run that applied a batch and then failed its identity check leaves the
+            # marker agreeing with the shipped sha while the replica has drifted: comparing the
+            # replica to its own last write then reports lag 0 forever (skeptic round 2, R2b --
+            # the comment above states this exact policy, and this path was the one that skipped
+            # it). Identity is therefore verified against the primary on every sync, including
+            # this one.
+            primary_sha = primary.sha()
+            if current != primary_sha:
+                raise ReplicationConflict(seq, None, local, local_range, True)
             return SyncReport(0, seq, seq, current, self.lag(primary))
 
         from_seq = seq
