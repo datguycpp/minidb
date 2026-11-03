@@ -80,6 +80,11 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   Baselines FROZEN (d50a2f8, LOG+script only, engine clean): parse median
   8430.8ms (gate ≤4215), block median 784.0ms (38% spread); gate-3 shape
   amended pre-result (10k all-distinct, LRU citation). Build open.
+  Quiet RE-CAPTURE adopted (898e730, engine clean verified): loadavg 2.00,
+  parse-only 1626.3 (41.6% of loop), loop 3905.4 → gate ≤1952.7, block 329.1 →
+  gate ≤259.0; load-matched-pair calling rule (|Δload|≤1.0 else INCONCLUSIVE);
+  loud capture kept as contrast. Scope note: gate 3 needs whole per-statement
+  chain, not parser alone. Build open.
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
