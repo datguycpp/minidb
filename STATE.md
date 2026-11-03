@@ -77,6 +77,9 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   Goal 6 PRE-REGISTERED (57aec57, LOG only, no engine code): mechanism >
   calibrated band, W9 ≤60x reference, parse loop ≥50%, parity = 293/293 + same
   fuzz counts + verify 5/5 + round-3 battery. Build pending.
+  Baselines FROZEN (d50a2f8, LOG+script only, engine clean): parse median
+  8430.8ms (gate ≤4215), block median 784.0ms (38% spread); gate-3 shape
+  amended pre-result (10k all-distinct, LRU citation). Build open.
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
