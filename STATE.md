@@ -80,7 +80,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
 2. Skeptic round (Research adversarial): each finding becomes a corpus case or a
    LIMITS.md entry; zero findings explained.
 3. docs/LIMITS.md: every partial/limit/divergence in one table (extends above).
-4. Independent reference check: corpus + fuzzer vs ≥1 other SQLite version.
+4. ~~Independent reference check~~ **DONE** (a33872d; corpus vs 3.51.0 + 3.45.1:
+   13/14 oracle-moved, MiniDB matches pinned on all, 0 genuine; fuzz seeds 1,7
+   clean on all three oracles; cold re-run vs 3.51.0 reproduces 13/0. Declared
+   limit: error text is shell-version-specific, scores comparable at 3.54.0).
 5. Performance: hot paths (on-disk scan, per-statement parsing) in the judged-best
    toolchain; parity rules hold (same corpus, same fuzz counts on same seeds).
 
