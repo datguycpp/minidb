@@ -62,11 +62,25 @@ is weakest (confirmed: load+CRC is 18 ms of the query).
 
 ## Candidates and floors (Part B anchors)
 
-- **(a) page-header count** (COUNT-shaped): reads each page's `nCell`,
-  never parses a cell, never decodes a record. Floor = load+CRC
-  (18.48 ms) + header parse → **~18–30 ms** for W9's first query
-  (today ~411–446 ms). Pages carry cell counts as validated fields
-  (M27's cell-count fixtures). The floor is arithmetic on this file.
+- **(a) page-header count** (COUNT-shaped): the page header carries
+  everything a header-only count needs in its first three bytes —
+  `kind = data[0]`, `count = struct.unpack_from("<H", data, 1)`,
+  `btree.py:57-60` — so the shape is: read the page through the pager
+  (where the measured 9.4 µs/page load+CRC already comes from), take
+  three bytes from the already-loaded buffer (no extra I/O), keep it if
+  it is a leaf. No cell parse, no key compare, no payload decode. Two
+  correctness conditions: **leaf-only** (an interior page's count is
+  separator pointers, not rows — the discriminator is the kind byte
+  already in hand) and **tree-scoped** (filtering the whole file's page
+  range would also count the catalog's leaves — off by the catalog's
+  rows on a query whose point is exact-and-cheap — and, in a general
+  file, overflow/freelist pages whose first byte can collide; so the
+  target tree's leaves are enumerated via its interior child pointers:
+  ~7 interior pages at 100k (12-byte cells, fanout ~340),
+  sub-millisecond, then header-sum the ~2,000 leaves). Floor = leaf
+  load+CRC (18.48 ms) + interior descent (~0.5 ms) → **~19 ms** (today
+  ~411–446 ms). Pages carry cell counts as validated fields (M27's
+  cell-count fixtures). The floor is arithmetic on this file.
 - **(b) decode path** (every on-disk scan): header-once unpack attacks
   the 254.67 ms block for all scans, not just COUNT. Floor is a design
   parameter, not a file property: it moves with how much of the
@@ -97,7 +111,7 @@ is weakest (confirmed: load+CRC is 18 ms of the query).
 
 Un-ordered; the record is complete without it (zero open items stands).
 Candidates (a) and (b) have disjoint scopes: (a) COUNT-shaped with a
-floor measurable from this file (~18–30 ms), (b) every on-disk scan with
+floor measurable from this file (~19 ms), (b) every on-disk scan with
 a floor that is a design parameter declared at ordering. The order names
 the scope; Part B then inherits arithmetic for (a) or records the
 declared target for (b).
