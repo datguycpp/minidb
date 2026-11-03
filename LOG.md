@@ -2032,3 +2032,14 @@ Nothing above the first entry was edited in the move.
      fast path must sit *behind those APIs*, per the fallback rule already declared; a new
      entrypoint beside them would improve the engine while the gate kept timing the old path, and
      the miss would be by construction rather than by measurement.
+
+- **Goal 6, gate-4 fuzz reference captured pre-edit (2026-11-04T02:56:25+08:00, `6083eb2`).**
+  The last fuzz *runs* on record were goal 4's, which predate round 1's six engine fixes and
+  round 2's three — an anchor whose engine is not this build's pre-state. Captured now, engine
+  untouched, with the mode stated because the tool's own `FUZZ run` line omits it (a small
+  truthfulness gap in the tool worth closing separately; recorded rather than assumed):
+  - `--mode structured --seed 1 --queries 1000` -> **mismatches=0** (13.6 s, 73.7 q/s)
+  - `--mode structured --seed 7 --queries 500`  -> **mismatches=0** (7.5 s, 66.5 q/s)
+  Both literatures are the all-mismatch count, not a filtered rate. Gate 4's "same literal counts"
+  now points at a run of *this* revision's engine, and the anchor is confirmed rather than assumed.
+  Corpus needs no capture: `make verify` runs 293/293 at every landing.
