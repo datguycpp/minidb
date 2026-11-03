@@ -83,11 +83,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   Quiet floor (898e730, clean, loadavg 2.00): parse-only 1626.3 (41.6%), loop
   3905.4 → gate ≤1952.7, block 329.1 → gate ≤259.0; matched-pair rule
   (|Δload|≤1.0 else INCONCLUSIVE). Scope: gate 3 = whole chain. Build open.
-  Scope FIXED pre-edit (0c7575f, clean): gate 3 = whole chain; C behind APIs.
-  Fuzz anchor (a74294e, clean): seeds 1/7 structured 0/0.
-  Profile (7e49ac5): lexer 56% of parse uninstrumented; chain floor ≥326.4
-  (bc9ecee), realistic ≈1076ms ≈47% non-parse.
+  Scope (0c7575f, clean): gate 3 = chain; C behind APIs. Fuzz (a74294e): 1/7 structured 0/0.
+  Profile (7e49ac5): lexer 56% of parse; chain floor ≥326.4 (bc9ecee), realistic ≈1076 ≈47%.
   First change (a7f8d89, 562+293): Token.upper once, parse −5.6%, not progress.
+  Seam spec CLOSED (7a8e750, LOG-only): test_lexer_equivalence.py, seed 4242, repro-on-failure.
 
 ## Open items
 - Read-path order: SUBSUMED by goal 6's gates (gate 2 ≤60x forces candidate (a);
