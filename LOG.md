@@ -1484,3 +1484,28 @@ Nothing above the first entry was edited in the move.
   the landed report exactly (13 moved incl. the (19)-suffix shape, MiniDB ==
   pinned throughout). Fuzz cross-oracle numbers taken from the report as run
   evidence (seed 1/1000 and seed 7/500 clean on all three oracles).**
+
+- **Goal 5, skeptic round 1 EXECUTED (2026-11-03T23:16:53+0800) — run by Engineer on Research's frozen batch,
+  classification left to Research as agreed.**
+  The pre-registered batch had not run and its file was still untracked; committed it first
+  (`9b3cbad`), then ran the exact pre-registered command. **Denominator corrected 31 -> 32
+  BEFORE the run** (`load_cases` returns 32 blocks, every one CREATE-first) — recorded in the
+  results header, not after the score.
+  *First result, raw:* `24/32 (75.0%)`, 8 FAILs. *Two of those were regressions from the
+  rowid-aliasing item, both mine:*
+  (a) the alias key was assigned AFTER the NOT NULL/default loop, so a legal
+  `INSERT INTO t (s) VALUES (...)` reported `NOT NULL constraint failed: t.id` (case 27) —
+  fixed by assigning the key before the checks and marking the column supplied;
+  (b) in-memory VACUUM renumbered an INTEGER PRIMARY KEY, making the alias column disagree
+  with its own rowid and producing a phantom `UNIQUE constraint failed` on the next insert —
+  fixed by preserving visible keys (SQLite only renumbers rowids that are not visible) and
+  clearing the key sets on rebuild.
+  *A third divergence surfaced while writing the regression test, and was fixed rather than
+  filed:* MiniDB enforced NOT NULL on every PRIMARY KEY, but SQLite does not (`TEXT PRIMARY
+  KEY` stores NULL; `INTEGER PRIMARY KEY` assigns). Aligned; the old unit test that pinned
+  the stricter rule is updated with disclosure.
+  *After the fixes:* `25/32 (78.1%)`; case 27 green, suite 557 green, corpus 293/293,
+  `make verify` 5/5. Remaining FAILs (raw, classification pending): 16 (NOCASE + non-ASCII
+  under WHERE), 19/20 (affinity in cross-type comparisons), 21 (NOCASE in a join ON),
+  22 (ORDER BY an output alias), 25 (`zeroblob` missing), 30 (`UPDATE SET rowid`, the t6d
+  declared-out). Both results files are in `tests/skeptic/` with their headers.

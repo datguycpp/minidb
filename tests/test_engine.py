@@ -42,11 +42,18 @@ class TestCreate(DbTestCase):
             self.run_sql("CREATE TABLE t (id INTEGER, ID TEXT)")
         self.assertEqual(str(ctx.exception), "duplicate column name: ID")
 
-    def test_primary_key_implies_not_null(self):
+    def test_primary_key_null_follows_the_reference(self):
+        # Corrected against the reference (disclosed): this used to assert "primary key implies NOT
+        # NULL", which SQLite does not do. `id INTEGER PRIMARY KEY` takes NULL as an *assignment*
+        # and stores the allocated key; a non-integer PRIMARY KEY accepts NULL and keeps it. The
+        # old expectation was MiniDB's own stricter rule, not the reference's.
         self.run_sql("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-        with self.assertRaises(ExecError) as ctx:
-            self.run_sql("INSERT INTO t VALUES (NULL)")
-        self.assertEqual(str(ctx.exception), "NOT NULL constraint failed: t.id")
+        self.run_sql("INSERT INTO t VALUES (NULL)")
+        self.assertEqual(self.db.run("SELECT id FROM t")[1], [(1,)])
+
+        self.run_sql("CREATE TABLE s (k TEXT PRIMARY KEY)")
+        self.run_sql("INSERT INTO s VALUES (NULL)")
+        self.assertEqual(self.db.run("SELECT quote(k) FROM s")[1], [("NULL",)])
 
 
 class TestInsert(DbTestCase):

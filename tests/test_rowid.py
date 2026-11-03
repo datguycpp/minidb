@@ -80,6 +80,36 @@ class RowidTest(unittest.TestCase):
             self.assertEqual(db.run("SELECT rowid FROM t ORDER BY rowid")[1], [(1,), (2,)])
             db.close()
 
+    def test_an_omitted_key_is_assigned_before_the_not_null_check(self):
+        # Skeptic round 1, case 27: the NOT NULL check ran before the alias was assigned, so a
+        # legal `INSERT INTO t (s) VALUES (...)` reported "NOT NULL constraint failed: t.id".
+        self.db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT)")
+        self.db.run("INSERT INTO t VALUES (1, 'q'), (2, 'r')")
+        self.db.run("INSERT INTO t (s) VALUES ('new')")
+        self.assertEqual(self.rows("SELECT id, s FROM t ORDER BY id"),
+                         [(1, "q"), (2, "r"), (3, "new")])
+
+    def test_vacuum_preserves_an_integer_primary_key(self):
+        # The key is data, not position: SQLite's VACUUM only renumbers rowids that are not
+        # visible. Renumbering these made the alias column disagree with its own rowid.
+        self.db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT)")
+        self.db.run("INSERT INTO t VALUES (1, 'q'), (2, 'r')")
+        self.db.run("DELETE FROM t WHERE id = 1")
+        self.db.run("VACUUM")
+        self.assertEqual(self.rows("SELECT id, s FROM t"), [(2, "r")])
+        self.db.run("INSERT INTO t (s) VALUES ('small')")
+        self.assertEqual(self.rows("SELECT id FROM t ORDER BY id"), [(2,), (3,)])
+
+    def test_null_into_a_primary_key_follows_the_reference(self):
+        # SQLite does not enforce NOT NULL on a PRIMARY KEY in a rowid table: INTEGER PRIMARY KEY
+        # turns NULL into an assigned key, a TEXT PRIMARY KEY keeps the NULL.
+        self.db.run("CREATE TABLE a (id INTEGER PRIMARY KEY)")
+        self.db.run("INSERT INTO a VALUES (NULL)")
+        self.assertEqual(self.rows("SELECT id FROM a"), [(1,)])
+        self.db.run("CREATE TABLE b (k TEXT PRIMARY KEY)")
+        self.db.run("INSERT INTO b VALUES (NULL)")
+        self.assertEqual(self.rows("SELECT quote(k) FROM b"), [("NULL",)])
+
 
 if __name__ == "__main__":
     unittest.main()

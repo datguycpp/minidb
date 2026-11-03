@@ -1,0 +1,53 @@
+command: python3 tools/behavior_conformance.py --corpus tests/skeptic/round1.txt --verbose
+denominator: 32 (tests/skeptic/round1.txt only — not the 293-case corpus)
+denominator-correction: pre-registered as 31; load_cases reports 32 blocks, every one CREATE-first; corrected pre-run, before any result was seen
+probe-revision: 9b3cbad
+revision: 9b3cbad
+sqlite3: 3.54.0 2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcalt1 (64-bit)
+2026-11-03T23:10:20+08:00
+ok   tests/skeptic/round1.txt case 1: SELECT a.id, (SELECT COUNT(*) FROM b WHERE b.k = a.k AND EXISTS (SELECT 1 FROM c WHERE c.k = b.k AND EXISTS (SELECT 1 FROM d WHERE d.k = c.k AND d.k = a.k))) FROM a ORDER BY a.id
+ok   tests/skeptic/round1.txt case 2: SELECT t.id FROM t ORDER BY (SELECT u.v FROM u WHERE u.k = t.k) DESC, t.id
+ok   tests/skeptic/round1.txt case 3: SELECT t.k FROM t WHERE EXISTS (SELECT 1 FROM u JOIN v ON u.k = v.k WHERE u.k = t.k) ORDER BY t.k
+ok   tests/skeptic/round1.txt case 4: SELECT g, COUNT(*) FROM t GROUP BY g HAVING COUNT(*) <= (SELECT cap FROM m WHERE m.g = t.g) ORDER BY g
+ok   tests/skeptic/round1.txt case 5: SELECT * FROM t, (SELECT k + t.k) AS d
+ok   tests/skeptic/round1.txt case 6: SELECT (SELECT k FROM u ORDER BY k LIMIT 1) AS first, (SELECT MAX(k) FROM u) AS mx
+ok   tests/skeptic/round1.txt case 7: SELECT t.a, u.b FROM t LEFT JOIN u ON t.k = u.k ORDER BY t.a
+ok   tests/skeptic/round1.txt case 8: SELECT k FROM t WHERE k NOT IN (SELECT k FROM u) ORDER BY k
+ok   tests/skeptic/round1.txt case 9: SELECT t.tag, u.tag FROM t LEFT JOIN u ON t.k = u.k ORDER BY t.tag
+ok   tests/skeptic/round1.txt case 10: SELECT COUNT(*) AS star, COUNT(u.v) AS uv, COUNT(u.k) AS uk FROM t LEFT JOIN u ON t.k = u.k
+ok   tests/skeptic/round1.txt case 11: SELECT COUNT(a) AS ca, COUNT(*) AS cs, SUM(a) AS sa, AVG(a) AS aa, MIN(a) AS ma, MAX(a) AS mx FROM t
+ok   tests/skeptic/round1.txt case 12: SELECT id FROM t ORDER BY v ASC, id
+ok   tests/skeptic/round1.txt case 13: SELECT id FROM t ORDER BY v DESC, id
+ok   tests/skeptic/round1.txt case 14: SELECT g, COUNT(*) AS n FROM t GROUP BY g ORDER BY g
+ok   tests/skeptic/round1.txt case 15: SELECT DISTINCT g FROM t ORDER BY g
+FAIL tests/skeptic/round1.txt case 16: SELECT s FROM t WHERE s = 'Ä' ORDER BY s COLLATE BINARY
+     [{'s': 'Ä'}] vs [{'s': 'Ä'}, {'s': 'ä'}]
+ok   tests/skeptic/round1.txt case 17: SELECT s FROM t WHERE s = 'A' ORDER BY s COLLATE BINARY
+ok   tests/skeptic/round1.txt case 18: SELECT typeof(v) AS ty, v FROM t ORDER BY v
+FAIL tests/skeptic/round1.txt case 19: SELECT id FROM t WHERE n = '1' ORDER BY id
+     [{'id': 1}] vs []
+FAIL tests/skeptic/round1.txt case 20: SELECT id FROM t WHERE s = 1 ORDER BY id
+     [{'id': 1}] vs []
+FAIL tests/skeptic/round1.txt case 21: SELECT t.a AS ta, u.a AS ua FROM t JOIN u ON t.a = u.a
+     [{'ta': 'Foo', 'ua': 'foo'}] vs []
+FAIL tests/skeptic/round1.txt case 22: SELECT typeof(t.v) AS ty FROM t JOIN u ON t.v = u.v ORDER BY ty
+     SQLite returned rows, MiniDB errored: 'no such column: ty'
+ok   tests/skeptic/round1.txt case 23: SELECT id, length(s), CASE WHEN length(s) > 4096 THEN 'over' ELSE 'local' END AS zone, substr(s, 1, 1), substr(s, length(s), 1) FROM t ORDER BY id
+ok   tests/skeptic/round1.txt case 24: SELECT length(s), length(s) > 8192 AS multihop, substr(s, 1, 2), substr(s, length(s), 1) FROM t
+FAIL tests/skeptic/round1.txt case 25: SELECT length(b), hex(substr(b, 1, 4)), hex(substr(b, 9997, 4)) FROM t
+     SQLite returned rows, MiniDB errored: 'no such function: zeroblob'
+ok   tests/skeptic/round1.txt case 26: SELECT length(s), substr(s, 1, 1), (SELECT length(s) FROM t WHERE id = 1) AS by_rowid FROM t
+FAIL tests/skeptic/round1.txt case 27: SELECT id, length(s) FROM t ORDER BY id
+     SQLite returned rows, MiniDB errored: 'NOT NULL constraint failed: t.id'
+ok   tests/skeptic/round1.txt case 28: SELECT * FROM v
+ok   tests/skeptic/round1.txt case 29: SELECT rowid FROM (SELECT k FROM t)
+FAIL tests/skeptic/round1.txt case 30: SELECT rowid, k FROM t ORDER BY rowid
+     'UNIQUE constraint failed: t.rowid' vs 'no such column: rowid'
+ok   tests/skeptic/round1.txt case 31: SELECT t.k, (SELECT COUNT(*) FROM u WHERE v = t.v) FROM t
+ok   tests/skeptic/round1.txt case 32: SELECT g, SUM((SELECT w FROM m WHERE m.k = t.k)) FROM t GROUP BY g ORDER BY g
+
+  tests/skeptic/round1.txt: 24/32
+BEHAVIOUR CONFORMANCE: 24/32 (75.0%)
+corpus: tests/skeptic/round1.txt
+corpus revision: d46618e
+reference: SQLite 3.54.0

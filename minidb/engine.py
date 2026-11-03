@@ -837,8 +837,12 @@ class Column:
                 self.ref_table = constraint.ref_table
                 self.ref_column = constraint.ref_column
             elif constraint.kind == "PRIMARY KEY":
+                # SQLite does NOT enforce NOT NULL on a PRIMARY KEY in a rowid table (the historical
+                # bug the docs still document): a TEXT PRIMARY KEY stores NULL, and an INTEGER
+                # PRIMARY KEY turns NULL into an assigned key. Enforcing it here made MiniDB stricter
+                # than the reference -- a divergence the differential cannot excuse. (WITHOUT ROWID
+                # tables, where the standard rule does apply, are out of scope.)
                 self.primary_key = True
-                self.not_null = True
                 self.unique = True
             elif constraint.kind == "NOT NULL":
                 self.not_null = True
@@ -1632,6 +1636,20 @@ class Database:
                     forced_rowid = self._eval(expr, table, None)
                     continue
                 values[index] = self._eval(expr, table, None)
+            if alias_position is not None:
+                # An INTEGER PRIMARY KEY *is* the rowid: an explicit value sets the key, and an
+                # omitted one is assigned here -- before the NOT NULL/default checks below, because
+                # the reference fills the key rather than reporting it as NULL. (Skeptic round 1,
+                # case 27: the check ran first and turned a legal insert into a constraint error.)
+                if values[alias_position] is not None:
+                    forced_rowid = values[alias_position]
+                else:
+                    forced_rowid = self._next_memory_rowid(table) if not table.on_disk \
+                        else max(table.entry["next_rowid"], 1)
+                    values[alias_position] = forced_rowid
+                # The key counts as supplied: the loop below fills defaults for omitted columns and
+                # would otherwise report the key we just assigned as a missing NOT NULL value.
+                supplied.add(alias_position)
             for i, column in enumerate(table.columns):
                 if i in supplied:
                     continue
@@ -1678,15 +1696,6 @@ class Database:
             if violation:
                 raise ExecError(violation)
             self._fire(table, "INSERT", "BEFORE", None, values)
-            if forced_rowid is None and alias_position is not None:
-                # An INTEGER PRIMARY KEY *is* the rowid: an explicit value sets it, and an omitted
-                # one is allocated exactly as the alias column's value.
-                if values[alias_position] is not None:
-                    forced_rowid = values[alias_position]
-                else:
-                    forced_rowid = self._next_memory_rowid(table) if not table.on_disk \
-                        else max(table.entry["next_rowid"], 1)
-                    values[alias_position] = forced_rowid
             if forced_rowid is not None and self._row_by_id(table, forced_rowid) is not None:
                 name = table.name if alias_position is None else table.columns[alias_position].name
                 who = "rowid" if alias_position is None else name
@@ -1775,9 +1784,20 @@ class Database:
             # In memory there is no file to rewrite, but the renumbering is part of the contract
             # (t6d's case K), so it happens here too.
             for table in self.tables.values():
-                if table.rowids is not None:
+                alias = self._rowid_alias_position(table)
+                if alias is not None:
+                    # An INTEGER PRIMARY KEY is data, not position: SQLite's VACUUM preserves those
+                    # keys (it only renumbers tables whose rowid is not visible). Renumbering them
+                    # here made the alias column disagree with its own rowid.
+                    table.rowids = [row[alias] for row in table.rows]
+                    table.next_rowid = max(table.rowids, default=0) + 1
+                elif table.rowids is not None:
                     table.rowids = list(range(1, len(table.rows) + 1))
                     table.next_rowid = len(table.rows) + 1
+                # Renumbering rewrites the alias column's values, so any key set built from the old
+                # numbering is stale (skeptic round 1, case 27: it reported a UNIQUE conflict against
+                # a key that VACUUM itself had just freed).
+                table.unique_sets.clear()
             return None
         temp_path = self.path + ".vacuum"
         if os.path.exists(temp_path):
