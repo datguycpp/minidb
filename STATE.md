@@ -66,6 +66,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   room message only); R1b = fix (reorder, no pre-unlink), R5 = instrument
   (allowlist stale, engine exonerated 3 ways). Vacuum Q3 + resolve reorder +
   replication re-run pending. 562 green.
+  Round-2 v5 verified cold (c863dba): vacuum Q3 PASS (0 violations; kill orphans
+  swept at open, rows intact), replication PASS (0 violations, 0 MISSING —
+  R1b 2/10 → 0/10). Sidecar acceptance discharge with research; all four v2
+  labels then closed on fix side. 562 green.
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),

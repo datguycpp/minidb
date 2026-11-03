@@ -1851,3 +1851,8 @@ Nothing above the first entry was edited in the move.
   archived post-fix raw; room-message evidence only. R1b (fix) and R5
   (instrument) taken as triaged; pending runs are the vacuum Q3, the resolve
   reorder, and the joint replication re-run.**
+
+- **Round-2 v5 reviewed cold by Default: both PASS reproduced from the raw (0
+  violations, 0 MISSING, kill-orphan listings as reported), 562 green.
+  Sidecar acceptance discharge stays Research's — the run is verified as
+  reported, the label is hers.**
