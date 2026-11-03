@@ -84,7 +84,7 @@ query history; hot-path rewrite in a faster language
 
 ## Current state
 
-- **Current milestone: TIER-6 CLOSED (M38 parity PASS — nine ratios improved-or-equal, zero regressions; 100k pair gated+paired; corpus 260/260, 533 tests. Band #20 miss → tally 10/3/7. Trigger-registered: growth band first post-close; aliasing acceptances on item order; loadavg duty live).**
+- **Current milestone: growth run CLOSED (in-band hit → tally 11/3/7 over 21 bands; corpus 265/265 (+5 t6c pure addition), 538 tests, growth 1000/1000 zero mismatch. Gap 1 fixed (scope-stack depth). KNOWN GAP Gap 2 — lazy column validation: `SELECT nosuch FROM a` on an empty table answers [] instead of `no such column: nosuch`; `SELECT a.id, (SELECT MAX(b.v) FROM c) FROM a` with c empty answers [(1, None)] instead of `no such column: b.v`. Owed: planning-time resolver; acceptance = both cases become corpus cases at 0-mismatch. Not a milestone partial. Trigger-registered: aliasing acceptances on item order; Tier-6 close stands.)**
 - Scores (all cold-clone-reproduced by Default):
   - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
   - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
