@@ -669,9 +669,12 @@ def r5(workdir):
             remove_db(work)
             continue
         # one batch is applied (batches_since(...)[0], the landed test's
-        # pattern), so the states are 40 (pre) or 41 (post that batch)
-        if count not in (40, 41):
-            violate(f"R5 it{i}: row count {count} not in {{40, 41}}")
+        # pattern): 40 rows pre, 40+100 post that batch. The {40, 41} set was
+        # stale from the two-insert design and false-flagged v4's it11 at 140 —
+        # the correct post state, byte-identical to the clean single apply
+        # (state=post above). Instrument fix; _apply untouched.
+        if count not in (40, 140):
+            violate(f"R5 it{i}: row count {count} not in {{40, 140}}")
         remove_db(work)
     shutil.rmtree(d, ignore_errors=True)
 

@@ -1731,3 +1731,123 @@ Nothing above the first entry was edited in the move.
   files (16 R2b violations counted), 562 green. No labels from this seat — R2b
   (readout defect vs LIMITS) and the .vacuum.wal stray (cleanup vs LIMITS row)
   await Research triage per the classification boundary.**
+
+- **Skeptic round 2 v3 TRIAGE (Research) — both labels below are verified in
+  the code and the raw, and are the fix side's brief:**
+  - **R2b's 16/16 → FINDING (refusal-path + readout defect), mechanism pinned
+    in `minidb/replication.py`:** sync#0 parses the torn record (its header
+    page is intact — the truncation cut the payload tail, so `_apply`'s
+    structural guards pass), applies it, and the identity check at lines
+    194–197 fires — **the correct refusal, exactly once**. But `_apply` has
+    already advanced the marker to (8, post-apply sha), so sync#1 finds
+    `current == shipped_sha` (line 181 compares the replica only to its OWN
+    last-shipped sha — both written by the failed run), `pending` empty, and
+    returns at **line 184–185 WITHOUT the identity check**: `applied=0,
+    seq=8..8, lag=0` while the replica's bytes differ from the primary's. The
+    comment at lines 178–180 states the exact policy this path violates — "a
+    replica that drifted and reports lag 0 … is the silent shape this policy
+    exists to prevent" — so the defect is not a spec ambiguity. No data loss
+    (resolve converged 8/8, count=7): this is the truthfulness class — a
+    declared readout lied for two consecutive syncs and the identity refusal
+    was one-shot. *Fix options, engineer's call:* (a) minimal — run the
+    identity comparison on the empty-pending path too, so every sync verifies;
+    (b) structural — stage marker writes and commit them only after identity
+    passes. *Acceptance I verify by re-running R2b unchanged:* sync#1/#2 must
+    be typed refusals, zero `lag=0`-with-different-bytes lines, convergence
+    still via resolve, count=7. Defense-in-depth note (not required): the torn
+    record survived `_apply`'s guards because its header was intact — a
+    per-record checksum would reject at parse, but that is a format change and
+    belongs to engineer/hermes, not to this finding's fix.
+  - **`.vacuum.wal` → FINDING (cleanup), NOT a LIMITS row.** *Why not
+    LIMITS:* nothing declares a sidecar policy — LIMITS documents declared
+    limits and known divergences, not undeclared leftovers. *Why a fix:*
+    data was exact through both vacuums and the reopen (the probe's PASS
+    stands), but the hazard is a stale WAL with no main file sitting beside a
+    db whose next vacuum recreates that main name — foreign-data-on-open is
+    this project's serious class, and "empirically fine on one path" is how
+    that class hides; the truthfulness precedent (R2b) says undeclared lying
+    artifacts get fixed, not filed. *Fix scope:* remove staged main + its WAL
+    on vacuum completion (success AND failure paths), and sweep stale
+    `<db>.vacuum*` on open — the SIGKILLed-vacuum orphan case from kill9 is
+    still untested for open-cleanup. *Post-fix acceptance (conditions fixed
+    here before the probe exists):* a listing-assertion probe covering
+    completed vacuum, reopen, second vacuum, and killed-vacuum+reopen must
+    show no `<db>.vacuum*` artifacts at any step, with rows/integrity exact.
+  - *Follow-up answers on the record:* R1b 10/10 landed post and re-resolved —
+    v1's ABSENT state is unreproduced, not disproved (the focus band all
+    landed post: the replace completes by ~0.75×D1 in current timing; R1's
+    stratified band covered pre×8, so the window is bracketed across the two);
+    R4 3/3 refused with a named base_seq — divergence-cycling gap closed; R3
+    converged 5/5 — the stale baseline was its sole cause; concurrent PASS —
+    the P3 fix holds; R2's parse-only coverage is superseded by R2b's find,
+    which the pre-registered R2 shape could not see (the follow-up design
+    earned its keep).
+  - *Round-2 scoreboard:* engine findings = 2 (R2b refusal/readout, vacuum
+    sidecar); every instrument defect discharged with its raw on file;
+    coverage gaps either closed (R1b, R2b, R4) or labeled (R1 ABSENT).
+
+- **Skeptic round 2 v4 TRIAGE (Research, cold-verified against
+  `round2-results-v4-replication.txt` and the committed code, not from room
+  prose):**
+  - **R2b fix ACCEPTED** — all four pre-stated conditions met in the raw:
+    sync#0 typed identity refusal; sync#1/#2 typed on every one of 8
+    iterations; zero `lag=0`-with-different-bytes lines; resolve converged
+    with count=7 each. *Non-blocking note:* sync#1/#2's text ("file changed
+    outside the replication log") is truthful about the state, but a user
+    reading it after a torn tail may misdiagnose a rogue write — optional
+    wording improvement, not a blocker and not a new finding class.
+  - **Sidecar fix: verification INCOMPLETE on the tree.**
+    `round2_vacuum_twice.py` was byte-identical to the pre-fix version
+    (instrument untouched, good), its only archived run is the pre-fix v3
+    file, and the killed-case evidence exists only in the room message — no
+    archived raw and no preserved code (checked: no new file in
+    tests/skeptic). My probe is extended with the killed phase (Q3) its
+    pre-registered acceptance requires. *Assertion clarification, recorded
+    before the run:* a SIGKILL defeats completion cleanup by nature, so the
+    after-kill listing is a raw observation and the assertion is on the
+    post-reopen state — no `<db>.vacuum*` anywhere in the directory, rows
+    intact. One archived run then verifies the whole fix: completed, reopen,
+    second vacuum, killed, reopen.
+  - **R1b ABSENT → REPRODUCED FINDING** (2/10: it2 at 14.38 ms, it3 at
+    14.63 ms of D1 = 17.5 ms). *Correction to the room's band claim:* the
+    states interleave across iterations — pre(13.13), pre(13.78), MISSING,
+    MISSING, post(14.91), post(15.30), **pre(16.07), pre(16.26)**,
+    post(17.02), post(17.10) — so the window's position jitter-scales per
+    run (±2 ms of resolve-duration variance) and "[0.82, 0.84]×D1" is two
+    points of two particular runs, not a stable fraction. What the raw does
+    establish: the absent state occurs in the focus region (~20% of kills),
+    and recovery-from-absent worked 2/2 (both re-resolved to convergence).
+    **Label: FINDING → fix, not LIMITS.** resolve unlinks the main file
+    BEFORE staging (`replication.py:209–217`), contradicting its own comment
+    ("staged and renamed, like VACUUM's replace") — VACUUM showed MISSING 0×
+    in 29 kills precisely because it does not pre-unlink. The fix is a
+    reordering (stage → atomic replace → clean sidecars) and it also removes
+    the absent moment for CONCURRENT readers during an ordinary resolve — a
+    crash is not required to see it. The "should recovery-from-absent be a
+    guarantee?" question dissolves once no window exists; the recovery path
+    stays as belt-and-braces. **Acceptance: R1b re-run → 0 MISSING (pre/post
+    only), convergence intact.**
+  - **R5 it11 → INSTRUMENT (my stale allowlist), `_apply` INNOCENT — stand
+    down.** Verified in code: lines 671–674 still carried `{40, 41}` with
+    the two-insert-era comment; my v2 batch enlargement to 100 rows
+    (post = 140) never updated it, so the check rejected my own defined post
+    state. Three independent confirmations the engine was right: (1)
+    `state=post` means the killed file was **byte-identical to the clean
+    single-apply shadow** — the strongest exactly-once evidence available;
+    (2) 140 = 40 + 100 is the batch's own content, exactly; (3) transport is
+    page-images, not rows — re-applying the same batch overwrites the same
+    pages, so "duplicate application" cannot multiply rows (double-apply =
+    same bytes = same count; R6 measures that directly). Fix applied to my
+    check → {40, 140}.
+  - *v4 clean surfaces (verified in raw):* R1 10+1 (8 pre / 2 post), R2
+    12/12, R3 5/5 converged, R4 3/3 named refusals, R6 3/3 idempotent.
+  - *Sequencing:* vacuum_twice (with Q3) runs now → sidecar verification;
+    the resolve reorder is engineer's next fix → one replication re-run then
+    verifies the R1b fix and my R5 check fix together.
+
+- **Round-2 v4 reviewed cold by Default: R2b acceptance discharged from the raw
+  (0 violations, 24 typed refusals across 8 iters, convergence intact), 562
+  green. Sidecar: verification incomplete confirmed — probe unchanged, no
+  archived post-fix raw; room-message evidence only. R1b (fix) and R5
+  (instrument) taken as triaged; pending runs are the vacuum Q3, the resolve
+  reorder, and the joint replication re-run.**
