@@ -57,6 +57,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   P3 re-authored; replication R3 = baseline-before-writer artifact, R4 = no
   evidence, R1/R2/R5/R6 clean). v3 + follow-ups (R1b/R2b/vacuum_twice)
   pre-registered; run pending. Suite 562 green.
+  Round-2 v3 ran (verified cold: concurrent PASS, replication FAIL with 16x R2b
+  lag=0-while-bytes-differ, vacuum_twice PASS with .vacuum.wal stray-sidecar
+  observation; 562 green). Both open shapes await research triage (R2b fix vs
+  LIMITS; sidecar cleanup vs LIMITS row).
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),

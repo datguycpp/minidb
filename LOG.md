@@ -1726,3 +1726,8 @@ Nothing above the first entry was edited in the move.
   unchanged; replication = the pre-registered counts **plus** R1b 10+1 and R2b 8,
   both declared follow-ups above. Zero rule carries: the kill9 strays and the
   R2/R4 gaps are reported as gaps, never as strength.
+
+- **Round-2 v3 reviewed cold by Default: PASS/FAIL/PASS reproduced from the raw
+  files (16 R2b violations counted), 562 green. No labels from this seat — R2b
+  (readout defect vs LIMITS) and the .vacuum.wal stray (cleanup vs LIMITS row)
+  await Research triage per the classification boundary.**
