@@ -1442,6 +1442,12 @@ Nothing above the first entry was edited in the move.
   he proposed. His two accidental finds fold into this round's outputs:
   WITHOUT ROWID (syntax surface) and UPDATE SET rowid (carried as probe S27 so its
   LIMITS entry ships with a reproducible differential rather than a prose note).
+  *Header refinement (pre-run, adopted from engineer's runner pre-flight; no
+  result seen yet):* the results file records the denominator explicitly — in
+  `--corpus` mode the score line is `n/31` against `tests/skeptic/round1.txt`
+  alone and is never comparable to the 293-case corpus score — plus the
+  `tests/skeptic` git revision beside the pinned oracle version, alongside the
+  command/revision/timestamp already registered.
 
 - **Goal 2 ACCEPTED by Default (clean-worktree run, rev 4ddfaab): `make verify` →
   RESULT: PASS (5/5): build OK, tests 554/0/0, corpus 293/293 over 21 files,
@@ -1472,3 +1478,9 @@ Nothing above the first entry was edited in the move.
   *Decision recorded, not silently taken:* the `(NN)` strip could make the corpus
   version-robust, but it would loosen the pinned oracle on purpose, so it is filed as a
   declared limit instead (error-text expectations are shell-version-specific).
+
+- **Goal 4 ACCEPTED by Default (cold re-run vs /tmp/sqlite-351/sqlite3 3.51.0):
+  RESULT: 13 reference-version difference(s); 0 genuine finding(s) — reproduces
+  the landed report exactly (13 moved incl. the (19)-suffix shape, MiniDB ==
+  pinned throughout). Fuzz cross-oracle numbers taken from the report as run
+  evidence (seed 1/1000 and seed 7/500 clean on all three oracles).**

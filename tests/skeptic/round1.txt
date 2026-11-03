@@ -1,0 +1,267 @@
+-- tests/skeptic/round1.txt — Research's adversarial differential batch, round 1.
+-- Charter goal 5. Pre-registration (surfaces, finding definition, zero rule,
+-- method) is in LOG.md, written before this file existed. Blank-line corpus
+-- format; run with:  python3 tools/behavior_conformance.py --corpus
+-- tests/skeptic/round1.txt --verbose   (same normalizer, pinned sqlite3 3.54.0).
+-- Triage by Research: a fixed finding becomes a corpus case (in tests/corpus/
+-- only after an engineer fix, as a pinned regression); a confirmed declared
+-- scope-out becomes a docs/LIMITS.md entry at goal 3. Nothing here has run yet.
+
+-- S1 nested subqueries: depth-4 correlation, innermost references outermost.
+CREATE TABLE a (id INTEGER, k INTEGER);
+CREATE TABLE b (k INTEGER);
+CREATE TABLE c (k INTEGER);
+CREATE TABLE d (k INTEGER);
+INSERT INTO a VALUES (1, 10), (2, 20);
+INSERT INTO b VALUES (10), (20);
+INSERT INTO c VALUES (10), (20);
+INSERT INTO d VALUES (10), (20);
+SELECT a.id, (SELECT COUNT(*) FROM b WHERE b.k = a.k AND EXISTS (SELECT 1 FROM c WHERE c.k = b.k AND EXISTS (SELECT 1 FROM d WHERE d.k = c.k AND d.k = a.k))) FROM a ORDER BY a.id;
+
+-- S2 correlated scalar subquery inside ORDER BY (values unique: well-defined).
+CREATE TABLE t (id INTEGER, k INTEGER);
+CREATE TABLE u (k INTEGER, v INTEGER);
+INSERT INTO t VALUES (1, 20), (2, 10), (3, 30);
+INSERT INTO u VALUES (10, 100), (20, 200), (30, 300);
+SELECT t.id FROM t ORDER BY (SELECT u.v FROM u WHERE u.k = t.k) DESC, t.id;
+
+-- S3 correlated EXISTS containing a JOIN.
+CREATE TABLE t (k INTEGER);
+CREATE TABLE u (k INTEGER, w INTEGER);
+CREATE TABLE v (k INTEGER);
+INSERT INTO t VALUES (1), (2);
+INSERT INTO u VALUES (1, 5), (2, 6);
+INSERT INTO v VALUES (1), (3);
+SELECT t.k FROM t WHERE EXISTS (SELECT 1 FROM u JOIN v ON u.k = v.k WHERE u.k = t.k) ORDER BY t.k;
+
+-- S4 correlated subquery inside HAVING.
+CREATE TABLE t (k INTEGER, g INTEGER);
+CREATE TABLE m (g INTEGER, cap INTEGER);
+INSERT INTO t VALUES (1, 1), (2, 1), (3, 2), (4, 2), (5, 2);
+INSERT INTO m VALUES (1, 1), (2, 2);
+SELECT g, COUNT(*) FROM t GROUP BY g HAVING COUNT(*) <= (SELECT cap FROM m WHERE m.g = t.g) ORDER BY g;
+
+-- S5 correlated FROM-subquery: no LATERAL in SQL, both should refuse.
+CREATE TABLE t (k INTEGER);
+INSERT INTO t VALUES (1), (2);
+SELECT * FROM t, (SELECT k + t.k) AS d;
+
+-- S6 scalar subquery with ORDER BY LIMIT (single row, well-defined).
+CREATE TABLE u (k INTEGER);
+INSERT INTO u VALUES (3), (1), (2);
+SELECT (SELECT k FROM u ORDER BY k LIMIT 1) AS first, (SELECT MAX(k) FROM u) AS mx;
+
+-- S7 LEFT JOIN with NULL keys: NULL never matches, unmatched rows pad.
+CREATE TABLE t (k INTEGER, a TEXT);
+CREATE TABLE u (k INTEGER, b TEXT);
+INSERT INTO t VALUES (1, 'x'), (2, 'y'), (NULL, 'z');
+INSERT INTO u VALUES (1, 'p'), (NULL, 'q');
+SELECT t.a, u.b FROM t LEFT JOIN u ON t.k = u.k ORDER BY t.a;
+
+-- S8 NOT IN over a subquery containing NULL: three-valued logic empties it.
+CREATE TABLE t (k INTEGER);
+CREATE TABLE u (k INTEGER);
+INSERT INTO t VALUES (1), (2), (3);
+INSERT INTO u VALUES (1), (NULL);
+SELECT k FROM t WHERE k NOT IN (SELECT k FROM u) ORDER BY k;
+
+-- S9 JOIN ON with NULL = NULL never matches (visible through LEFT JOIN).
+CREATE TABLE t (k INTEGER, tag TEXT);
+CREATE TABLE u (k INTEGER, tag TEXT);
+INSERT INTO t VALUES (NULL, 'a'), (1, 'b');
+INSERT INTO u VALUES (NULL, 'c'), (1, 'd');
+SELECT t.tag, u.tag FROM t LEFT JOIN u ON t.k = u.k ORDER BY t.tag;
+
+-- S10 COUNT(*) vs COUNT(column) over LEFT JOIN: NULL pads do not count.
+CREATE TABLE t (k INTEGER);
+CREATE TABLE u (k INTEGER, v INTEGER);
+INSERT INTO t VALUES (1), (2);
+INSERT INTO u VALUES (1, 10);
+SELECT COUNT(*) AS star, COUNT(u.v) AS uv, COUNT(u.k) AS uk FROM t LEFT JOIN u ON t.k = u.k;
+
+-- S11 aggregates over a NULL-only column.
+CREATE TABLE t (a INTEGER, b INTEGER);
+INSERT INTO t VALUES (NULL, 1), (NULL, 2);
+SELECT COUNT(a) AS ca, COUNT(*) AS cs, SUM(a) AS sa, AVG(a) AS aa, MIN(a) AS ma, MAX(a) AS mx FROM t;
+
+-- S12a NULL ordering: first under ASC.
+CREATE TABLE t (v INTEGER, id INTEGER);
+INSERT INTO t VALUES (2, 1), (NULL, 2), (1, 3), (NULL, 4);
+SELECT id FROM t ORDER BY v ASC, id;
+
+-- S12b same setup: last under DESC.
+CREATE TABLE t (v INTEGER, id INTEGER);
+INSERT INTO t VALUES (2, 1), (NULL, 2), (1, 3), (NULL, 4);
+SELECT id FROM t ORDER BY v DESC, id;
+
+-- S13 NULL is its own GROUP BY group.
+CREATE TABLE t (g INTEGER, v INTEGER);
+INSERT INTO t VALUES (NULL, 1), (NULL, 2), (1, 3), (1, 4);
+SELECT g, COUNT(*) AS n FROM t GROUP BY g ORDER BY g;
+
+-- S14 DISTINCT keeps exactly one NULL.
+CREATE TABLE t (g INTEGER, v INTEGER);
+INSERT INTO t VALUES (NULL, 1), (NULL, 2), (1, 3), (1, 4);
+SELECT DISTINCT g FROM t ORDER BY g;
+
+-- S15a NOCASE with non-ASCII: SQLite folds ASCII only.
+CREATE TABLE t (s TEXT COLLATE NOCASE);
+INSERT INTO t VALUES ('Ä'), ('ä'), ('A'), ('a');
+SELECT s FROM t WHERE s = 'Ä' ORDER BY s COLLATE BINARY;
+
+-- S15b same setup: ASCII folding itself must still work.
+CREATE TABLE t (s TEXT COLLATE NOCASE);
+INSERT INTO t VALUES ('Ä'), ('ä'), ('A'), ('a');
+SELECT s FROM t WHERE s = 'A' ORDER BY s COLLATE BINARY;
+
+-- S16 storage-class ORDER BY: NULL < numbers < text < blob, with typeof to tell
+-- rows apart even where the normalizer cannot distinguish blob from text.
+CREATE TABLE t (v);
+INSERT INTO t VALUES (NULL), (1), ('abc'), (X'0102'), (2.5);
+SELECT typeof(v) AS ty, v FROM t ORDER BY v;
+
+-- S17a affinity: INTEGER column compared to a text literal.
+CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER, s TEXT);
+INSERT INTO t VALUES (1, 1, '1'), (2, 2, 'abc');
+SELECT id FROM t WHERE n = '1' ORDER BY id;
+
+-- S17b affinity: TEXT column compared to an integer literal.
+CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER, s TEXT);
+INSERT INTO t VALUES (1, 1, '1'), (2, 2, 'abc');
+SELECT id FROM t WHERE s = 1 ORDER BY id;
+
+-- S18 NOCASE equality inside a join condition.
+CREATE TABLE t (a TEXT COLLATE NOCASE);
+CREATE TABLE u (a TEXT COLLATE NOCASE);
+INSERT INTO t VALUES ('Foo');
+INSERT INTO u VALUES ('foo');
+SELECT t.a AS ta, u.a AS ua FROM t JOIN u ON t.a = u.a;
+
+-- S19 blob = text is false in a join; observable through typeof.
+CREATE TABLE t (v);
+CREATE TABLE u (v);
+INSERT INTO t VALUES (X'41'), ('A');
+INSERT INTO u VALUES ('A');
+SELECT typeof(t.v) AS ty FROM t JOIN u ON t.v = u.v ORDER BY ty;
+
+-- S20 huge rows at the local/overflow boundary: 2,048 chars (local) and 8,192
+-- chars (overflow), built by doubling so no unproven builtin is required;
+-- the assertion checks length, zone and both ends round-tripped.
+CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT);
+INSERT INTO t VALUES (1, 'x'), (2, 'y');
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s WHERE id = 2;
+UPDATE t SET s = s || s WHERE id = 2;
+SELECT id, length(s), CASE WHEN length(s) > 4096 THEN 'over' ELSE 'local' END AS zone, substr(s, 1, 1), substr(s, length(s), 1) FROM t ORDER BY id;
+
+-- S21 multi-page round trip: 8,192 doubled-plus to 12,392 chars (overflow
+-- chain, more than one hop), ends verified.
+CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT);
+INSERT INTO t VALUES (1, 'z');
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || substr(s, 1, 4200);
+SELECT length(s), length(s) > 8192 AS multihop, substr(s, 1, 2), substr(s, length(s), 1) FROM t;
+
+-- S22 blob overflow round trip through zeroblob (a missing builtin here is a
+-- finding of the builtin-gap class, not a silent skip).
+CREATE TABLE t (id INTEGER PRIMARY KEY, b BLOB);
+INSERT INTO t VALUES (1, zeroblob(10000));
+SELECT length(b), hex(substr(b, 1, 4)), hex(substr(b, 9997, 4)) FROM t;
+
+-- S23 UPDATE growing a row across the overflow boundary, then the rowid
+-- point-lookup path fetching the overflow payload.
+CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT);
+INSERT INTO t VALUES (1, 'small');
+UPDATE t SET s = 'g';
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+SELECT length(s), substr(s, 1, 1), (SELECT length(s) FROM t WHERE id = 1) AS by_rowid FROM t;
+
+-- S24 DELETE overflow rows, VACUUM, reinsert small: freelist and rowid
+-- allocation after vacuum (max+1, not a restart).
+CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT);
+INSERT INTO t VALUES (1, 'q'), (2, 'r');
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+UPDATE t SET s = s || s;
+DELETE FROM t WHERE id = 1;
+VACUUM;
+INSERT INTO t (s) VALUES ('small');
+SELECT id, length(s) FROM t ORDER BY id;
+
+-- S25 view body with an unknown column: fail-open on our side is a declared
+-- scope-out; this probe pins the exact differential for LIMITS.md.
+CREATE TABLE t (k INTEGER);
+INSERT INTO t VALUES (1);
+CREATE VIEW v AS SELECT nosuch FROM t;
+SELECT * FROM v;
+
+-- S26 rowid of a derived table: there is none; error text on both sides.
+CREATE TABLE t (k INTEGER);
+INSERT INTO t VALUES (1), (2);
+SELECT rowid FROM (SELECT k FROM t);
+
+-- S27 UPDATE SET rowid: declared scope-out (t6d), pinned as a reproducible
+-- differential rather than a prose note.
+CREATE TABLE t (k TEXT);
+INSERT INTO t VALUES ('a'), ('b');
+UPDATE t SET rowid = 9;
+SELECT rowid, k FROM t ORDER BY rowid;
+
+-- S28 resolver: inner scope wins over outer correlation (v means u.v here,
+-- not ambiguity, not t.v).
+CREATE TABLE t (k INTEGER, v INTEGER);
+CREATE TABLE u (k INTEGER, v INTEGER);
+INSERT INTO t VALUES (1, 10);
+INSERT INTO u VALUES (1, 20);
+SELECT t.k, (SELECT COUNT(*) FROM u WHERE v = t.v) FROM t;
+
+-- S29 correlated scalar inside an aggregate with GROUP BY.
+CREATE TABLE t (g INTEGER, k INTEGER);
+CREATE TABLE m (k INTEGER, w INTEGER);
+INSERT INTO t VALUES (1, 5), (1, 6), (2, 5);
+INSERT INTO m VALUES (5, 100), (6, 200);
+SELECT g, SUM((SELECT w FROM m WHERE m.k = t.k)) FROM t GROUP BY g ORDER BY g;
