@@ -93,7 +93,7 @@ def tests_stage(python):
 def corpus_stage(python):
     code, output, seconds = run([python, "tools/behavior_conformance.py"])
     match = re.search(r"BEHAVIOUR CONFORMANCE: (\d+)/(\d+)", output)
-    files = len(re.findall(r"^tests/corpus/\S+: \d+/\d+", output, re.M))
+    files = len(set(re.findall(r"(tests/corpus/\S+): \d+/\d+", output)))
     count = "%s/%s cases across %d files" % (match.group(1), match.group(2), files) \
         if match else "no corpus score line"
     return {"ok": code == 0, "counts": count, "seconds": seconds, "tail": output}

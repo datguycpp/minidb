@@ -1366,3 +1366,19 @@ Nothing above the first entry was edited in the move.
   independent reference (needs installs), 6 perf rewrite last (biggest, wants
   the hardened harness beneath it). Split verified: LOG.md body byte-identical
   to STATE.md lines 88-1441 pre-split (diff clean); new STATE.md 88 lines.
+
+- **Goal 2 pre-registration (2026-11-03T21:50:47+0800) — `make verify`, written before the tool exists.**
+  *Target:* one command, run in a **fresh `git clone` of this repo with no artifacts**
+  (no `_native*.so`, no `__pycache__`, no benchmark files), that builds the native
+  extension itself, runs the four required stages (tests, corpus, seeded crash sweep,
+  docs examples), and prints **one summary block containing raw counts per stage and
+  the git revision**.
+  *Pass condition:* exit 0 with all four stages reporting their own counts, the
+  revision printed from `git rev-parse`, and no stage silently absorbed. A stage that
+  fails must print `FAIL` with its raw counts and make the command exit non-zero; the
+  failure path is demonstrated on a labelled fixture clone (one corpus case deliberately
+  broken), never on this tree.
+  *Declared tradeoff:* the crash sweep defaults to 100 seeded iterations (~26 s), not
+  300 (79 s measured); `--iterations` raises it. Rationale: `make verify` must be cheap
+  enough that people run it, and 100 still covers 100 distinct random crash points.
+  *Threshold:* none — this goal has no performance claim, so nothing to anchor.
