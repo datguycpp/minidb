@@ -1509,3 +1509,77 @@ Nothing above the first entry was edited in the move.
   under WHERE), 19/20 (affinity in cross-type comparisons), 21 (NOCASE in a join ON),
   22 (ORDER BY an output alias), 25 (`zeroblob` missing), 30 (`UPDATE SET rowid`, the t6d
   declared-out). Both results files are in `tests/skeptic/` with their headers.
+
+- **Skeptic round 1 run reviewed cold by Default: 25/32 reproduced exactly (same
+  7 FAILs), 557 tests green, corpus 293/293. The two rowid-regression fixes +
+  PK-NULL alignment verified in-tree; first result 24/32 taken as run evidence.
+  Classification of the 7 open FAILs stays Research's (triage pending).**
+
+- **Skeptic round 1 TRIAGE (Research; pre-registered taxonomy applied. The raw file
+  `tests/skeptic/round1-results.txt` is the record — room summaries are not):**
+  - *Direction correction before any label:* case 16's raw line is
+    `[{'s': 'Ä'}] vs [{'s': 'Ä'}, {'s': 'ä'}]` with first = SQLite — the oracle
+    matches ONE row (NOCASE folds ASCII only), MiniDB matches TWO (over-folds
+    non-ASCII). The in-room summary reversed those sides; the fix direction is to
+    NARROW MiniDB's NOCASE to ASCII, not to extend folding. Case 17 (ASCII fold)
+    passes, so only the non-ASCII extent is wrong.
+  - *FINDING — comparison-time collation/affinity, four faces with observed
+    directions:* 16 (NOCASE over-folds non-ASCII under WHERE: SQLite 1 row,
+    MiniDB 2); 21 (NOCASE not applied in JOIN ON equality: SQLite 1, MiniDB 0);
+    19 (INTEGER column vs TEXT literal — affinity not applied: SQLite `[1]`,
+    MiniDB `[]`); 20 (TEXT column vs INTEGER literal: SQLite `[1]`, MiniDB `[]`).
+    Possibly one comparison-path site with three defects (fold extent, join
+    collation, affinity) — split is the fix side's build call; the labels carry
+    directions so no fix lands backwards.
+  - *FINDING — capability:* 22 (ORDER BY an output alias unsupported; MiniDB
+    `no such column: ty`). Coverage consequence: case 22's own subject — blob vs
+    text equality in a join — is BLOCKED, not covered, and re-runs after the
+    alias fix.
+  - *FINDING — builtin gap, undeclared:* 25 (`zeroblob` absent; repo-wide search
+    shows no spec declares it in or out — pre-labelled builtin-gap in the probe
+    header, so this is the pre-registered class, not a reclassification).
+  - *LIMITS CONFIRMATION — 30* (UPDATE SET rowid, t6d declared-out, a
+    pre-registered example): pinned differential for the LIMITS row is SQLite
+    `UNIQUE constraint failed: t.rowid` (both rows → 9 aborts the statement) vs
+    MiniDB `no such column: rowid`. LIMITS row, no corpus case — it could only
+    ever fail.
+  - *Agreements worth naming:* 18 storage-class ORDER BY (NULL < numbers < text <
+    blob) matches the oracle exactly; 28 view-body deferral — the pre-registration
+    expected a divergence here and was wrong: both engines refuse identically, so
+    no LIMITS row exists on this face; 29 rowid-of-derived, 31 resolver
+    inner-scope-first, 32 correlated scalar in aggregate+GROUP BY all agree.
+  - *Coverage (per-surface):* nested subqueries 6/6; NULL joins and ordering 9/9;
+    collation/type-ordering 2 of 7 (five findings); huge rows 4 of 5 open (23, 24,
+    26 pass; 27 fixed in-round and green; 25 open); fresh-code edges 4 of 5 (30 =
+    LIMITS). Nine of 32 blocks found nothing because those surfaces agree.
+  - *Skeptic veto NOT invoked,* with reason: none of the seven contradicts a
+    landed milestone's claim — all are new-surface edges the 293-case corpus never
+    exercised. The two in-round regressions (case 27) were found, fixed, and
+    cold-verified inside the round. 30 cannot become a corpus case (declared-out);
+    it ships as a LIMITS row from engineer per the handoff contract.
+  - *Denominator:* pre-registered 31, actual 32, corrected pre-run in the results
+    header by load_cases — my count was one short; corrected before any score
+    existed, which is the order the rule requires.
+
+- **Goal 5, round-1 findings FIXED (2026-11-03T23:35:39+0800) — 31/32, the only failure left is the declared-out.**
+  Research's triage labels (LOG, below) taken as given, with the case-16 direction correction
+  accepted: **the raw line's first side is SQLite**, so MiniDB was over-folding, not under-folding;
+  the fix narrows, it does not widen.
+  *Fixes, by label:*
+  - **16 collation extent** — NOCASE used Python's `str.lower()`, which folds 'Ä'→'ä'; SQLite folds
+    only the 26 ASCII letters. New `ascii_fold()` used by comparisons, order keys and unique keys.
+  - **19/20 affinity** — comparisons evaluated the literal unchanged; SQLite applies the column's
+    affinity to the value it is compared against. Applied when one side is a column and the other a
+    literal, in both the simple and the multi-source path.
+  - **21 collation in joins** — a join has no single table for `_collation` to consult, so both
+    sides compared BINARY. Predicates evaluated without a table are now annotated from the sources
+    (NOCASE columns wrapped in COLLATE, literals given the column's affinity).
+  - **22 ORDER BY alias** — the grouped branch resolved output aliases and the non-grouped branch
+    did not; both do now.
+  - **25 `zeroblob`** — implemented (`n` zero bytes; negative size raises, as the reference does).
+  - **30 LIMITS confirmation** — unchanged: `UPDATE SET rowid` stays declared-out (t6d); no corpus
+    case, as it could only ever fail.
+  *Evidence:* `31/32` on the round (raw file `tests/skeptic/round1-results-final.txt`), suite
+  **562** green (5 new comparison tests named after their cases), corpus **293/293**,
+  `make verify` **5/5**. The three regression checks that mattered most — 293-case corpus,
+  crash sweep, docs — all stayed green through the changes.

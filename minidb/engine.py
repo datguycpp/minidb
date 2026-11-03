@@ -39,12 +39,24 @@ def _rank(value):
     return _RANK[type(value)]
 
 
+_ASCII_FOLD = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+
+
+def ascii_fold(text):
+    """SQLite's NOCASE mapping: the 26 ASCII letters and nothing else.
+
+    Python's str.lower() is Unicode-aware and would fold 'Ä' to 'ä', which SQLite does not do --
+    skeptic round 1, case 16 caught exactly that over-folding.
+    """
+    return text.translate(_ASCII_FOLD)
+
+
 def sql_compare(left, right, op, nocase=False):
     """Three-valued comparison: NULL in either side yields None, as in SQL."""
     if left is None or right is None:
         return None
     if nocase and isinstance(left, str) and isinstance(right, str):
-        left, right = left.lower(), right.lower()
+        left, right = ascii_fold(left), ascii_fold(right)
     lr, rr = _rank(left), _rank(right)
     if lr != rr:
         # Cross-type comparison is defined by storage class, not by trying to coerce.
@@ -585,6 +597,11 @@ def call_function(name, args):
     if name == "ABS":
         value = to_number(args[0])
         return abs(value)
+    if name == "ZEROBLOB":
+        size = to_number(args[0])
+        if size is None or size < 0:
+            raise ExecError("string or blob too big")
+        return bytes(int(size))
     if name == "LENGTH":
         value = args[0]
         if isinstance(value, bytes):
@@ -2072,6 +2089,14 @@ class Database:
         return f"CREATE TABLE {name} (" + ", ".join(parts) + ")"
 
     # -- UPDATE / DELETE -----------------------------------------------------
+    def _column_affinity(self, node, table):
+        """Affinity of the column a comparison names, or None when the side is not a column."""
+        if isinstance(node, ast.ColumnRef) and table is not None:
+            position = table.index_of.get(node.name.lower())
+            if position is not None:
+                return table.columns[position].affinity
+        return None
+
     def _collation(self, node, table):
         if isinstance(node, ast.Collate):
             return node.name.upper()
@@ -2083,7 +2108,7 @@ class Database:
 
     def _order_key(self, value, collation):
         if collation == "NOCASE" and isinstance(value, str):
-            return _order_sort_key(value.lower())
+            return _order_sort_key(ascii_fold(value))
         return _order_sort_key(value)
 
     def _row_env(self, table, row, rowid=None, qualifier=None):
@@ -2374,7 +2399,7 @@ class Database:
         """The value as the constraint compares it: NOCASE folds strings, everything else is
         itself. Python equality already treats 1 and 1.0 as one key, which is SQLite's rule too."""
         if column.collation == "NOCASE" and isinstance(value, str):
-            return value.lower()
+            return ascii_fold(value)
         return value
 
     def _unique_bucket(self, table, position, column):
@@ -2502,6 +2527,8 @@ class Database:
             table = self.table(node.table)
             out.append({"alias": (node.alias or node.table).lower(),
                         "columns": table.column_names,
+                        "collations": {c.name.lower(): c.collation for c in table.columns},
+                        "affinities": {c.name.lower(): c.affinity for c in table.columns},
                         "rows": [row for _, row in self._rows_with_ids(table)],
                         "kind": "base", "on": None})
         for join in node.joins:
@@ -2512,9 +2539,73 @@ class Database:
                 table = self.table(join.table)
                 columns = table.column_names
                 rows = [row for _, row in self._rows_with_ids(table)]
+                collations = {c.name.lower(): c.collation for c in table.columns}
+                affinities = {c.name.lower(): c.affinity for c in table.columns}
             out.append({"alias": alias, "columns": columns, "rows": rows,
+                        "collations": collations if join.select is None else {},
+                        "affinities": affinities if join.select is None else {},
                         "kind": join.kind, "on": join.on})
         return out
+
+    def _annotate_comparisons(self, expression, sources):
+        """Annotate a predicate evaluated without a single table: collation and affinity.
+
+        `_collation`/`_column_affinity` read their metadata off one Table, and a join or a
+        multi-source scan has none -- so `ON t.a = u.a` compared BINARY for NOCASE columns (case
+        21) and `WHERE n = '1'` skipped affinity (cases 19/20) whenever the complex path ran. The
+        fix annotates a copy of the expression with what the sources declare: NOCASE columns get
+        wrapped in COLLATE, and a literal compared against a column gets that column's affinity.
+        """
+        if expression is None:
+            return None
+        on = expression
+        counts = {}
+        for source in sources:
+            for column in source["columns"]:
+                counts[column.lower()] = counts.get(column.lower(), 0) + 1
+        mapping, affinities = {}, {}
+        for source in sources:
+            for column, collation in source.get("collations", {}).items():
+                if collation:
+                    mapping[(source["alias"], column)] = collation
+                    if counts.get(column) == 1:
+                        mapping[column] = collation
+            for column, affinity in source.get("affinities", {}).items():
+                if affinity:
+                    affinities[(source["alias"], column)] = affinity
+                    if counts.get(column) == 1:
+                        affinities[column] = affinity
+
+        def column_key(ref):
+            return (ref.table.lower(), ref.name.lower()) if ref.table else ref.name.lower()
+
+        def walk(node):
+            if isinstance(node, ast.ColumnRef):
+                if mapping.get(column_key(node)) == "NOCASE":
+                    return ast.Collate(expr=node, name="NOCASE")
+                return node
+            if isinstance(node, ast.BinaryOp) and node.op in ("=", "!=", "<", "<=", ">", ">="):
+                # Affinity: SQLite converts the value a column is compared against.
+                if isinstance(node.left, ast.ColumnRef) and isinstance(node.right, ast.Literal):
+                    affinity = affinities.get(column_key(node.left))
+                    if affinity is not None:
+                        node.right = ast.Literal(apply_affinity(node.right.value, affinity),
+                                                   node.right.kind)
+                elif isinstance(node.right, ast.ColumnRef) and isinstance(node.left, ast.Literal):
+                    affinity = affinities.get(column_key(node.right))
+                    if affinity is not None:
+                        node.left = ast.Literal(apply_affinity(node.left.value, affinity),
+                                                  node.left.kind)
+            for field in getattr(node, "__dataclass_fields__", ()):
+                value = getattr(node, field, None)
+                if isinstance(value, ast.Node):
+                    setattr(node, field, walk(value))
+                elif isinstance(value, list):
+                    setattr(node, field, [walk(item) if isinstance(item, ast.Node) else item
+                                          for item in value])
+            return node
+
+        return walk(copy.deepcopy(expression))
 
     def _scan_sources(self, node):
         """Nested loop over the sources, honouring INNER/LEFT/RIGHT/FULL join semantics."""
@@ -2542,7 +2633,7 @@ class Database:
         for index in range(1, len(sources)):
             source = sources[index]
             kind = source["kind"]
-            join = source["on"]
+            join = self._annotate_comparisons(source["on"], sources)
             new_states = []
             matched_right = set()
             for state in states:
@@ -3124,9 +3215,11 @@ class Database:
         fast = self._native_aggregate(node)
         if fast is not None:
             return fast
+        source_list = self._sources(node)
         envs, examined = self._scan_sources(node)
         if node.where is not None:
-            envs = [env for env in envs if truthy(self._eval(node.where, None, env))]
+            predicate = self._annotate_comparisons(node.where, source_list)
+            envs = [env for env in envs if truthy(self._eval(predicate, None, env))]
 
         source_list = self._sources(node)
         if any(isinstance(item, ast.Star) for item in node.items) and not source_list:
@@ -3191,6 +3284,13 @@ class Database:
             for expression, descending in reversed(node.order_by):
                 def key(entry, expression=expression):
                     env, group = entry
+                    aliased = {}
+                    for item in projection:
+                        if isinstance(item, ast.SelectItem) and item.alias \
+                                and not isinstance(item.expr, ast.Star):
+                            aliased[item.alias.lower()] = self._eval(item.expr, None, env, group)
+                    if isinstance(expression, ast.ColumnRef) and expression.name.lower() in aliased:
+                        return _order_sort_key(aliased[expression.name.lower()])
                     return _order_sort_key(self._eval(expression, None, env, group))
                 prepared.sort(key=key, reverse=descending)
             for env, group in self._apply_limit(node, prepared):
@@ -3446,8 +3546,20 @@ class Database:
                 return json_to_text(value) if node.op == "->" else json_to_sql(value)
             nocase = (self._collation(node.left, table) == "NOCASE"
                       or self._collation(node.right, table) == "NOCASE")
-            return sql_compare(self._eval(node.left, table, env, group),
-                               self._eval(node.right, table, env, group), node.op, nocase)
+            left = self._eval(node.left, table, env, group)
+            right = self._eval(node.right, table, env, group)
+            # SQLite applies the column's affinity to the value it is compared against, which is
+            # why `n = '1'` matches integer 1 and `s = 1` matches the text '1'. Applied to the
+            # literal side only: affinity is a property of the column, not of the comparison.
+            if isinstance(node.right, ast.Literal):
+                affinity = self._column_affinity(node.left, table)
+                if affinity is not None:
+                    right = apply_affinity(right, affinity)
+            elif isinstance(node.left, ast.Literal):
+                affinity = self._column_affinity(node.right, table)
+                if affinity is not None:
+                    left = apply_affinity(left, affinity)
+            return sql_compare(left, right, node.op, nocase)
         if isinstance(node, ast.Collate):
             return self._eval(node.expr, table, env, group)
         if isinstance(node, ast.UnaryOp):
