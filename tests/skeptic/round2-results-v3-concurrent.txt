@@ -1,0 +1,250 @@
+command: python3 tests/skeptic/round2_concurrent.py
+revision: 15092f5
+sqlite3: 3.54.0 2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcalt1 (64-bit)
+2026-11-04T01:12:08+08:00
+command: tests/skeptic/round2_concurrent.py
+server: 127.0.0.1:33797  rounds: 5  labels: 20261103..20261107  timeout: 10.0s
+note: thread interleaving is the nondeterminism; there is no RNG
+--- round 0 (label 20261103) ---
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 during ('err', 'database is locked')
+r0 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r0 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r0 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r0 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r0 P2 t0 op0 ok
+r0 P2 t1 op0 ok
+r0 P2 t0 op1 ok
+r0 P2 t2 op0 ok
+r0 P2 t3 op0 ok
+r0 P2 t0 op2 ok
+r0 P2 t1 op1 ok
+r0 P2 t3 op1 ok
+r0 P2 t2 op1 ok
+r0 P2 t0 op3 ok
+r0 P2 t1 op2 ok
+r0 P2 t0 op4 ok
+r0 P2 t3 op2 ok
+r0 P2 t1 op3 ok
+r0 P2 t2 op2 ok
+r0 P2 t1 op4 ok
+r0 P2 t3 op3 ok
+r0 P2 t2 op3 ok
+r0 P2 t3 op4 ok
+r0 P2 t2 op4 ok
+r0 P2 final count={'columns': ['count(*)'], 'rows': [[20]]} successes=20
+r0 P3 post-storm {'columns': ['count(*)'], 'rows': [[10]]}
+r0 P4 final={'columns': ['count(*)', 'sum(v)'], 'rows': [[80, 560]]} locked_seen=0
+--- round 1 (label 20261104) ---
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 during ('err', 'database is locked')
+r1 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r1 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r1 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r1 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r1 P2 t2 op0 ok
+r1 P2 t0 op0 ok
+r1 P2 t1 op0 ok
+r1 P2 t3 op0 ok
+r1 P2 t0 op1 ok
+r1 P2 t1 op1 ok
+r1 P2 t2 op1 ok
+r1 P2 t3 op1 ok
+r1 P2 t0 op2 ok
+r1 P2 t2 op2 ok
+r1 P2 t1 op2 ok
+r1 P2 t3 op2 ok
+r1 P2 t0 op3 ok
+r1 P2 t2 op3 ok
+r1 P2 t1 op3 ok
+r1 P2 t0 op4 ok
+r1 P2 t3 op3 ok
+r1 P2 t2 op4 ok
+r1 P2 t1 op4 ok
+r1 P2 t3 op4 ok
+r1 P2 final count={'columns': ['count(*)'], 'rows': [[20]]} successes=20
+r1 P3 post-storm {'columns': ['count(*)'], 'rows': [[10]]}
+r1 P4 final={'columns': ['count(*)', 'sum(v)'], 'rows': [[80, 560]]} locked_seen=0
+--- round 2 (label 20261105) ---
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 during ('err', 'database is locked')
+r2 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r2 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r2 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r2 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r2 P2 t0 op0 ok
+r2 P2 t2 op0 ok
+r2 P2 t1 op0 ok
+r2 P2 t3 op0 ok
+r2 P2 t0 op1 ok
+r2 P2 t2 op1 ok
+r2 P2 t1 op1 ok
+r2 P2 t0 op2 ok
+r2 P2 t2 op2 ok
+r2 P2 t1 op2 ok
+r2 P2 t3 op1 ok
+r2 P2 t0 op3 ok
+r2 P2 t2 op3 ok
+r2 P2 t1 op3 ok
+r2 P2 t3 op2 ok
+r2 P2 t0 op4 ok
+r2 P2 t2 op4 ok
+r2 P2 t1 op4 ok
+r2 P2 t3 op3 ok
+r2 P2 t3 op4 ok
+r2 P2 final count={'columns': ['count(*)'], 'rows': [[20]]} successes=20
+r2 P3 post-storm {'columns': ['count(*)'], 'rows': [[10]]}
+r2 P4 final={'columns': ['count(*)', 'sum(v)'], 'rows': [[80, 560]]} locked_seen=0
+--- round 3 (label 20261106) ---
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 during ('err', 'database is locked')
+r3 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r3 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r3 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r3 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r3 P2 t0 op0 ok
+r3 P2 t1 op0 ok
+r3 P2 t0 op1 ok
+r3 P2 t2 op0 ok
+r3 P2 t1 op1 ok
+r3 P2 t0 op2 ok
+r3 P2 t2 op1 ok
+r3 P2 t3 op0 ok
+r3 P2 t0 op3 ok
+r3 P2 t1 op2 ok
+r3 P2 t2 op2 ok
+r3 P2 t0 op4 ok
+r3 P2 t3 op1 ok
+r3 P2 t1 op3 ok
+r3 P2 t2 op3 ok
+r3 P2 t3 op2 ok
+r3 P2 t1 op4 ok
+r3 P2 t2 op4 ok
+r3 P2 t3 op3 ok
+r3 P2 t3 op4 ok
+r3 P2 final count={'columns': ['count(*)'], 'rows': [[20]]} successes=20
+r3 P3 post-storm {'columns': ['count(*)'], 'rows': [[10]]}
+r3 P4 final={'columns': ['count(*)', 'sum(v)'], 'rows': [[80, 560]]} locked_seen=0
+--- round 4 (label 20261107) ---
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 during ('err', 'database is locked')
+r4 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r4 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r4 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r4 P1 after {'columns': ['count(*)'], 'rows': [[101]]}
+r4 P2 t1 op0 ok
+r4 P2 t0 op0 ok
+r4 P2 t2 op0 ok
+r4 P2 t1 op1 ok
+r4 P2 t2 op1 ok
+r4 P2 t0 op1 ok
+r4 P2 t0 op2 ok
+r4 P2 t3 op0 ok
+r4 P2 t2 op2 ok
+r4 P2 t0 op3 ok
+r4 P2 t1 op2 ok
+r4 P2 t3 op1 ok
+r4 P2 t2 op3 ok
+r4 P2 t0 op4 ok
+r4 P2 t1 op3 ok
+r4 P2 t3 op2 ok
+r4 P2 t2 op4 ok
+r4 P2 t1 op4 ok
+r4 P2 t3 op3 ok
+r4 P2 t3 op4 ok
+r4 P2 final count={'columns': ['count(*)'], 'rows': [[20]]} successes=20
+r4 P3 post-storm {'columns': ['count(*)'], 'rows': [[10]]}
+r4 P4 final={'columns': ['count(*)', 'sum(v)'], 'rows': [[80, 560]]} locked_seen=0
+rounds: 5  phases per round: 4  violations: 0  probe errors: 0
+RESULT: PASS
+exit: 0
