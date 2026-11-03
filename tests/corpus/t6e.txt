@@ -1,0 +1,112 @@
+-- t6e (owner: Research; landed by Engineer with the resolver). Subject:
+-- planning-time name validation — the Gap 2 resolver's corpus surface.
+-- Ordered by item 2 (ledger 25ac7de); the STATE.md known-gap entry was the owed
+-- item, and this tranche is its acceptance made corpus-shaped. Denominator
+-- 281 -> 292 (11 cases, pure addition).
+-- Landing note (transcription, disclosed): case 2 is STATE.md's repro 1 verbatim.
+-- Case 3 is NOT repro 2 verbatim -- the recorded repro names b.v inside a FROM c
+-- subquery (`SELECT a.k, (SELECT MAX(b.v) FROM c) FROM a`), and that case is the
+-- one the resolver must catch; the block below reads MAX(c.v), which is valid SQL
+-- and passed before the fix, so it pins validity rather than the gap. The true
+-- repro is case 12, appended at landing and marked here so the acceptance is not
+-- claimed on a case that never failed.
+--
+-- The rule under test: a name error is determined by the schema, never by
+-- the data. For every scope kind, the populated and empty forms of the same
+-- invalid query must behave identically — today they do not, which is the
+-- gap (empty tables silently pass).
+--
+-- Declared subset, IN:
+--   * unknown column, base-table scope, populated and empty
+--   * unknown column, qualified (t.nosuch), populated and empty
+--   * unknown column, derived-table scope (empty — the discriminating form)
+--   * unknown column, join scope (both tables empty)
+--   * ambiguous column across a join -> reference error text
+--   * valid names through alias / derived / join scopes must keep resolving
+--     ([pin] blocks: today's behaviour, no prediction credit — these are the
+--     over-rejection tripwires for a subtly wrong resolver, the failure class
+--     the owed item itself names as worse than the gap it removes)
+-- Declared OUT (named, not hidden):
+--   * name validation inside VIEW / CREATE TRIGGER bodies
+--   * USING / NATURAL join column inference
+-- The standing over-rejection guard is the whole existing corpus: a resolver
+-- that rejects valid queries breaks 281 cases, not one.
+--
+-- Cases: one blank-line-separated block each: setup, then the assertion
+-- (final statement). Labels: [t] = gap case (fails today), [pin] = passes
+-- today and must continue to.
+
+-- [pin] R1a: populated base scope already errors — the known-gap repro's
+-- sibling, pinning the error text the resolver must preserve.
+CREATE TABLE a (k INTEGER);
+INSERT INTO a VALUES (1);
+SELECT nosuch FROM a;
+
+-- [t] R1b: KNOWN-GAP REPRO 1 — empty table. Reference: no such column.
+-- Today: silent zero rows. This case failing is the gap, visible in every
+-- score line until the resolver lands.
+CREATE TABLE a (k INTEGER);
+SELECT nosuch FROM a;
+
+-- [t] R2: KNOWN-GAP REPRO 2 — invalid name inside an aggregate subquery
+-- whose table is empty. Reference: no such column. Today: fabricated NULL.
+CREATE TABLE a (k INTEGER);
+INSERT INTO a VALUES (1);
+CREATE TABLE c (v INTEGER);
+SELECT a.k, (SELECT MAX(c.v) FROM c) FROM a;
+
+-- [pin] Q1: qualified unknown on a populated table already errors — the
+-- qualified form's text must survive the resolver unchanged.
+CREATE TABLE t (k INTEGER);
+INSERT INTO t VALUES (1);
+SELECT t.nosuch FROM t;
+
+-- [t] Q2: qualified unknown, empty — the data-independence rule one level
+-- up from R1b.
+CREATE TABLE t (k INTEGER);
+SELECT t.nosuch FROM t;
+
+-- [pin] S1: alias scope resolves valid names today and must keep doing so.
+CREATE TABLE t (k INTEGER);
+INSERT INTO t VALUES (1), (2);
+SELECT x.k FROM t AS x ORDER BY x.k;
+
+-- [t] S2: unknown column of a derived table, empty — the derived scope's
+-- data-independence form.
+CREATE TABLE t (k INTEGER);
+SELECT d.nosuch FROM (SELECT k FROM t) AS d;
+
+-- [pin] S3: derived scope resolves its own valid names today.
+CREATE TABLE t (k INTEGER);
+INSERT INTO t VALUES (1), (2);
+SELECT d.k FROM (SELECT k FROM t) AS d ORDER BY d.k;
+
+-- [t] J1: unknown column in join scope, both tables empty — the join
+-- scope's data-independence form.
+CREATE TABLE t (k INTEGER);
+CREATE TABLE u (k INTEGER);
+SELECT nosuch FROM t JOIN u ON t.k = u.k;
+
+-- [t] J2: a name present in both join inputs is ambiguous — reference
+-- error text; pre-fix status unknown, the differential decides at landing.
+CREATE TABLE t (k INTEGER, v INTEGER);
+CREATE TABLE u (k INTEGER, v INTEGER);
+INSERT INTO t VALUES (1, 10);
+INSERT INTO u VALUES (1, 20);
+SELECT v FROM t JOIN u ON t.k = u.k;
+
+-- [pin] J3: a name present in only one join input resolves today — the
+-- over-rejection tripwire at join scope.
+CREATE TABLE t (k INTEGER, v INTEGER);
+CREATE TABLE u (k INTEGER);
+INSERT INTO t VALUES (1, 10);
+INSERT INTO u VALUES (1);
+SELECT u.k, t.v FROM t JOIN u ON t.k = u.k;
+
+-- [t] R2b: KNOWN-GAP REPRO 2 verbatim, appended at landing because case 3 above
+-- transcribed the column as c.v (valid) rather than b.v (the recorded repro).
+-- Reference: no such column: b.v. Pre-fix: fabricated NULL.
+CREATE TABLE a (k INTEGER);
+INSERT INTO a VALUES (1);
+CREATE TABLE c (v INTEGER);
+SELECT a.k, (SELECT MAX(b.v) FROM c) FROM a;

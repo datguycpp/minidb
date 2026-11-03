@@ -52,9 +52,13 @@ class TestJoins(unittest.TestCase):
         self.assertEqual(plan["rows_examined"], 9, "3 outer rows x 3 inner rows")
 
     def test_unqualified_column_is_ambiguous(self):
+        # Assertion updated with the resolver's landing, disclosed like the rowid-plan one: the old
+        # expectation pinned MiniDB's message ("no such column: id") for a column that exists twice,
+        # because ambiguity had no detection of its own. The reference distinguishes the two errors,
+        # and t6e's case J2 is this exact shape, so the text is now the reference's.
         with self.assertRaises(ExecError) as ctx:
             self.db.run("SELECT id FROM t JOIN u ON t.id = u.id")
-        self.assertIn("no such column: id", str(ctx.exception))
+        self.assertIn("ambiguous column name: id", str(ctx.exception))
 
     def test_unknown_qualified_column(self):
         with self.assertRaises(ExecError) as ctx:

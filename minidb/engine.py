@@ -1139,6 +1139,10 @@ class Database:
         if isinstance(statement, ast.CreateIndex):
             return self._create_index(statement)
         if isinstance(statement, ast.Select):
+            # Validation belongs to the statement's entry point, not to _select: a subquery reached
+            # from _select during execution has no idea which scopes surround it, and validating it
+            # there would reject every correlated reference (the depth-2 tests caught exactly that).
+            self._validate_select(statement)
             return self._select(statement)
         if isinstance(statement, ast.Compound):
             return self._compound(statement)
@@ -2062,18 +2066,19 @@ class Database:
             return _order_sort_key(value.lower())
         return _order_sort_key(value)
 
-    def _row_env(self, table, row, rowid=None):
+    def _row_env(self, table, row, rowid=None, qualifier=None):
         env = {}
+        prefix = (qualifier or table.name).lower()
         for column, value in zip(table.columns, row):
             env[column.name.lower()] = value
-            env[f"{table.name.lower()}.{column.name.lower()}"] = value
+            env[f"{prefix}.{column.name.lower()}"] = value
         # The rowid namespace, unless the table declares a column of that name -- the reference
         # gives the real column precedence (t6d case L), so this must not overwrite one.
         if rowid is not None:
             for spelling in ROWID_SPELLINGS:
                 if spelling not in env:
                     env[spelling] = rowid
-                    env[f"{table.name.lower()}.{spelling}"] = rowid
+                    env[f"{prefix}.{spelling}"] = rowid
         return env
 
     def _modified_table(self, node):
@@ -2540,6 +2545,174 @@ class Database:
 
         return [build_env(state) for state in states], examined
 
+    # -- name validation -----------------------------------------------------
+    def _validate_select(self, select, outer=()):
+        """Resolve every column name against the schema before a row is read.
+
+        The gap this closes (STATE.md, Gap 2): names used to resolve while rows were evaluated, so
+        an invalid query over an empty relation answered instead of erroring, and an unknown name
+        inside an empty subquery became NULL. A name error is a schema fact, so it is decided here.
+
+        Fail-open by design: a source whose columns cannot be enumerated statically (a view, a CTE
+        whose body is not in hand, a table function) skips validation for that statement rather
+        than guessing. The corpus is the over-rejection guard -- rejecting a valid query breaks
+        hundreds of cases, accepting an invalid one breaks the few that name the error.
+        """
+        if isinstance(select, ast.Compound):
+            self._validate_select(select.left, outer)
+            self._validate_select(select.right, outer)
+            return
+        sources = self._validation_sources(select, outer)
+        if sources is None:
+            return
+        aliases = {item.alias.lower() for item in select.items
+                   if isinstance(item, ast.SelectItem) and item.alias}
+        scope = tuple(sources)
+        for item in select.items:
+            if isinstance(item, ast.SelectItem):
+                self._check_expr(item.expr, sources, aliases, outer)
+        self._check_expr(select.where, sources, aliases, outer)
+        for expression in select.group_by:
+            self._check_expr(expression, sources, aliases, outer)
+        self._check_expr(select.having, sources, aliases, outer)
+        for expression, _descending in select.order_by:
+            self._check_expr(expression, sources, aliases, outer, allow_alias=True)
+        for join in select.joins:
+            self._check_expr(join.on, sources, aliases, outer)
+        if select.base_select is not None:
+            self._validate_select(select.base_select, outer + (scope,))
+
+    def _validation_sources(self, select, outer):
+        """[(qualifier, column-name set)] for this select's FROM, or None if any is opaque."""
+        sources = []
+
+        def add(name, alias, derived):
+            if derived is not None:
+                self._validate_select(derived, outer)
+                columns = self._derived_columns(derived)
+                if columns is None:
+                    return False
+                sources.append(((alias or "").lower(), columns))
+                return True
+            table = self.tables.get(name.lower())
+            if table is None:
+                return False            # a view, a CTE, a table function: fail open
+            sources.append(((alias or name).lower(), {c.name.lower() for c in table.columns}))
+            return True
+
+        if select.base_select is not None:
+            if not add(None, select.alias, select.base_select):
+                return None
+        elif select.table is not None:
+            if isinstance(select.table, ast.TableFunction):
+                return None             # json_each and friends: columns exist only at run time
+            if not add(select.table, select.alias, None):
+                return None
+        for join in select.joins:
+            if join.select is not None:
+                if not add(None, join.alias, join.select):
+                    return None
+            else:
+                if not add(join.table, join.alias, None):
+                    return None
+        return sources
+
+    def _derived_columns(self, select):
+        if isinstance(select, ast.Compound):
+            # A compound's headings come from its left arm; both arms are validated separately by
+            # _validate_select, so only the names are needed here.
+            return self._derived_columns(select.left)
+        table = self.table(select.table) if select.table else None
+        names = set()
+        for item in select.items:
+            if isinstance(item, ast.Star):
+                if table is None:
+                    return None
+                names.update(column.name.lower() for column in table.columns)
+                continue
+            if not isinstance(item, ast.SelectItem):
+                return None
+            names.add((item.alias or _heading(item)).lower())
+        return names
+
+    def _check_column(self, node, sources, aliases, outer, allow_alias=False, allow_source=False):
+        name = node.name.lower()
+        if allow_source and not node.table and any(name == source_name for source_name, _ in sources):
+            # `docs MATCH 'fox'`: the reference's full-text form names the table, not a column.
+            return
+        if node.table:
+            qualifier = node.table.lower()
+            for scope_sources in (sources,) + tuple(reversed(outer)):
+                for source_name, columns in scope_sources:
+                    if source_name != qualifier:
+                        continue
+                    if name in columns:
+                        return
+                    if name in ROWID_SPELLINGS and not any(
+                            spelling.split(".")[-1] in columns for spelling in [name]):
+                        return
+                    raise ExecError(f"no such column: {node.table}.{node.name}")
+            raise ExecError(f"no such column: {node.table}.{node.name}")
+        matches = [columns for _source_name, columns in sources if name in columns]
+        if len(matches) > 1:
+            raise ExecError(f"ambiguous column name: {node.name}")
+        if matches:
+            return
+        for scope_sources in tuple(reversed(outer)):
+            counts = sum(1 for _source_name, columns in scope_sources if name in columns)
+            if counts > 1:
+                raise ExecError(f"ambiguous column name: {node.name}")
+            if counts:
+                return
+        if allow_alias and name in aliases:
+            return
+        if name in ROWID_SPELLINGS and not any(
+                name in columns for _source_name, columns in sources):
+            return
+        if getattr(node, "quote", "") == '"' and not node.table:
+            # The reference reads a double-quoted name as an identifier that failed, and says so
+            # with the string-literal hint; the resolver must not lose that text by raising first.
+            raise ExecError(
+                f'no such column: "{node.name}" - should this be a string literal in single-quotes?')
+        raise ExecError(f"no such column: {node.name}")
+
+    def _check_expr(self, node, sources, aliases, outer, allow_alias=False):
+        if node is None:
+            return
+        if isinstance(node, ast.BinaryOp) and node.op.upper() == "MATCH":
+            self._check_column(node.left, sources, aliases, outer, allow_alias, allow_source=True) \
+                if isinstance(node.left, ast.ColumnRef) else self._check_expr(node.left, sources, aliases, outer)
+            self._check_expr(node.right, sources, aliases, outer)
+            return
+        if isinstance(node, ast.ColumnRef):
+            self._check_column(node, sources, aliases, outer, allow_alias)
+            return
+        if isinstance(node, ast.Subquery):
+            self._validate_select(node.select, outer + (tuple(sources),))
+            return
+        if isinstance(node, ast.Exists):
+            self._validate_select(node.select, outer + (tuple(sources),))
+            return
+        if isinstance(node, ast.InSubquery):
+            self._check_expr(node.expr, sources, aliases, outer, allow_alias)
+            self._validate_select(node.select, outer + (tuple(sources),))
+            return
+        if isinstance(node, (ast.Literal, ast.Star)):
+            return
+        for field_name in getattr(node, "__dataclass_fields__", ()):
+            value = getattr(node, field_name, None)
+            if isinstance(value, ast.Node):
+                self._check_expr(value, sources, aliases, outer, allow_alias)
+            elif isinstance(value, (list, tuple)):
+                self._check_expr_list(value, sources, aliases, outer, allow_alias)
+
+    def _check_expr_list(self, values, sources, aliases, outer, allow_alias):
+        for value in values:
+            if isinstance(value, ast.Node):
+                self._check_expr(value, sources, aliases, outer, allow_alias)
+            elif isinstance(value, (list, tuple)):
+                self._check_expr_list(value, sources, aliases, outer, allow_alias)
+
     def _select(self, node: ast.Select):
         if self._is_complex(node):
             return self._select_complex(node)
@@ -2700,6 +2873,9 @@ class Database:
 
     def _select_simple(self, node: ast.Select):
         table = self.table(node.table)
+        # With `FROM t AS x`, only the alias qualifies a name -- the reference refuses t.k -- so the
+        # row environment is built under whichever name the statement actually gave the table.
+        qualifier = node.alias or table.name
         # Invariant: after this loop `projection` holds only SelectItem nodes. `SELECT *` is
         # expanded here once, so no later pass has to branch on Star (the M12 crash was a pass
         # that assumed every entry was a SelectItem).
@@ -2738,11 +2914,11 @@ class Database:
                     env = {}
                     for name, value in zip(names, key):
                         env[name] = value
-                        env[f"{table.name.lower()}.{name}"] = value
+                        env[f"{qualifier.lower()}.{name}"] = value
                     for spelling in ROWID_SPELLINGS:
                         if spelling not in env:
                             env[spelling] = rowid
-                            env[f"{table.name.lower()}.{spelling}"] = rowid
+                            env[f"{qualifier.lower()}.{spelling}"] = rowid
                     if node.where is not None and not truthy(self._eval(node.where, table, env)):
                         continue
                     prepared.append((env, tuple(env.get(name) for name in table.column_names)))
@@ -2785,7 +2961,7 @@ class Database:
         for rowid, row in candidates:
             if row is None:
                 continue
-            env = self._row_env(table, row, rowid)
+            env = self._row_env(table, row, rowid, qualifier=qualifier)
             if node.where is not None and not truthy(self._eval(node.where, table, env)):
                 continue
             prepared.append((env, row))
