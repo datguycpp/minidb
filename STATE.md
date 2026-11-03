@@ -87,6 +87,7 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   Profile (7e49ac5): lexer 56% of parse; chain floor ≥326.4 (bc9ecee), realistic ≈1076 ≈47%.
   First change (a7f8d89, 562+293): Token.upper once, parse −5.6%, not progress.
   Seam spec CLOSED (7a8e750, LOG-only): test_lexer_equivalence.py, seed 4242, repro-on-failure.
+  Gate order (1b502d5, LOG-only): settled session (gates 1+3, load [1.0,3.0]) → W9 bench (gate 2) → parity (gate 4).
 
 ## Open items
 - Read-path order: SUBSUMED by goal 6's gates (gate 2 ≤60x forces candidate (a);
