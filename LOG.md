@@ -1651,3 +1651,10 @@ Nothing above the first entry was edited in the move.
   8384a73 intact in-chain and tree byte-consistent; recorded as charter-boundary
   violation with no exception per the entry above — nothing to repair
   technically, the rule stands as written.**
+
+- **Round-2 first run reviewed by Default: raw files in-tree (a1191f0), suite 562
+  green. Zero engine violations AND zero engine evidence — kill9's 5 VIOLATIONs
+  are all controls (victims exited 0; post=0 states the coverage gap honestly),
+  concurrent produced no phases, replication died on shape/None-state. Per the
+  probe-bug rule: report raw, re-author, nobody edits the instrument. The honest
+  zero stands as recorded, not as strength.**

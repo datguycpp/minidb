@@ -48,6 +48,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   force-push by the build lane (own commit only, parent intact) is recorded as
   a boundary violation with no exception — the compliant move was LOG note.
   Round 2 pre-registered (SIGKILL VACUUM, concurrency, replication probes).
+  Round-2 first run: zero engine evidence — all three probes blocked by
+  instrument defects, reported raw, instrument untouched (kill9: controls exited
+  0, post=0 coverage gap; concurrent: unhashable allowlist; replication: shape
+  + None-state crash). Re-authoring with research; log-test tautology fixed.
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
