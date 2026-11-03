@@ -32,6 +32,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
@@ -235,6 +236,143 @@ def r1(workdir):
         shutil.rmtree(d, ignore_errors=True)
 
 
+# ------------------------------------------- R1b: focus-band kill (follow-up)
+
+def r1b(workdir):
+    """FOLLOW-UP declared post-v2 (LOG): v1's it9 observed the replica file
+    ABSENT after a kill (sha256_file -> None) — a state outside {pre, post}.
+    v2's 10 stratified kills did not reproduce it. Concentrate 10 kills in
+    [0.75, 1.0] x D1, where the observation sat (16.66 ms of ~18.5 ms).
+    PASS = every state in {pre, post}; a MISSING is a reproduced FINDING —
+    recorded, then the re-resolve runs from absent state anyway, because
+    recovery-from-nothing is the question."""
+    d, pp, rp, pre_sha, primary_sha, ack = r1_setup("b-ctl", workdir)
+    primary = Primary(pp)
+    start = time.time()
+    Replica(rp).resolve(primary)
+    D1 = time.time() - start
+    primary.close()
+    say(f"R1b control: D1={D1 * 1000:.1f}ms converged="
+        f"{sha256_file(rp) == primary_sha}")
+    shutil.rmtree(d, ignore_errors=True)
+
+    rng = random.Random(SEED + 11)
+    for i in range(10):
+        d, pp, rp, pre_sha, primary_sha, ack = r1_setup(f"b{i}", workdir)
+        delta = D1 * (0.75 + 0.25 * (i + rng.random()) / 10)
+        proc = spawn(["--child-resolve", rp, pp])
+        line = read_line(proc, HANG)
+        if line is None or line.strip() != "RESOLVE-START":
+            try:
+                proc.kill()
+                proc.wait(timeout=HANG)
+            except Exception:  # noqa: BLE001
+                pass
+            violate(f"R1b it{i}: marker not seen ({line!r}) "
+                    f"stderr={(proc.stderr.read() or '')[:300]!r}")
+            shutil.rmtree(d, ignore_errors=True)
+            continue
+        time.sleep(delta)
+        os.kill(proc.pid, signal.SIGKILL)
+        rc = proc.wait(timeout=HANG)
+        if rc != -signal.SIGKILL:
+            violate(f"R1b it{i}: victim exit {rc} expected -9")
+        state_sha = sha256_file(rp)
+        if state_sha is None:
+            state = "MISSING"
+            violate(f"R1b it{i}: REPRODUCED — replica file ABSENT after kill "
+                    f"(delta={delta * 1000:.2f}ms of D1={D1 * 1000:.1f}ms)")
+        elif state_sha == pre_sha:
+            state = "pre"
+        elif state_sha == primary_sha:
+            state = "post"
+        else:
+            state = "OTHER"
+            violate(f"R1b it{i}: state neither pre nor post "
+                    f"({state_sha[:12]})")
+        say(f"R1b it{i} delta={delta * 1000:.2f}ms rc={rc} state={state}")
+        try:
+            primary = Primary(pp)
+            Replica(rp).resolve(primary)
+            primary.close()
+        except Exception as exc:  # noqa: BLE001
+            violate(f"R1b it{i}: re-resolve raised {exc!r}")
+            shutil.rmtree(d, ignore_errors=True)
+            continue
+        if sha256_file(rp) != primary_sha:
+            violate(f"R1b it{i}: re-resolve did not converge")
+        else:
+            say(f"R1b it{i} re-resolved to convergence")
+        shutil.rmtree(d, ignore_errors=True)
+
+
+# --------------------------------------- R2b: tear with unshipped (follow-up)
+
+def r2b(workdir):
+    """FOLLOW-UP declared post-v2 (LOG): v2's R2 tore the tail only while the
+    replica was already current (applied=0 every time) — the torn record never
+    had to be shipped. Here the replica is left 2 writes behind, then the tail
+    is torn; shipping the missing batches must detect the tear (typed, or
+    resolve to convergence), never report lag=0 while the bytes differ
+    (silent under-ship visible in the readout). PASS = converged with
+    count == 7."""
+    rng = random.Random(SEED + 12)
+    for i in range(8):
+        d = os.path.join(workdir, f"r2b-{i}")
+        os.makedirs(d)
+        pp, rp = os.path.join(d, "primary.db"), os.path.join(d, "replica.db")
+        primary = Primary(pp)
+        seed_small(primary)
+        replica = Replica(rp)
+        replica.sync(primary)                     # replica current here
+        primary.run("INSERT INTO t VALUES (60, 'unshipped-a')")  # now behind
+        primary.run("INSERT INTO t VALUES (61, 'unshipped-b')")
+        primary.close()
+        log = pp + ".replog"
+        size = os.path.getsize(log)
+        lo = max(1, size - 160)
+        offset = lo + int(rng.random() * (size - lo))
+        with open(log, "r+b") as handle:
+            handle.truncate(offset)
+        primary_sha = sha256_file(pp)
+
+        converged = False
+        for attempt_no in range(3):
+            primary = Primary(pp)
+            kind, val = attempt(lambda p=primary, r=replica: r.sync(p))
+            primary.close()
+            say(f"R2b it{i} truncate {size}->{offset} sync#{attempt_no}: "
+                f"{kind} {val!r}"[:200])
+            if kind == "other":
+                violate(f"R2b it{i}: sync raised non-typed {val}")
+                break
+            if kind == "ok":
+                if getattr(val, "lag", None) == 0 and \
+                        sha256_file(rp) != primary_sha:
+                    violate(f"R2b it{i}: sync reports lag=0 but bytes differ "
+                            f"(silent under-ship visible in the readout)")
+                if sha256_file(rp) == primary_sha:
+                    converged = True
+                    break
+        if not converged:
+            try:
+                primary = Primary(pp)
+                Replica(rp).resolve(primary)
+                primary.close()
+                converged = sha256_file(rp) == primary_sha
+            except Exception as exc:  # noqa: BLE001
+                violate(f"R2b it{i}: resolve after tear raised {exc!r}")
+        if not converged:
+            violate(f"R2b it{i}: no convergence after sync<=3 + resolve")
+        else:
+            count = rows_of(rp, "SELECT count(*) FROM t")[0]
+            say(f"R2b it{i} converged count={count}")
+            if count != 7:
+                violate(f"R2b it{i}: converged but count={count} != 7 "
+                        f"(a batch was lost silently)")
+        shutil.rmtree(d, ignore_errors=True)
+
+
 # --------------------------------------------------------------- R2: torn log
 
 def r2(workdir):
@@ -331,7 +469,9 @@ def r3(workdir):
         replica = Replica(rp)
         replica.sync(primary)
         primary.close()
-        primary_sha = sha256_file(pp)
+        # Baseline sha is taken AFTER the writer finishes (below): v2 took it
+        # here and compared the 25-row replica against this pre-writer
+        # snapshot — deterministic mismatch every round (instrument bug).
 
         proc = spawn(["--child-writer", pp])
         line = read_line(proc, HANG)
@@ -378,6 +518,7 @@ def r3(workdir):
         if rc != 0:
             violate(f"R3 r{rnd}: writer exit {rc}")
 
+        primary_sha = sha256_file(pp)      # fresh: the writer has finished
         for _ in range(3):
             primary = Primary(pp)
             kind, val = attempt(lambda p=primary, r=replica: r.sync(p), bound=HANG)
@@ -406,7 +547,9 @@ def r4(workdir):
     seed_small(primary)
     replica = Replica(rp)
     replica.sync(primary)
-    base_ack = rows_of(pp, "SELECT count(*) FROM t")[0]
+    # live handle: the Primary holds LOCK_EX for its lifetime, so opening the
+    # file again through rows_of() raises 'database is locked' (v2 died here)
+    base_ack = primary.run("SELECT count(*) FROM t")[1][0][0]
 
     for cycle in range(3):
         handle = replica.open()
@@ -573,17 +716,19 @@ def main():
 
     say(f"command: {' '.join(sys.argv)}")
     say(f"seed: {SEED}  hang bound: {HANG}s  "
-        f"counts: R1 10+1, R2 12, R3 5x20, R4 3, R5 15+1, R6 3")
+        f"counts: R1 10+1, R2 12, R3 5x20, R4 3, R5 15+1, R6 3  "
+        f"+ follow-ups R1b 10+1, R2b 8")
     workdir = tempfile.mkdtemp(prefix="sk2-repl-")
     probe_errors = []
     try:
-        for name, fn in (("R1", r1), ("R2", r2), ("R3", r3),
-                         ("R4", r4), ("R5", r5), ("R6", r6)):
+        for name, fn in (("R1", r1), ("R1b", r1b), ("R2", r2), ("R2b", r2b),
+                         ("R3", r3), ("R4", r4), ("R5", r5), ("R6", r6)):
             try:
                 fn(workdir)
             except Exception as exc:  # noqa: BLE001 - instrument defect
                 probe_errors.append(f"{name}: {exc!r}")
                 say(f"PROBE-ERROR {name}: {exc!r}")
+                traceback.print_exc()
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     for item in probe_errors:

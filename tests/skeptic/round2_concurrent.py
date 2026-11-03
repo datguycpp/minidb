@@ -181,8 +181,20 @@ def run_phase3(host, port, rnd):
         for op in range(3):
             try:
                 sock, stream = connect(host, port)
-                send(stream, "BEGIN")
-                send(stream, f"INSERT INTO p3 VALUES ({100 + thread_id * 10 + op})")
+                began = send(stream, "BEGIN")
+                if "error" in began:
+                    # BEGIN refused: this dropper has no open transaction, so
+                    # its INSERT would be an ordinary autocommit write and
+                    # would legitimately commit (v2's accounting probe, 8/8
+                    # rounds). Skip it — this phase tests disconnects with an
+                    # OPEN transaction only, and the invariant stays count==10.
+                    stream.close()
+                    sock.close()
+                    continue
+                insert = send(stream, f"INSERT INTO p3 VALUES ({100 + thread_id * 10 + op})")
+                if "error" in insert:
+                    violate(f"r{rnd} P3 dropper t{thread_id} op{op} INSERT "
+                            f"errored after accepted BEGIN: {insert['error']!r}")
                 stream.close()
                 sock.close()                      # vanish without COMMIT
             except Exception as exc:  # noqa: BLE001

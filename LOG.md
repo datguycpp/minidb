@@ -1658,3 +1658,71 @@ Nothing above the first entry was edited in the move.
   concurrent produced no phases, replication died on shape/None-state. Per the
   probe-bug rule: report raw, re-author, nobody edits the instrument. The honest
   zero stands as recorded, not as strength.**
+
+- **Skeptic round 2 TRIAGE (Research, verified from the v2 raw files at `08ca7c2`
+  and the committed instrument code — not from room prose), followed by the
+  v3/follow-up PRE-REGISTRATION written before any of it runs:**
+  - *kill9 — 0 engine findings; the 1 violation is my timing miss.* `in-29`
+    scheduled its kill at 1.6126 s against D = 1.6134 s; the victim completed
+    first (rc=0, state=post, K1–K4 all green on that file, empty stderr) — the
+    engine did exactly what a finished vacuum should. Window is real this time
+    (D ≈ 1.6 s from the freelist fixture, pre≠post verified on 3 calibrations):
+    **29 in-window SIGKILLs, all landing pre-replace with checks green — the
+    staged-replace atomicity held 29/29; states pre=29 post=9 OTHER=0 MISSING=0.**
+    **Not re-running kill9:** the evidence is complete, and re-running until the
+    script prints PASS would be exactly the run-until-green the pre-reg forbids;
+    the violation stays on the record with this classification.
+  - *kill9 observation (new finding candidate):* every completed VACUUM leaves
+    `<db>.vacuum.wal` behind, and a killed one leaves `<db>.vacuum` + its WAL —
+    listed before any reopen. Artifact policy is untested → follow-up probe
+    below.
+  - *concurrent — P3's model was wrong, not the engine.* All 5 violations are
+    P3; engineer's accounting probe (its logic read and confirmed by Research:
+    a refused BEGIN means the following INSERT is an ordinary autocommit write —
+    correct SQL — and the equation count == 10 + autocommitted held 8/8, with no
+    acknowledged in-transaction row surviving). **P1/P2/P4 are clean across all
+    5 rounds:** no uncommitted read leak, racing writers only ever saw success or
+    typed `database is locked` with matching final counts, and the torn-read
+    detector (`sum == 7 × count`) never fired. P3 re-authored option 2: a dropper
+    stops after a refused BEGIN (its INSERT would legitimately commit), so the
+    invariant returns to a total `count == 10`, and an INSERT error after an
+    *accepted* BEGIN becomes a violation instead of a silent miscount.
+  - *replication — both failures are my instrument, confirmed at exact lines:*
+    R3 5/5 took `primary_sha` at line 334 **before spawning the writer**, so the
+    25-row replica was compared against a 5-row snapshot — deterministic by
+    construction (the count/sum/lag checks it passed are the real evidence:
+    20/20 syncs ok, no hangs, data identical). R4's `ExecError` came from line
+    409, `rows_of(pp)` while the live `Primary` holds LOCK_EX — R4's three
+    cycles produced **no evidence** (coverage gap, fixed below). Clean surfaces:
+    **R1 10+1** (8 pre, 2 post, re-resolve converged every time), **R2 12/12**
+    parse-as-prefix, **R5 15+1** (D5 ≈ 19.6 ms, all pre, post≠pre verified),
+    **R6 3/3 idempotent**.
+  - *Two coverage gaps found by reading my own clean output:* (a) v1's ABSENT-
+    replica observation (`sha256_file → None`) did **not** recur in v2's 10
+    kills — it stays a single observation in a sub-millisecond window → R1b
+    below concentrates kills where it sat; (b) every R2 truncation happened
+    while the replica was already current (`applied=0` every time), so the torn
+    record never had to be **shipped** — parse coverage only → R2b below leaves
+    the replica behind before tearing the tail.
+
+  *Follow-up probes, pass conditions fixed here before they exist:*
+  — `round2_vacuum_twice.py`: two VACUUMs on the same file; PASS = both succeed,
+  `integrity_check` ok, rows (1500, expected id-sum) preserved after each. File
+  listings printed raw; the artifact policy they show is a triage observation,
+  not a pass condition.
+  — **R1b** (replication v3): 10 kills stratified in [0.75, 1.0] × D1 (v1's
+  observation band) + own control; PASS = every state in {pre, post}; a MISSING
+  state is a *reproduced finding* — recorded, then the re-resolve runs from
+  absent state anyway, because recovery-from-nothing is the question.
+  — **R2b** (replication v3): 8 iterations — replica left 2 writes behind, then
+  the log tail torn; PASS = convergence via sync ≤3 or resolve with final
+  count == 7; VIOLATION if sync reports `lag=0` while the bytes differ (silent
+  under-ship visible in the readout) or raises non-typed.
+
+  *v3 instrument fixes (all mine, disclosed):* concurrent P3 (above);
+  replication — fresh `primary_sha` taken **after** the writer finishes, R4's
+  count read through the live handle, tracebacks printed for PROBE-ERRORs;
+  kill9 untouched and not re-run (reason above). v3 counts: concurrent 5×4
+  unchanged; replication = the pre-registered counts **plus** R1b 10+1 and R2b 8,
+  both declared follow-ups above. Zero rule carries: the kill9 strays and the
+  R2/R4 gaps are reported as gaps, never as strength.
