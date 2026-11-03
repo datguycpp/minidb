@@ -2079,3 +2079,16 @@ Nothing above the first entry was edited in the move.
   a realistic scanner-plus-grammar yield (parse -> ~750 ms) the chain must shed **~1,076 ms, about
   47% of non-parse** — within a point of the 45% predicted before any of these numbers existed.
   Both halves stay load-bearing; the split just makes the shares quantitative.
+
+- **Goal 6, scanner seam: the token-level differential is adopted as a build-side test (`c79aba2`).**
+  Decision on where it lives: `tests/test_lexer_equivalence.py`, not the battery — it is an
+  equivalence proof of *the implementation* against its fallback, so it belongs with the code it
+  checks and must run on every suite invocation, while the battery stays the end-result licence.
+  Shape: corpus literals (t3a's 3,939-character literals, round-1 case 16's non-ASCII), the seeded
+  fuzz stream at the same seeds, and random strings incl. quote/comment/operator boundaries, each
+  tokenized by both the master scanner and `_Scanner`, asserting identical `(kind, value, raw,
+  quote)` sequences. The seam it targets is the one the battery provably *cannot* see: a pattern
+  that "handles" a shape but tokenizes it differently, where the difference normalizes away
+  downstream. Scheduled with the scanner commit, not before — a differential against a scanner
+  that does not exist yet would compare the fallback with itself and prove nothing, which is the
+  vacuous-test failure the project already names.
