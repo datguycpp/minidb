@@ -1,0 +1,58 @@
+command: python3 tests/skeptic/round2_kill9.py
+revision: 51465d1
+sqlite3: 3.54.0 2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcalt1 (64-bit)
+2026-11-04T00:12:19+08:00
+command: tests/skeptic/round2_kill9.py
+seed: 20261103  rows: 12000  keep: 6000  expected: count=6000 sum=54003000
+kill: real SIGKILL from parent at stratified delays; hang bound 10.0s
+fixture built in 11.7s
+wal after close: True (copies take the .db only; a residual WAL would surface as a count mismatch on iteration 0)
+calibration: vacuum duration D = 1675.0ms (no-kill control)
+iter  0 in  delta=0.005   rc=-9 state=pre outcome=+checked violations=0
+iter  1 in  delta=0.0649  rc=-9 state=pre outcome=+checked violations=0
+iter  2 in  delta=0.1225  rc=-9 state=pre outcome=+checked violations=0
+iter  3 in  delta=0.2227  rc=-9 state=pre outcome=+checked violations=0
+iter  4 in  delta=0.2689  rc=-9 state=pre outcome=+checked violations=0
+iter  5 in  delta=0.2822  rc=-9 state=pre outcome=+checked violations=0
+iter  6 in  delta=0.3492  rc=-9 state=pre outcome=+checked violations=0
+iter  7 in  delta=0.4321  rc=-9 state=pre outcome=+checked violations=0
+iter  8 in  delta=0.4859  rc=-9 state=pre outcome=+checked violations=0
+iter  9 in  delta=0.5089  rc=-9 state=pre outcome=+checked violations=0
+iter 10 in  delta=0.5836  rc=-9 state=pre outcome=+checked violations=0
+iter 11 in  delta=0.6247  rc=-9 state=pre outcome=+checked violations=0
+iter 12 in  delta=0.7059  rc=-9 state=pre outcome=+checked violations=0
+iter 13 in  delta=0.7358  rc=-9 state=pre outcome=+checked violations=0
+iter 14 in  delta=0.7996  rc=-9 state=pre outcome=+checked violations=0
+iter 15 in  delta=0.8789  rc=-9 state=pre outcome=+checked violations=0
+iter 16 in  delta=0.9123  rc=-9 state=pre outcome=+checked violations=0
+iter 17 in  delta=0.9981  rc=-9 state=pre outcome=+checked violations=0
+iter 18 in  delta=1.0185  rc=-9 state=pre outcome=+checked violations=0
+iter 19 in  delta=1.0674  rc=-9 state=pre outcome=+checked violations=0
+iter 20 in  delta=1.1208  rc=-9 state=pre outcome=+checked violations=0
+iter 21 in  delta=1.1846  rc=-9 state=pre outcome=+checked violations=0
+iter 22 in  delta=1.2552  rc=-9 state=pre outcome=+checked violations=0
+iter 23 in  delta=1.2905  rc=-9 state=pre outcome=+checked violations=0
+iter 24 in  delta=1.3603  rc=-9 state=pre outcome=+checked violations=0
+iter 25 in  delta=1.4005  rc=-9 state=pre outcome=+checked violations=0
+iter 26 in  delta=1.4589  rc=-9 state=pre outcome=+checked violations=0
+iter 27 in  delta=1.5512  rc=-9 state=pre outcome=+checked violations=0
+iter 28 in  delta=1.5961  rc=-9 state=pre outcome=+checked violations=0
+iter 29 in  delta=1.6741  rc=-9 state=pre outcome=+checked violations=0
+iter 30 ctl delta=1.6954  rc=0 state=pre outcome=+checked violations=1
+iter 31 ctl delta=1.716   rc=-9 state=pre outcome=+checked violations=0
+iter 32 ctl delta=1.7371  rc=0 state=pre outcome=+checked violations=1
+iter 33 ctl delta=1.7625  rc=0 state=pre outcome=+checked violations=1
+iter 34 ctl delta=1.7773  rc=-9 state=pre outcome=+checked violations=0
+iter 35 ctl delta=1.7997  rc=0 state=pre outcome=+checked violations=1
+iter 36 ctl delta=1.8247  rc=-9 state=pre outcome=+checked violations=0
+iter 37 ctl delta=1.8443  rc=0 state=pre outcome=+checked violations=1
+states: pre=38 post=0 other=0 (window coverage: kills landing inside the vacuum show pre, after it shows post)
+iterations: 38 (30 in-window + 8 controls), seed 20261103
+VIOLATIONS: 5
+  ctl-30: victim exit 0, expected -9; stderr=''
+  ctl-32: victim exit 0, expected -9; stderr=''
+  ctl-33: victim exit 0, expected -9; stderr=''
+  ctl-35: victim exit 0, expected -9; stderr=''
+  ctl-37: victim exit 0, expected -9; stderr=''
+RESULT: FAIL
+exit: 1

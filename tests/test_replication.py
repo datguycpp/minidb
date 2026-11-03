@@ -427,7 +427,17 @@ class TestLogDiscipline(ReplicationCase):
         primary = self.seed(rows=1)
         records = read_repl_log(primary.path + ".replog")
         self.assertEqual([seq for seq, _ in records], list(range(1, len(records) + 1)))
-        self.assertTrue(all(page_id in pages for _, pages in records for page_id in pages))
+        # The old second assertion (`all(page_id in pages for _, pages in records ...)`) restated
+        # its own loop variable and was true for any input -- a tautology, so the "no gaps" half of
+        # the name rested on the sequence check alone. Assert a page id means something instead: it
+        # names a page that exists in the file it was read from.
+        size = os.path.getsize(primary.path)
+        page_ids = [page_id for _, pages in records for page_id in pages]
+        self.assertTrue(page_ids, "the log should carry page images")
+        # Page ids in the log are zero-based, so page n occupies [n*4096, (n+1)*4096).
+        self.assertTrue(all(page_id >= 0 and (page_id + 1) * 4096 <= size for page_id in page_ids),
+                        f"page ids outside the file's own size ({size} bytes): "
+                        f"{sorted(set(page_ids))}")
         primary.close()
 
 

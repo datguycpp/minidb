@@ -1,0 +1,38 @@
+command: python3 tests/skeptic/round2_replication.py
+revision: 51465d1
+sqlite3: 3.54.0 2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcalt1 (64-bit)
+2026-11-04T00:14:50+08:00
+command: tests/skeptic/round2_replication.py
+seed: 20261103  hang bound: 10.0s  counts: R1 10+1, R2 12, R3 5x20, R4 3, R5 15+1, R6 3
+R1 control: D1=17.2ms converged=True ack_rows=(801,)
+R1 it0 delta=1.27ms rc=-9 state=pre
+  VIOLATION R1 it0: rows 801 != acknowledged (801,)
+R1 it1 delta=2.08ms rc=-9 state=pre
+  VIOLATION R1 it1: rows 801 != acknowledged (801,)
+R1 it2 delta=4.07ms rc=-9 state=pre
+  VIOLATION R1 it2: rows 801 != acknowledged (801,)
+R1 it3 delta=6.17ms rc=-9 state=pre
+  VIOLATION R1 it3: rows 801 != acknowledged (801,)
+R1 it4 delta=7.27ms rc=-9 state=pre
+  VIOLATION R1 it4: rows 801 != acknowledged (801,)
+R1 it5 delta=8.60ms rc=-9 state=pre
+  VIOLATION R1 it5: rows 801 != acknowledged (801,)
+R1 it6 delta=11.79ms rc=-9 state=pre
+  VIOLATION R1 it6: rows 801 != acknowledged (801,)
+R1 it7 delta=13.04ms rc=-9 state=pre
+  VIOLATION R1 it7: rows 801 != acknowledged (801,)
+R1 it8 delta=15.36ms rc=-9 state=pre
+  VIOLATION R1 it8: rows 801 != acknowledged (801,)
+R1 it9 delta=16.66ms rc=-9 state=OTHER
+Traceback (most recent call last):
+  File "/home/grub/projects/minidb/tests/skeptic/round2_replication.py", line 581, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/grub/projects/minidb/tests/skeptic/round2_replication.py", line 564, in main
+    r1(workdir)
+    ~~^^^^^^^^^
+  File "/home/grub/projects/minidb/tests/skeptic/round2_replication.py", line 213, in r1
+    f"({state_sha[:12]})")
+        ~~~~~~~~~^^^^^
+TypeError: 'NoneType' object is not subscriptable
+exit: 1

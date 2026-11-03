@@ -1,0 +1,20 @@
+command: python3 tests/skeptic/round2_concurrent.py
+revision: 51465d1
+sqlite3: 3.54.0 2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcalt1 (64-bit)
+2026-11-04T00:14:49+08:00
+command: tests/skeptic/round2_concurrent.py
+server: 127.0.0.1:41771  rounds: 5  seeds: 20261103..20261107  timeout: 10.0s
+note: seeds name the rounds for the record; the phases are deterministic in structure — thread interleaving is the variable
+--- round 0 (seed 20261103) ---
+Traceback (most recent call last):
+  File "/home/grub/projects/minidb/tests/skeptic/round2_concurrent.py", line 292, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/grub/projects/minidb/tests/skeptic/round2_concurrent.py", line 274, in main
+    run_phase1(host, port, rnd)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/grub/projects/minidb/tests/skeptic/round2_concurrent.py", line 105, in run_phase1
+    allowed_during = {("rows", [[100]]), ("err", LOCKED)}
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: cannot use 'tuple' as a set element (unhashable type: 'list')
+exit: 1
