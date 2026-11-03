@@ -52,6 +52,11 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   instrument defects, reported raw, instrument untouched (kill9: controls exited
   0, post=0 coverage gap; concurrent: unhashable allowlist; replication: shape
   + None-state crash). Re-authoring with research; log-test tautology fixed.
+  Round-2 v2 ran (3 FAILs, all triaged in LOG: kill9 = probe timing miss, 29/29
+  atomicity held, no re-run; concurrent P3 = wrong model, P1/P2/P4 clean,
+  P3 re-authored; replication R3 = baseline-before-writer artifact, R4 = no
+  evidence, R1/R2/R5/R6 clean). v3 + follow-ups (R1b/R2b/vacuum_twice)
+  pre-registered; run pending. Suite 562 green.
 
 ## Open items
 - Read-path order decision: scope (a) COUNT-shaped (floor ~19ms, gate computed),
