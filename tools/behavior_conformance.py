@@ -218,6 +218,13 @@ def run_minidb(phases):
             if not last:
                 db.close()
                 db = Database(path)
+        if not isinstance(result, tuple):
+            # A phase whose last statement is not a SELECT (an INSERT, a DDL) returns a scalar
+            # from db.run; SQLite's JSON mode reports that as no columns and no rows, so mirror
+            # it rather than crashing the runner on unpacking. Growth-run finding: the fuzzer's
+            # minimizer drove a case down to CREATE+INSERT and the harness died here, which
+            # would have been reported as an engine crash.
+            return {"columns": [], "rows": []}
         columns, rows = result
         keys = list(columns)
         payload = normalise_values([dict(zip(keys, row)) for row in rows])
