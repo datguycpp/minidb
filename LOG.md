@@ -1,0 +1,1368 @@
+# MiniDB — LOG
+
+Full history moved verbatim from STATE.md at Phase-2 start
+(split commit recorded below; STATE.md now holds only the live handoff).
+Nothing above the first entry was edited in the move.
+
+- Scores (all cold-clone-reproduced by Default):
+  - `SCORE t1.1: syntax 46/46 (100.0%) [Δ baseline — first measurement]`
+  - `SCORE t1.2: behaviour 21/21 (100.0%) [Δ +21 vs M1]`, `syntax 46/46 (100.0%) [Δ +0]`
+  - `SCORE t1.2 (re-baselined): 35/41 (85.4%) [Δ −6 vs pre-corpus 21/21 behaviour; +20
+    cases]` — corpus `behavior.txt (21) + t1a.txt (20)`, corpus revision f12cee8
+  - `SCORE t1.2.5: 39/41 (95.1%) [Δ +4 vs re-baselined 35/41]` — syntax unregressed
+    (46/46), 94 unit tests OK, corpus revision f12cee8, reference SQLite 3.54.0.
+  - **`SCORE t1.2.5 (re-baselined #2): 41/43 (95.3%) [Δ +2 cases, engine unchanged]`** —
+    old score on old corpus: 39/41 (95.1%) at corpus revision f12cee8; new score on new
+    corpus: 41/43 (95.3%) at 1c24177. Cases added: 2 (bracket/backtick quote-style).
+    **Engine unchanged, no code diff — the +0.2pp is pure corpus growth, not progress.**
+  - `SCORE t1.3 (M3): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe
+    persistence]` — durability is evidenced separately, not scored: `tools/
+    durability_check.py` (Default re-ran from cold clone: write/reopen sha256 identical,
+    append-after-reopen persisted; plus Default's own probe — CHECK constraint enforced
+    identically after reopen). Syntax 46/46, 114 unit tests OK, corpus revision 1c24177
+  - `SCORE t1.5 (M5): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe plan
+    choice]` — plan evidence instead: `tools/plan_check.py` extended to five scenarios
+    (Default re-ran: all PASS). **Default's edge probes of the documented rule
+    (docs/planner.md): equal-estimate tie-break → name order (`aaa` over `zzz`);
+    unique-preference disambiguated from name order (UNIQUE `zzz` beats regular `aaa`)
+    — confirmed; bucket == table size → full scan with `reason=index-not-selective`;
+    range predicate → full with `no-eligible-index`. `last_plan` carries reason,
+    estimated_rows and per-candidate estimates — the choice is auditable post-hoc.
+    142 unit tests OK, syntax 46/46, durability PASS.**
+  - **`SCORE t1.5+ (t1b landing, re-baselined #3): 50/52 (96.2%) [Δ +9 cases, +9 passes,
+    machinery added]`** — old score on old corpus: 41/43 (95.3%) at 1c24177; new score on
+    new corpus: **50/52 (96.2%) at d6d0ac6**. Cases added: 9 (five index-outcome — M4/M5
+    territory, all pass first run; four reopen — persistence now SCORED for the first
+    time: rows visible after reopen, append-after-reopen persists, catalog survives,
+    constraints survive post-reopen via error agreement). **Research's pre-registered
+    prediction (50/52, 96.2%, posted before the run) confirmed exactly.** The four
+    previously-inert reopen cases are now the mechanism's own proof of work: under the
+    old loader they passed without testing anything; under the new one they execute the
+    reopen cycle and can fail (negative controls prove it).
+  - `SCORE t1.6 (M6): 50/52 (96.2%) [Δ +0 — expected; transaction cases land with t1d]` —
+    differential evidence in `tools/transaction_check.py`: 8/8 shapes match SQLite
+    (Default re-ran from cold clone). **Default's independent probes against the pinned
+    binary: all three error wordings byte-exact (`cannot commit - no transaction is
+    active`, `cannot rollback - no transaction is active`, `cannot start a transaction
+    within a transaction`); DDL rollback verified on the binary (post-ROLLBACK SELECT →
+    `no such table: ghost`, matching MiniDB); close-with-open-transaction rolls back on
+    BOTH engines (binary: BEGIN+INSERT, no COMMIT, fresh invocation sees nothing;
+    MiniDB: `[]` after reopen). Durability 3/3 incl. rolled-back row absent. Snapshot-
+    per-transaction is O(database size) — documented cost, replaced by M7's WAL. 174
+    engine tests + harness suite = 176 OK, syntax 46/46.** The snapshot-per-transaction
+    cost is formally superseded by M7's WAL — transaction machinery unchanged otherwise.
+  - `SCORE t1.7 (M7): 50/52 (96.2%) [Δ +0 — the corpus cannot observe crash recovery]` —
+    evidence instead, all reproduced by Default from a cold clone: `tools/crash_check.py`
+    4/4 (real `os._exit(9)` children at a fault seam on both sides of the fsync; open
+    transaction lost, committed row kept; ten consecutive crashes). **Default's
+    additional sweep — crash at every commit position via `MINIDB_CRASH_COMMIT` 1–5,
+    fresh file, CREATE+INSERT child:** commit1 (header batch) → valid empty db (`no
+    such table`, correct — nothing durable yet); commit2 (CREATE batch) → table exists,
+    zero rows (correct — INSERT not durable); **commit3 (the INSERT's own commit) →
+    row (42, 'committed') survives via WAL replay from a 0-byte main file** (the bug-#1
+    shape); commits 4–5 → idempotent reopen. The three reported bugs' fixes confirmed in
+    the code: recovery runs before the new-file decision, post-ROLLBACK catalog_root
+    handled, `close()` flushes instead of silently dropping dirty pages. WAL format read
+    line-by-line in pager.py: per-frame CRC + batch commit-marker CRC +
+    torn-tail/partial-frame/CRC-mismatch → truncate-and-discard at every exit. Rollback
+    O(1) confirmed in code (buffer dropped, no file copy). **New limits recorded with
+    owners:** redo log ≠ SQLite's WAL (single writer, no readers during recovery,
+    whole-batch apply) — M18/M24. Timing re-measure owed by the M7 report (non-blocking;
+    carried). 185 engine tests OK, syntax 46/46, behaviour 50/52, all tools green.**
+    - 2026-10-30 (standing directive extended — later tiers covered): Steven said
+    **"continue until the last milestones, i approve all of them"** — all remaining
+    milestones (12–38) are pre-approved; **tier gates for Tiers 2–6 are verify-and-report
+    events, not stop-and-ask**, with the recorded exceptions intact (impossible/too-slow
+    requirements still come to you; irreversible actions still need a word). Budget cap
+    permanently suspended; round counts logged.
+    - 2026-10-30 (sequencing rule confirmed, first application): t2c delivered before M12
+    started — Default verified the parked draft live (21 cases, loader-clean, no
+    directives) and confirms delivery; **M12 starts only after Build's t2b fix round
+    lands** (the 3 M11 gaps: scalar min/max NULL rule, date modifiers, math functions).
+    The rule — tranche confirmed first, milestone starts next round — is now protocol.
+  - **`SCORE t1.7+ (t1d landing, re-baselined #4): 61/63 (96.8%) [Δ +11 cases, +11 passes,
+    harness fix]`** — old score on old corpus: 50/52 (96.2%) at d6d0ac6; new score on new
+    corpus: 61/63 (96.8%) at 4e29319. Cases added: 11 (transaction shapes from M6's
+    evidence + DDL-index rollback + two reopen combinations — all pass). **Research's
+    pre-registered prediction (61/63, posted before the run) confirmed exactly — 2 for 2
+    on falsifiable predictions.** The landing also caught a REAL harness defect
+    immediately: Default's t1b runner ran MiniDB statements through `db.execute()` instead
+    of `db.run()`, defeating the engine's autocommit rule — a phase ending in ROLLBACK
+    discarded pre-transaction statements (the CREATE never committed) while SQLite's side
+    committed them: different transaction semantics per side on the same case. **The
+    engine was right; the harness was wrong.** Landed raw at 60/63 with that FAIL visible
+    (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), then fixed
+    (`db.run` everywhere). Second Default-authored harness defect caught by a tranche's
+  - **[PERF FIXES ACCEPTED — `a601070`, cold-clone verified] W8 was a correctness
+    hazard, not just slow: disk UPDATE rebuilt indexes from `table.rows` (empty for
+    disk-backed tables) — a silent index-emptying path. Now: row found through the
+    index, rewritten in place through the B+tree, buckets maintained incrementally
+    (my probe: indexed UPDATE preserves the row AND the index serves it). W1:
+    identical statement text reuses one AST (1,024-entry cache; parse is pure and
+    the tree is read-only during execution). Ceilings untouched per the standing
+    rule — improving under a ceiling is the right direction. M38 keeps both as its
+    named first targets for the rerun numbers.**
+  - **[M24 TORTURE — tool accepted, gate run pending] `tools/crash_torture.py`:
+    fresh process + `os._exit(9)` at a seeded write-path point, reopen checked
+    against invariants (contiguous committed prefix; every index bucket matches a
+    direct table scan). Negative controls asserted in-suite (gapped table reported;
+    tampered index reported) — and the controls already paid: the first index check
+    went through the planner (full scan on 3 rows, tampered index never consulted),
+    now compares buckets directly. Cold clone at `cec38f4`: 387 tests, 222/222,
+    46/46; my rerun: 50/50 clean (rows=15, seeds 1..50). The 10k-iteration gate run
+    verdict waits for its exact line.**
+  - **[M24 GATE RUN — `0643754`, cold-clone verified] Exact line as printed:
+    `CRASH TORTURE: 10000/10000 clean rows=15 seeds=1..10000 (100 s)`; my rerun
+    100/100 clean at the same shape; 387 tests / 222/222 unchanged. Accepted as
+    scale-proven; recorded PARTIAL per the pattern rule — statement-boundary sweep
+    only, fsync-site generalisation with coverage table still owed (sequenced with
+    M27's fixtures, same fault-injection surface; the spec's letter stands).**
+  - **[BENCHMARK PREDICTION SCORING] Median 111.96 in 30–300 band HIT; zero
+    discards HIT; W1-worst and W7-mid HIT; >500x clause fired twice on real O(n)
+    paths (W8 index-emptying rebuild, W1 per-call parse). Miss: W3/W4-best-two
+    failed (W10 0.784 best). W10 sub-1 = module binding decode cost, not an engine
+    win — recorded so no headline misreads the harness. Ceilings untouched.**
+  - **[M24 SITE SWEEP — `38685ae`, cold-clone reproduced] 12/12 sites, died_here
+    verified per iteration, torn-page case included, real storage; my rerun 12/12
+    (200/site, 2400 crashes, 0 failures). Combined 11,200+ crashes zero failures.
+    Residual carried: no VACUUM file-replace sites (M19-remainder duty, lands with
+    M27). Sweep is now the redo-protocol regression tripwire.**
+  - **[M24 CLOSED + M27 PARTIAL — `26c4e1b`, cold-clone verified] Site sweep now 15/15
+    (3 VACUUM file-replace sites added); my rerun 15/15 (200/site, 3000 crashes, 0
+    failures). vacuum_mid_replace = halved temp file + die before rename, original
+    survives every seed. integrity_check ok differential-clean; 8/8 structural
+    fixtures typed StorageError (page-size validation + wrap of struct/JSON/unicode
+    errors surfaced by fixtures). Recorded PARTIAL per pattern rule: per-page
+    checksums for own format owed (foreign files skip, WAL frames already CRC'd);
+    payload-bitflip stays declared-undetectable until then.**
+  - **[M27 REMAINDER CLOSED + M25/M26 LANDED — `72634be` + `51a13c5`, cold-clone
+    verified] CRC32 trailer per page (v2; v1 opens unverified; foreign skips by design
+    — the per-file-flag boundary); my rerun: 9/9 incl. payload-bitflip now
+    `StorageError: page 1: checksum mismatch`. Lock: 2nd opener fails `database is
+    locked` (reference wording, verified live), close idempotent, reopen sees commit.
+    [RULING — 5th named partial] M25 = within-handle isolation ✓ + lock file ✓;
+    concurrent readers ✗. Ordered: shared LOCK_SH readers + exclusive writer, writer
+    waits MINIDB_LOCK_TIMEOUT then reference wording; reader→writer upgrade = typed
+    refusal (no silent-wait deadlock). WAL-mode non-blocking NOT implied.**
+  - **[M25 CLOSED — `916481d`, cold-clone verified] Shared LOCK_SH readers coexist;
+    writer takes LOCK_EX, waits MINIDB_LOCK_TIMEOUT, fails `database is locked`;
+    read-only write refused `attempt to write a readonly database`. My probe: two
+    readers [(7,)]/[(7,)], writer blocked, upgrade refused, writer-after [(7,),(8,)].
+    [BAND — pre-registered] corpus 222/222 zero-move; 5 invariants; both error texts
+    byte-identical. Unreachable-by-design read-across-commit replaced in writing by
+    writer-waits-or-locked (rollback-journal model, not WAL).**
+  - **[M26 CLOSED + M28 HELD OPEN — `24528aa`, cold-clone verified] M26: 1/1 wording
+    MATCH from real two-process collision; no foreign-vs-own divergence (surprise
+    clause resolved clean). flock-vs-POSIX namespace declared (harmless: foreign
+    files read-only by design). M28: 50-case clean reproduced BUT held open per
+    research's pre-registered harness-first response — requires ≥1,000 cases
+    multi-seed, schema-shape header (fuzz precedent), crash property at full 15-site
+    list. Zero at 50 is a draw, not a sweep.**
+  - **[M28 SCALE-UP INTERIM — `689c30b`/`bc2f9a1`, cold-clone verified] Header declares
+    schema features (composite-key/index/composite-index/nocase/trigger/view/blob/
+    affinity-mix/nulls); crash property draws full 15-site list; per-seed + TOTAL lines;
+    equivalents widened (IN-vs-OR, DISTINCT-vs-GROUP BY, LEFT-vs-INNER, NULL-counting,
+    NOT IN NULL-free). My rerun 20/seed clean. [FIND-AND-PIN CLOSED] Literal IN-lists
+    (rejected outright; 222-case corpus never asked) pinned to t1c +5 cases (match,
+    NULL-IN, match-beats-NULL, NOT-IN flip, NOT-IN-with-NULL) — 227/227, binary-verified
+    three-valued rows. Gap family #3 (unvoiced feature) caught by redundancy.**
+  - **[GATE-PLAN AMENDMENT — `556dae7`, research-authored as-is] The t1c IN-pin moved a
+    Tier-1 tranche post-gate-plan, so the literal "86 must stay 86" is now the Tier-1
+    LINE rule: no regression vs the latest re-baseline count (91 from the pin onward),
+    per-file lines vs last logged values. 86→91 named as ledger event, not drift.**
+  - **[T3c DELIVERY CONFIRMED + QUEUE ORDERS — t3c 4 cases loader-clean, no directives,
+    parked pre-fix; band 3–4/4 live (scalar forms = core scope, EXISTS/NOT EXISTS =
+    named swing, 3/4 = EXISTS-owned-item not regression).] STATE staleness edit done:
+    FROM-subquery → closed at Tier-1 remediation; correlated → still owned with t3c
+    parked. [ORDERED] property-generator growth (self-joins, multi-table joins,
+    correlated; band ≥1 failure at 1k, correlated primary). [CALLED] Tier-5 start,
+    M29 first (docs-runner contract, dot subset, no-wire-protocol all on paper).**
+  - **[T3c LANDING + M8 CLOSE + M29 — `36b8826` (landing), `a79ab8c` + `cebddc7` (build)]**
+    t3c 4/4 vs pre-registered 3–4/4 (generous side; EXISTS implemented not left owned).
+    Probes match binary (per-row correlated MAX, unshadowed inner, EXISTS/NOT EXISTS).
+    M29: declared dot subset + CSV round-trip byte-identical, unknown dots refused.
+    M8 remainder CLOSED. Still queued: property-generator growth (band live), M30
+    (M25 locks inherited), M28 TOTAL (Tier-4 close artifact).
+  - **[M30 — `bd6f60c`, cold-clone verified] Parity ACCEPTED for autocommit: 3-client
+    identical aggregates, remote==local row-for-row, `no such table: missing` wording,
+    malformed-request connection stays alive (all re-probed live). Order-dependent
+    test bug (alpha-order seeding) named as 3rd instance of the
+    checker-passing-for-wrong-reason class (M24 control, M27 technicality, now this);
+    house rule restated: tests seed their own rows. [FINDING — server transaction
+    isolation] A BEGINs + INSERTs uncommitted, B SELECTs and SEES [[7]] pre-COMMIT
+    (single shared handle = shared transaction): "inherits M25" does NOT hold at
+    transaction granularity — file-level M25 would wait/fail B, the server leaks.
+    Ordered: per-client handles (file-lock semantics through sockets) or
+    autocommit-only with typed BEGIN refusal. [SPEC-EDIT ADOPTED, research to write]
+    connection-isolation unreachable-by-design → observable descendant (B waits/fails
+    `database is locked`, sees committed state after A commits).**
+  - **[M30 ISOLATION CLOSED — `27f89e0` fix + `eb46a44` spec-edit, cold-clone verified]
+    Session-affine re-probe (my first probe opened a new socket per request, breaking
+    session affinity — precondition failure of my own, same family): A BEGIN+INSERT,
+    B → `database is locked`, A COMMIT, B → [[1]]. Disconnect-rollback sixth invariant
+    in spec (dead socket can't hold the lock). Spec loop closed: prose → probe →
+    finding → fix → measured. [HOUSE RULES FORMALIZED] (1) precondition-check family
+    (died_here designed; makefile-disconnect counterexample); (2) own-fixtures family
+    (alpha-order 2nd instance). Commit-count correction 422→420 logged (message
+    written last or corrected when the number moves). 420 tests, 231/231.**
+  - **[PROP-GROWTH INTERIM — `c277bbc` (HEAD; reported as `a3f4c19`), cold-clone
+    verified] 30/seed × 2 seeds clean = draw by standard; pairs live (EXISTS-vs-
+    DISTINCT-JOIN, self-join-vs-GROUP, IN-vs-EXISTS, LEFT-IS-NULL-vs-NOT-EXISTS).
+    [TERMS FROZEN] Band unchanged: ≥1 at 1k = hit however classified; zero = plain
+    generous miss, pre-emption recorded as context only. [4TH FAMILY INSTANCE]
+    bad-property (JOIN-pair vs IN-row, 12 false failures) fixed by making the pair
+    genuinely equivalent — fix the assertion, not the bar; triage-first (engine vs
+    property vs harness) before any edit.**
+  - **[PROP BAND CLOSED — miss #5, tally 8/2/5] Verbatim TOTAL: 250×4 seeds, 1000 cases,
+    failures=0 with schema-features header; my sampled rerun seed-3 30/0 clean. Logged
+    as frozen: zero = plain generous miss, correlated pre-emption = context. [DIAGNOSIS
+    ADOPTED] Gate-run bands are structurally biased to miss — build-test-triage migrates
+    findings to build time (IN-list at zero scale, bad-property pre-run). [NEXT BAND
+    FILED] ≥1 genuine gap anywhere in the work (build, probes, 1k run), primary =
+    multi-level nested subqueries (alias shadowing, env-stack depth>1 — untouched by any
+    case/property/probe), secondary = composite/multi-column ON with NULL rows. Zero
+    everywhere = miss. [SEQUENCED] M31 before growth (ladder is the spine).**
+  - **[M31 CLOSED — `e03a62e` + `f0c75c5` (build), `aa1a3f7` (spec-edit as-is),
+    `313c58c` (review test)] Three-part acceptance verified: round-trip row-for-row,
+    ServerError strings compared not eyeballed, README example executed as test.
+    [REVIEW ADDITION] Paired post-shutdown persistence assertion (own server + file,
+    close, shutdown, server_close, direct open expects [(3,)]) — standalone 5/5 OK,
+    full 425 OK, cold-clone green. Release-paths-tested-like-failure-paths (4th
+    pattern data point: closes/disconnects/shutdowns). M25-lock spec consequence
+    committed as-is.**
+  - **[M32 CLOSED — `ad7e3b6`, cold-clone verified] 432 tests, 231/231. Four ruling
+    conditions hold: no corpus differential; own labeled vocab; anti-imitation
+    assertion live (no opcode/addr/p1/p2/p3); negative control live (my probe: plan
+    changes no-index→with-index, SCAN/no-eligible-index → SCAN/index-not-selective
+    on a 1-row table — the SEARCH shape needs selective scale). EXPLAIN-write parses
+    then refuses `only SELECT plans are explained` (unsupported-vs-typo boundary).
+    [M33 CARRY] docs home for plan vocab + deterministic EXPLAIN fixtures in runner
+    set (vocab can't rot under the pipeline). [TIER-6 PREP `8866f0d` as-is] entry =
+    one command: compile_options pragma + json1/fts5 smokes (pragma claim vs working
+    feature = two facts).**
+  - **[TIER-5 CLOSE — M33 `995a138` + spec `07559e2` + review `e464a5b`, cold-clone
+    verified] 440 tests, 231/231, docs 7/7 (12 skipped-counted). Runner's first-run
+    finds (neighbour-table block, trailing-comment-as-statement) are the milestone's
+    argument. Fixture-header retired for enforced self-containment; expect-line dormant
+    with trigger. [REVIEW ADDITION] Bidirectional drift assertion: doc table was missing
+    4 emitted forms (TABLE/GROUP BY/bare-SCAN/only-SELECT) — the hole research named,
+    fixed with the assertion in one commit; both directions now fail loudly.**
+  - **[M35 + T6B — build `fa7797b`, landing `9a9c96e`, cold-clone verified] 445 tests,
+    231/231 pre-t6b, docs 7/7. Inventory finding verified: no ENABLE_JSON1 line, JSON
+    fully live (smoke authoritative, pragma hint — the spec's warning in the unpredicted
+    direction). Arrow split ('5' vs 5), precedence (|| > arrow > */), error wordings
+    byte-identical to binary. [T6B 9/16 vs 10–14 — BELOW FLOOR, investigation per the
+    stated boundary] Pins 5/5 green (no published-behavior divergence); fails = 6
+    named-gap surfaces (set/remove/insert/replace/group_object/each — absent from M35's
+    list by declaration) + 1 GENUINE json_type-nested bug (array→'object', owned M35
+    follow-up). Verdict: below-band with cause, not a report-divergence. [SLIP] M35 built
+    pre-tranche — t2b discipline applied (pins labeled, no credit, confessed header).
+    t6a (8 FTS cases, 7–8/8, column-filter swing) parked pre-M34, drafts-first restored.**
+  - **[T6A LANDING + T6B BAND CORRECTION — follow-up `7c0a3ea`, M34 `6c0373e`,
+    landing `dc2513c`, cold-clone verified pre-landing] t6b follow-up closed all 7
+    (path-arg fix + 6 gaps; key-reserved owned, not loosened mid-milestone — grammar
+    discipline). MATCH-in-aggregate crash fixed (table=None → row env); virtual-table
+    guard asserts acceptance now. [BAND CORRECTION ADOPTED] t6b fired at 9/16 =
+    under-miss #3 (bands score at first honest landing, t2b/t1d precedent); 16/16 is
+    the fix round's number beside the band. Tally 8/3/5 → this landing: t6a 8/8 vs
+    7–8 = IN-BAND HIT → 9/3/5 (16 bands + t6a = 17 scored). [T6A 255/256] 8/8 FTS
+    (folding, NOT-tightest, column filter swing, trailing-prefix, unknown-module
+    refusal); key pin fails honestly in t6b 16/17 — visible every score line until
+    the reserved-word work closes it.**
+    first run.
+  - **`SCORE t3.23 (M23 landing, re-baselined #26): 222/222 (100.0%), 383 tests — a
+    database the reference wrote opens and answers — accepted`** `tools/file_compat.py`
+    reports **24/24** from the cold clone (F1–F10, granular 24 checks). Verified live:
+    the F1-shaped reference-written file reads identical rows through MiniDB and
+    **writes against it raise `attempt to write a readonly database`** (the
+    reference's own error text). F8 (view+trigger) passed WITHOUT the scope flag —
+    the view/trigger boundary resolved into scope by the rebuild-from-CREATE-text
+    path; the spec's F8 scope-flag case is discharged by scope (the chooser worked
+    as designed). Declared limits recorded per the ruling: WITHOUT ROWID and index
+    b-tree pages are DECLARED LIMITS not partials (the ladder's M23 line never
+    promised them; indexes rebuild from schema text — matches outcomes, not cost);
+    **WAL-mode foreign files: a hot `-wal` is invisible (correct for a cleanly
+    closed file, wrong for a crashed one) — the scope note is on record as the
+    M27-adjacent foreign-read work item, with the tranche authored when M27
+    approaches if wanted (research's placement, engineer's suggestion, ratified).**
+    Writing SQLite's format stays explicitly out of scope per the spec (a read-gate
+    ruled read-only on purpose — Default expansion requires a named spec edit).
+  - **BENCHMARK — FIRST FULL RUN (the Tier-3 gate's defining event, per
+    docs/benchmark-spec.md, harness `tools/benchmark.py` Default-authored to the
+    spec's table): module-sqlite 3.53.1 (the skew rule fills the header), N=7 with
+    all raw values printed, warm-up discarded, output-OK-else-discard via
+    identical-output tuples (the one comparator), scale 100k rows / 1k lookups.
+    ALL OUTPUTS OK, ZERO DISCARDS on the nine run workloads; the median-of-ratios
+    headline:**
+    - **W1 214,199.7x · W2 34.8x · W3 77.7x · W4 145.0x · W5 112.0x · W6 12.6x ·
+      W7 292.7x · W8 62,455.1x · W10 0.784x** — **median-of-ratios = 111.957**.
+    - **W9 (open/reopen) did NOT run in this pass** (an honest harness gap: the
+      tool's W9 file-open variant wasn't ready; named before the verdict, not
+      after) — W9 joins the next full run.
+      **DISCHARGED (rescored item, after the two ordered items landed):** W9 is
+      implemented in `tools/benchmark.py` and joins the default workload list.
+      Measured at scale 100k, N=5, loadavg 3.07: **sqlite 49.23 ms per 50 opens,
+      minidb 20,542.79 ms — ratio 417.288, output OK.** Per open: 0.98 ms vs
+      410.9 ms. The split matters: `Database(path)` itself is ~1.7 ms on a
+      2.4 MB/30k-row file, so the ratio is the first query's **on-disk scan**
+      (~411 ms against 8.37 ms for the same aggregate in memory, W3) — the M18
+      read path, not open or WAL recovery. Standing finding, not a fix in this
+      item: the on-disk read path is ~50x the in-memory cost per row on a scan.
+    - **The two knife-edge findings (research's own pre-registered surprise clauses,
+      fired verbatim: ratio > 500× anywhere means a hidden per-operation path) are
+      REAL and classified: (a) W8 — the UPDATE path does not route `WHERE id=?`
+      through the PK index, so each of the 1k updates scans the whole table
+      (646,482 ms per run of 1k updates ≈ 0.65 s/update — the same order as my
+      independent sanity draw at 10k rows, 70 ms/lookup end-to-end... the shape is
+      the scan, not the fetch); (b) W1 — the end-to-end cost is parse+plan+fetch
+      per statement (the standalone helper path is ~250 µs but a `db.run()` pays
+      SQL parse per call, dominating the 1k-lookup batch: ≈ 0.66 s/lookup at
+      100k rows). Neither is a silent bug — both are the M38 hot-path rewrite's
+      named FIRST TARGETS, owned by the build lane per the honest-framing
+      requirement the spec ratified: milestone 38 is the answer to a bad ratio,
+      NOT a threshold edit.**
+    - **Research's pre-registered benchmark predictions (posted before the run):
+      the band's median clause HIT (30–300×; actual 111.957); W1-worst named
+      correctly and W7-mid named within the band (292.7x, top of mid); the
+      surprise clauses fired as designed and caught real structure; the
+      structural claims that DID NOT hold: W10 is the BEST ratio on the board
+      (0.784 below 1× — a foreign-CLI-side fact worth its own honesty note rather
+      than a gate edit), and W3/W4 are not the best two. Zero discards matched.**
+  - **[GATE — the TIER-3 multiple set ONCE from this run, written into STATE before
+    M24 starts, per the anti-gaming rider] The Tier-3 gate reads:**
+    - **every workload's output OK — this run: 9/9 OK (W9 absent, honest gap above);
+    - median ratio ≤ the recorded multiple: the multiple is set to 150.0
+      (the measured 111.957 plus ~34% measured-variation headroom — the honest
+      framing holds: it is what was measured, stated plainly, and milestone 38 is
+      the answer to the ratio, not an edit);**
+    - **no single workload above its recorded per-workload ceiling — ceilings set
+      at measured × ~1.5 with the same no-softening rule: W1 ≤ 320,000 ·
+      W2 ≤ 60 · W3 ≤ 120 · W4 ≤ 225 · W5 ≤ 175 · W6 ≤ 20 · W7 ≤ 460 · W8 ≤ 95,500
+      · W10 ≤ 2.5 (W10's ceiling keeps the current advantage honest: the gate
+      catches regression to >1, not the present sub-1 being "too good").**
+    - **The Tier-3 gate VERDICT: PASS** on the benchmark sentence (9/9 output-OK,
+      111.957 ≤ 150.0, all workloads inside ceilings) **with the recorded partials
+      riding named beside it: M19's freelist remainder (owned), M22's
+      covering-for-partial + ORDER-BY-after-projection declared limits, M23's
+      WITHOUT-ROWID/index-pages declared limits, the WAL foreign-read scope note,
+      the W9 harness gap, and the two knob-edge benchmark findings owned under
+      M38. The corpus line stands at 222/222; the ledger's Tier-3 arithmetic will
+      cite this exact benchmark line as its forecast once M27's honest scope is
+      measured (the fuzz semantic rate at the 16-feature dialect stays the fuzz
+      gate's own number, not this benchmark's).**
+  - **`SCORE t3.22 (M22 landing + t3b, re-baselined #25): 222/222 (100.0%), 371 tests
+    — covering + partial indexes + the system surface — accepted`** (the t3b landing
+    pushes the corpus 216 → 222; per the recorded rule the TIER-3 GATE arithmetic
+    fires post-M23's review). Cold clone verified: **the covering-index rule's
+    STRUCTURAL claim verified** (rows come from the index when everything a query
+    touches lives in it — asserted by plan reason in the tests, so a future refactor
+    that silently returns to row fetches FAILS rather than slowing down); the
+    magnitude claims are **dataset-shape-dependent, recorded per the benchmark spec's
+    own rule** — at my 3,000-row-result draw the covering is ~18% faster (25.5 →
+    30.2 ms row-fetch control), at the engineer's selective 1-row shape the number
+    reproduces as 2.89 vs their 2.8, and no magnitude gets quoted outside the
+    benchmark's warm-up/alternating protocol (the M18 retraction's lesson, now on
+    the third incident-class instance). **The partial-index rule verified live:** a
+    non-matching query correctly takes the table scan (plan `no-eligible-index`; the
+    partial index silently unchosen — returned rows agree with the binary), and the
+    MATCHING query selects the partial (row 1 only). `table_info`'s DEFAULT render
+    matches the reference exactly; `DROP TABLE` removes the catalog row (view/trigger
+    survivors intact). **The system surface cases are built (t3b's 6/6) including the
+    AUTOINCREMENT swing research flagged (the persisted counter + the sqlite_sequence
+    floor all pass) — her pre-registered band 3–5/6 vs actual 6/6 = +1 over the
+    ceiling, her 4th consecutive generous miss (tally: 6 hits, 2 conservative, 3
+    generous).** Declared limits (no covering-for-partial; ORDER BY after projection
+    on covering scans) recorded, not hidden. engineer's own flagged future-draft
+    shape: composite PK's `pk` column starts not 1 (recorded for the next tranche's
+    writer).
+  - **[TIER-6 PREWORK COMMITTED as-is (research's authored queue now complete through
+    Tier 6)]** — the M11 ruling carried forward as METHOD (the runtime feature
+    inventory printed from the pinned build at every Tier-6 entry, recorded pre-
+    implementation — "which surface does the ladder mean" answered by probe, not by
+    scope talk); M34/M35 declared syntax subsets with the bad-path error text as the
+    rule-shaped swing; M36/M37 invariant acceptance (replication = scripted seeded
+    partitions on M24's replay discipline, with a DECLARED divergence policy chosen
+    before testing; learning planner = outputs conformance, choices not, with a
+    flagged recursion into M23's read-compat file question when learning state
+    persists); **M38's parity gate fixed mechanically: identical per-file lines
+    pre/post, same-seed fuzz runs producing the same mismatch counts at the same
+    count, W1–W10 ratios improved-or-equal per the ratified protocol, and declared
+    toolchain additions** (a rewrite that needs an absent toolchain trades one gate
+    for another). The prediction bands for M34–M38 register when approach, same
+    discipline.
+  - **`SCORE t3.21 (M21 landing, re-baselined #24): 216/216 (100.0%), 357 tests —
+    range-aware index access with a measured cost model — accepted`** Cold clone
+    verified. **M21's diagnosis correction is accepted and adopted (research's
+    re-wording is the ledger line now): the benchmark's W1/W5 exposure is the RANDOM
+    ROW FETCH (`_row_by_id` ≈ 250 µs vs ≈ 10 µs sequential), not index probing (the
+    hash probe is O(1)); the planner prices that with `RANDOM_ACCESS_COST = 20` as a
+    measurement, and the 'no ANALYZE — the hash index already knows' declaration is
+    noted under the M22 milestone-lines rule below.** My independent timing draws
+    confirm the cost rules are live and consistent (engineer's exact magnitudes are
+    his own dataset's claim): 30k rows, our own distribution — equality through the
+    index 32.5 ms (the O(distinct-keys) path), wide-range shapes correctly fallback
+    to scan (~320 ms; my dataset's `v >= 96` is 90% of rows so the 1/20 rule fires —
+    the designed behavior, not a reproduction of the engineer's dataset shape where
+    `v >= 96` stayed selective). The three planner rules encoded by the new tests
+    (selective range → index; wide range → scan with `index-not-selective`; fallback
+    beats the index on its own cost rule) are the acceptance's structural content.
+    **Two stated limits for the record: no `ANALYZE` pass (the hash index's exact
+    bucket count IS the equality row count — a declared-scope-out, not a silent
+    gap), and `BETWEEN` is still a scan (two-bounded range planning = a declared
+    follow-up).**
+  - **[SCOPE RULINGS — the system-surface conformance class, delivered as t3b) — my
+    opinion, delivered-as-recommendation-adopted per research's four asks]:**
+    1. **`sqlite_master` object listing IN conformance** (deterministic, cheap,
+       M29 inherits the shape if skipped).
+    2. **Declared PRAGMA list: `foreign_keys` + `table_info` ONLY** (open-ended
+       PRAGMA cases would poison the denominator).
+    3. **ANALYZE: statement accepted, results unchanged; `sqlite_stat1` contents
+       excluded** (engine-specific statistic values are the EXPLAIN class — not
+       diffable). **AND the milestone-level duty stays open**: the ladder's M22
+       line says "cost-based planner with table statistics (ANALYZE)" — the
+       corpus-level acceptance is a state-restoring statement; the milestone keeps
+       delivering the minimum implementation; the declared-out is NOT the
+       milestone's completion.
+    4. **AUTOINCREMENT / `sqlite_sequence`: the t3b swing stays IN the tranche** —
+       the hole keeps its corpus shape even when owned (holes are corpus-shaped;
+       the tranche carries the gap rather than parking it).
+    All four delivered as t3b's six cases with the pre-registered 3–5/6 band; the
+    near-certain pass is `foreign_keys` read-back (M16 built the ensemble).
+  - **[THE M19-PATTERN CLASS — formally named at the third instance] Unimplemented-
+    but-declared-out features being named at the milestone's review instead of
+    discovered by a later corpus** (M19 freelist; M21 ANALYZE + BETWEEN; the system
+    surface). Proto-rule: any ladder-line feature left unimplemented at its
+    milestone's review gets a named partial entry in the ledger, and the Tier-3
+    gate arithmetic computes over the recorded scope **only** — the fourth
+    instance never gets to be discovered by a tranche, it gets declared on the
+    milestone's own report. t3b's delivery stands as the fourth instance's
+    INSURANCE (the class is parked as the system-surface tranche and its landing
+    gate is M22's review per the sequencing rule).
+  - **`SCORE t3.20 (M20 landing, re-baselined #22): 216/216 (100.0%), 354 tests —
+    blobs keep their storage class; 'now' is UTC; harness renders bytes — accepted`**
+    Cold clone verified. **PROBE-FOUND #3's shape is closed and verified live:** a
+    blob into a TEXT column stays a blob (`typeof`=blob, `hex`=0102, `length`=2 —
+    byte-identical to the binary), text into a BLOB column stays text, `CAST`
+    both directions carry the reference's output, `quote()` exists for the
+    blob/string/NULL/number shapes and `||` treats blobs as text. **[THE CLOCK BUG —
+    classified by shape, not by luck, because it caught the corpus case that would
+    have hidden it] MiniDB's `date/time(&date('now')` returned LOCAL time in
+    Singapore (+8), so corpus cases disagreed with the binary for 8 hours a
+    day — the worst possible shape: every gate run that crossed SGT 00:00–08:00
+    would have failed and every run in the other 16 hours passed.** The fix is
+    verified live against the binary (`date('now')` = `2026-10-30` both sides while
+    python-utc == the reference's output, python-local is the next day) — **a
+    silent timezone bug would have passed every correct corpus run except one
+    unlucky day.** The unseen lesson: FULL corpus runs hide a wrong answer only when
+    they cover the fragile span — the corpus's own case is the protection, and the
+    SGT-vs-UTC gap is the honest reason the gate's timing was rejected: a
+    time-of-day-dependent pass gate is a lying gate.
+  - **[NORMALIZER AMENDMENT — zero-delta re-baseline #23, per the standing ledger
+    rule] The harness now renders bytes identically to the sqlite3 CLI's own
+    representation of them, because **the oracle cannot distinguish a blob from the
+    same text in `-json` output (it prints them as the same string)** — blob-ness
+    stays testable through `typeof()`, which is how the corpus asserts it; the
+    change makes the comparison honest about what the pinned CLI can express, and
+    the score did not move. The corpus harness's own test file runs standalone (7
+    tests, OK).** The class is the counted-float re-baseline (#5) and the
+    round-ordering-relevance glob fix (#7): a change to the comparison floor that
+    changes neither the accepted case set nor the score.
+  - **[TIER-4 PREWORK COMMITTED as-is at afa9b83; Default's scope ratifications folded
+    in] M25–M27 acceptance shapes are now on paper** (M25 snapshot isolation = reader
+    starting before a writer commits must finish seeing the pre-write state; the
+    single-writer scope is Stated for Default and I ratify it: SQLite's own model;
+    multi-writer is a ladder amendment, not a surprise with a different name;
+    **acceptance is invariant-shaped (concurrency is timing-dependent) so the corpus
+    stays free of it** — two M25-competing facts: the corpus's `SELECT` output is
+    still one sequential read of committed rows, and the observed observable stays
+    "reader sees the pre-write state"; M26 wait-or-fail with the `database is locked`
+    text differentially checkable in a constructed two-handle scenario, scope-flag
+    if our model makes that shape unreachable, plus the no-wedge invariant and
+    claimed only per the recorded M25/M26 scope note; **M27 integrity_check returns
+    `ok` matching the reference on a healthy file (deterministic, differential-fair)
+    + corruption fixtures must be DETECTED with a typed, replayable error — silent
+    wrong data fails, crash-only counts only if typed**). Zero corpus-side movement:
+    the prework deliberately removes concurrency from the observable so it stays in
+    stated invariants instead.++
+  - **[TIER-5 PREWORK COMMITTED as-is at afa9b83 with one core ruling adopted]
+    EXPLAIN is NOT a conformance surface: bytecode is SQLite's VM vocabulary; the
+    corpus never diff plan output (a future need for plan assertions requires a
+    directives-roadmap spec edit first — property assertions like "uses index",
+    never raw rows). Plan correctness stays with `plan_check.py` (the M4/M5 evidence
+    pattern). Also fixed pre-milestone: M33's data-runner contract (fenced sql
+    blocks with fixture headers, expected-output lines, missing metadata = failure
+    not skip — the inert-directive lesson applied to docs; counts of blocks-checked/
+    blocks-found both printed; run-before-commit under the red-push protocol); M29's
+    declared dot-command subset (conformance is the SQL, sqlite3's dot-commands
+    aren't a standard); M30's plain statement that SQLite has no wire protocol to be
+    compatible with — acceptance is N clients getting answers identical to local
+    in-process runs, inheriting M25's semantics (the single-writer scope included);
+    M31 bound to the docs runner plus typed error propagation. Research's authored
+    queue now runs complete through Tier 5 — the stretch specs (M34–38) plus
+    milestone-close predictions are the remaining authored items, registered per
+    tranche as always.**
+  - **`SCORE t3.19-2 (M19 landing, re-baselined #21): 216/216 [Δ +8 cases, +8 passes,
+    0 fails]`** — old: 208/208 at 714f4ed; new: 216/216 at bf6ca82 — **research's
+    pre-registered band 6–8/8 hits its ceiling (the third ceiling-touch: gentle
+    optimistic reading, the swings all passed)**, and the mid-air 3/8 preview recorded
+    as the baseline it cleared. 344 tests, syntax 46/46 (cold clone verified).
+  - **[M19 PARTIAL — the explicit accounting (research's flag accepted)] M19 lands as
+    `vacuum done, free-space management outstanding` (no freelist: DELETE/UPDATE leave
+    orphaned pages and overflow chains; VACUUM is a reclaim path, not a background
+    behaviour) and `M20 (oversized rows and blobs) largely pre-done in the same
+    commit`. The ladder milestone accounting stays whole-tranche honest: Tier-3's
+    gate must never be computed over a quietly-unfinished milestone — the ledger
+    records the M19 remainder as an owned item, to be closed at a future milestone
+    (M24's invariants see the freelist's file-level truth later). In-memory VACUUM
+    is a no-op, matching the reference (verified).**
+  - **[PROBE-FOUND #3 — the blob-literal TEXT-column divergence, real and owned]**
+    My independent probes at the M19 state: `X'0102'` works in EXPRESSION context and
+    in a BLOB-typed column (`typeof` → blob, hex() both sides match the reference —
+    the corpus cases 7/8 are correct), **but inserting the same blob literal into a
+    TEXT-affinity column diverges from the reference: the binary coerces it to a
+    blob attachment (`typeof(body) = blob`, `hex(body) = 0102`, `length(body) = 2`
+    — bytes-not-chars, and numeric-looking text is reinterpreted); MiniDB stores it
+    as TEXT with the ESCAPED-SOURCE bytes** (`hex` = the python repr of the
+    blob-as-string parse, length 11 = the repr's character count). The reference's
+    numeric-string-in-TEXT-vs-BLOB insert rule is DISTINCT from the number affinity
+    rules the corpus cases pinned: the not-yet-pinned rule is SQLite's literal-class
+    coercion at INSERT time into a TEXT column. Owned: M20 surface fix — the corpus
+    will pick the shape up either way once landed; the finding is on record BEFORE
+    the builder can claim the tranche it doesn't touch rules out.
+  - **[M19 file-size evidence — say the honest shape] My independent VACUUM probe:
+    a 6-row table with three 30,000-byte overflow chains, 4 rows deleted → file
+    471,040 bytes → after VACUUM: 16,384 bytes (96% reclaimed), rows intact across
+    reopen. The engineer's 40→45→12 KB shape reproduces in structure (grow on
+    delete, collapse on vacuum), magnitude at my own workloads.
+    In-memory VACUUM = no-op verified. All per-file lines and cold-clone
+    reproductions stay the acceptance basis.**
+  - **`SCORE t3.18 (M18 landing — page cache — re-baselined #20): 208/208 (100.0%),
+    336 tests — accepted with an honest-reproduction finding`** — the A/B harness
+    (`tools/page_cache_check.py`) committed per the "numbers reproduce from the clone"
+    rule, and my independent reproduction from the committed tool confirms **the
+    LOOKUP gain but not the scan claim**: at the reported 30,000 rows / 1.9MB:
+    cache 3.50 scans/s + 14 lookups/s vs no-cache 3.44 + 11 (**lookups ≈ +27%**,
+    direction confirmed at both 20k and 30k draws; **scans ≈ noise-flat**, the
+    reported +46% did not reproduce at either size — 5.13 vs 5.33 at 20k, 3.50 vs
+    3.44 at 30k). The M18 report's own honest weak spot (page I/O no longer the
+    bottleneck; per-rowid work is) survives this finding — the CREDIT goes to the
+    lookup path, and the commit message records this per the standing rule. A/B
+    magnitudes are the engine's claim until the benchmark protocol's median-of-7
+    workloads reproduce them as Tier-3's first full run (the pre-registered multiple
+    trigger is the same event). Protocol compliance verified: the page-cache test
+    file runs standalone (336 total, OK).
+  - **[T3a — the proof-the-claim loop CLOSED by measurement] t3a's literal re-verified
+    at my direct measurement through the loader: 4209 chars, `> 4096: True`, >= 4200:
+    True (research's threshold-probe reading independently confirmed — the
+    flagged-inability → measured → edited → verified loop is complete).** The tranche
+    loads: 8 cases, 5 multi-phase, VACUUM + reopen directives intact; the 3/8
+    mid-air preview stands as M19's baseline. **[TREE HOUSEKEEPING — the t2f-draft
+    deletion staged under the tree-claim rule + M23 spec + t3a draft committed]**
+    (commit `3d1f3f4`); the M23 spec stands as delivered; the docs bundle now rides
+    the landing owner's commits, not abandoned untracked files.
+  - **`SCORE t3.19 (dialect extension + REAL-affinity bug, re-baselined #19):
+    208/208 (100.0%), 331 tests — the queued [Build] item is closed`** — the
+    fuzzer's declared dialect is now **16 features** (the 12 Tier-1-era surfaces +
+    set-ops, windows, triggers, affinity — confirmed in the tool output's feature
+    line at draw 600). **The widening paid for itself on its first run: REAL
+    affinity left `'4'` as text instead of coercing to `4.0` (the numeric-string
+    REAL-coercion rule the `'3.0'`→integer-3 corpus case pinned on the OTHER
+    direction), hit 32 times in 600 queries, all one class, fixed with a
+    value-selected unit test.** Semantic rate at the widened dialect: 0/10k across
+    600-query draw (structured, features declared in the header). **[PROCESS
+    INCIDENT — the red push, verified live]: `c54d123` was pushed with
+    `test_affinity_collations` still red — the test file selected by `rowid`
+    (engine vs reference) and MiniDB didn't expose rowid; re-running unittest at
+    c54d123 reproduces:
+
+    ```
+    Ran 11 tests in 0.136s  — FAILED (errors=1)
+    ```
+    at exactly that commit) and the fix lands separately at `dcf2d16` selecting by
+    value. That's the commit-before-last-test-edit failure mode — second
+    occurrence this project (t2c's message-before-diff was the first), now at
+    two layers (commit message vs red test). **Ruling upgraded to protocol:
+    never commit after ANY piped filtered test output; run the affected test file
+    standalone immediately before the commit, then commit separately** — piped
+    `| tail -2` groups a live suite with the previous round's output and both
+    incidents were caused by trusting the tail of the prior round.
+  - **[T3a DELIVERY CONFIRMED WITH ONE CONDITION — research's own flagged risk is
+    real and stays real] docs/t3a-draft.txt loads clean: 8 cases, 5 multi-phase
+    (VACUUM + reopen directives present), no directives to create conflicts.
+    Research's proof-the-claim duty: `length(body) > 4096` asserted from the case's
+    own SELECT at landing — **it is NOT met: the current literal is 3939 chars
+    (engine: `[(1, 3939)]`) — case 1's overflow path is decorative until the
+    literal is raised**. This is not my edit to make (research-authored, committed
+    as-is): the fix is Research's to raise the literal by ~200 chars and re-deliver;
+    I've logged the exact number for the replacement. The pre-landing preview
+    (3/8, cases 4–8 failing on the to-come M19 features or the blob literals) is a
+    separate, honest statement: the tranche is aimed at M19's scope and does not
+    yet have an implementation to fail against. The M23 file-compat spec is also
+    delivered (the read-compat gate + F1–F10 fixture list); Research's scope-flag
+    rule is verified present in the spec and the what-not-claimed list is intact.**
+  - **`SCORE t2.17 (M16 parts 2–3 + M17 landing, re-baselined #17): 187/187 (100.0%),
+    330 tests — FK/PRAGMA, affinity/collations, table-level constraints — accepted`**
+    Verified vs binary from the cold clone: PRAGMA foreign_keys reads back **0 by
+    default and violations are accepted** (the surprising reference default is the
+    case's whole point, confirmed live); `= ON` enforces with
+    `FOREIGN KEY constraint failed`, NULL children stay exempt under ON, and the
+    parent-delete refusal fires. Affinity by `typeof`: TEXT/INTEGER/REAL coercions
+    match, `'3.0'` into NUMERIC gives integer 3 (the dot disappears), `'12abc'` stays
+    text under NUMERIC (the well-formedness rule, not the CAST prefix rule — a
+    distinction the corpus's `typeof` cases now pin). NOCASE on columns makes `'A'`
+    vs `'a'` a UNIQUE conflict while the same table without it keeps both; the
+    composite PK/UNIQUE message is the reference's composite wording
+    (`UNIQUE constraint failed: cp.a, cp.b`). The affinity work flushed out a real
+    bug: views and CTEs built materialised tables with bare `SimpleNamespace`
+    columns (no `.affinity`) — now real `Column` objects with BLOB affinity (no
+    coercion), the correct semantic for computed results. Engineer's own pre-fit
+    Ernest: case 7 failed at the parser before part 3 (`near "PRIMARY": syntax
+    error` — the raw line, recorded as the reason the part-3 slice exists).
+    **M16 part 2's remaining named surface — the FK PRAGMA on/off pair, plus M17's
+    affinity surface — are the t2f cases 8/9 slices now reachable end to end.**
+  - **`SCORE t2.18 (t2f landing, re-baselined #18): 208/208 (100.0%) [Δ +21 cases,
+    +21 passes, 0 fails]`** — old: 187/187 at cdd8735; new: 208/208 at 714f4ed.
+    t2f: 21/21 — **research's pre-registered band was 17–20/21; the actual is +1 over
+    the ceiling again (out-of-band in the generous direction, the second consecutive
+    generous miss). Running tally: 6 hits, 2 conservative, 2 generous.**
+  - **TIER-2 GATE — VERIFIED PASS, 2026-10-30 (executed per docs/tier2-gate-plan.md).
+    Per-file lines from the cold clone (name-the-commit rule: rev `714f4ed` (my
+    landing), built tree dbde248):**
+    - **behavior 21/21, t1a 22/22, t1b 9/9, t1c 12/12, t1d 11/11, t1e 11/11,
+      t2a 20/20, t2b 21/21, t2c 21/21, t2d 19/19, t2e 20/20, t2f 21/21**
+    - **Hand arithmetic PASS 1 (added as printed): 21+22+9+12+11+11+20+21+21+19+20+21
+      = 208/208.**
+    - **Hand arithmetic PASS 2 (slice, twice — shell then internal):
+      T1-line 21+22+9+12+11+11 = 86 (the no-Tier-1-regression line: 0 regressions);
+      T2-slice t2a–f 20+21+21+19+20+21 = 122, same via the second computation = 122.**
+    - **Slice verdict: 122/122 ≥ 116 threshold (95%) — PASS, and inside the
+      pre-registered band 119–122/122 at its top.**
+    - **Full-corpus verdict: 208/208 — inside the pre-registered 205–208/208 band.**
+    - **Fuzz gate run (declared per the split, headers quoted verbatim):
+      structured seed 1001, 10k queries, 0 mismatches, 0.00/10k, features
+      aggregates/and-or/distinct/group-by/having/in-subquery/index/inner-join/
+      is-null/not-in-subquery/select/where, mode structured; mutation seed 2002,
+      10k queries, 0 mismatches, 0.00/10k, same features, mode mutation.
+      Rejection class (run and reported, EXCLUDED per the split): seed 3003, 5k
+      queries, 11 mismatches, 22/10k — the FIRST rejection-gate baseline
+      (non-increasing binds from the next gate).**
+    - **Every mismatching class before the verdict: classified. Zero corpus failures
+      on the semantic side; the 11 rejection-position mismatches are the
+      rejection-class baseline (engine's known class, not new). The dual-harness
+      arithmetic passed at the plan's twice-computed rule.**
+    - **The gate verdict carries one HONEST SCOPING caveat, recorded per the
+      declared-features rule: the generator's dialect is the 12 Tier-1-era surfaces —
+      the post-M15 features (triggers, windows, set-op compounding, affinity edges)
+      are NOT emitted by the current fuzzer, so the 0/10k is valid only over its
+      declared dialect and says nothing about the new surfaces' fuzz-exposed
+      conformance. The plan's named risk class (mismatches in post-M15 features) is
+      thus UNREACHABLE rather than met — the risk becomes a [Build] item:
+      extend the generator to those features before the next gate, so the next
+      gate's 0/10k (if it is 0) is over a dialect that can actually reach the new
+      surface. The split itself prints as declared; the all-oracle raw count for
+      the record: 11 mismatches over 15k semantic+rejection combined.**
+    - **Steven's ratification of the fuzz split remains the one open human item —
+      filed per the plan's provisional rule, with the split and the raw count both
+      printed beside each other.**
+  - **[INFRA — push path fixed per the build's note] The remote now uses the
+    `github-datguycpp` SSH alias and a repo-local `core.sshCommand` pins the agent
+    (passing `-i ~/.ssh/id_ed25519_datguycpp -o IdentitiesOnly=yes`), so
+    `git push origin main` works without the per-invocation env (the
+    up-to-date no-op at this round confirmed the fix). Documented here; no history
+    rewrite.**
+  - **[GATE PLAN COMMITTED — research-authored as-is] docs/tier2-gate-plan.md landed at
+    cdd8735, written BEFORE M17's review.** The arithmetic is verified against the
+    loader, not accepted from the doc: current corpus 187 + t2f's 21 = **208** at gate;
+    the t2a–f slice = **122**; the threshold ≥116/122; **the 86-line (t1a–e +
+    behavior) stays explicitly green beside the verdict** — slice arithmetic computed
+    twice from the printed per-file lines, never off a tool summary. **Fuzz gate
+    spec:** ≥10k semantic-class queries, rejection-class run-and-reported but excluded
+    per the ratified split; header must declare seed/mode/dialect features/commit;
+    non-increasing rejection binding starts from the NEXT gate (this is its first
+    baseline); **Steven's ratification is the only open human item — absent it at
+    M17, the run runs, files provisional, and the literal-wording total prints beside
+    the split rate.** The not-allowed-at-this-gate list is adopted into the gate
+    checklist (no edits between run and verdict; no baseline-by-observation; no
+    percentage without per-file lines + revision; no slice without the full corpus
+    beside it). **Pre-registered predictions carried verbatim: slice 119–122/122;
+    full 205–208/208 with the 86-line intact; fuzz semantic 0/10k** with the named
+    risk class being the post-M15 generator surfaces (triggers, affinity edges,
+    window frames). After the gate: Tier 3 opens (M18) and the benchmark's **first
+    full run** triggers my pre-registered multiple.
+  - **[ZERO-DELTA re-baseline #17 (comment-only correction, research's second lesson)]
+    The landed t2d.txt's case-7 comment went from "encode the SQL standard" to honest
+    flat-left-associative prose, per research's delivery; the ledger stands at 187/187
+    — comment-only, expected value computed at run time, the builder was the only
+    possible victim. Two-deliverer comment-proofreading pattern now self-recorded.**
+  - **`SCORE t2.16 (M16 part 1 landing, re-baselined #16): 187/187 (100.0%), 313
+    tests — ALTER TABLE + triggers + both carried debts closed — accepted`** (t2f stays
+    parked for M17's review per the plan). Verified vs binary from the cold clone:
+    **(a) view persistence closed** — the view catalog entry (kind:view) survives
+    reopen and DROP kills the ghost (`no such table: small` after re-open, confirmed);
+    **(b) disk-backed UPDATE/DELETE work via the row-tree rebuild** (the declared
+    M19-boundary B+tree delete gap — the O(n) cost is named, not discovered);
+    **(c) ALTER** — ADD-with-DEFAULT (old rows report 7), the NOT NULL refusal carries
+    the reference's sentence verbatim; **(d) triggers** — WHEN-gated body stays silent
+    (a WHEN that fires for zero log rows = the reference's answer), RAISE(ABORT)
+    surfaces the message verbatim (`custom-failure` confirmed), no recursive firing,
+    and the trigger's sink runs the write; a probe-vs-engine divergence flagged and
+    cleared: MiniDB REFUSES double-quoted literals in assignments (`"z"` → the
+    no-such-column hint about single quotes), an error form the reference also raises
+    (the DQS misfeature is off in the pinned build) — agreement, not divergence.
+  - **[PREDICTION TALLY CORRECTION (research's accounting)] t2d was OUT-OF-BAND in the
+    generous direction — 187/187 is one ABOVE the band's ceiling (my "top-of-band"
+    phrasing was gently wrong; the honest number is +1 over prediction). Running tally
+    at t2d: 6 hits, 2 conservative misses, 1 generous miss — the right bias direction
+    (slightly pessimistic on errors, slightly optimistic on scope).**
+  - **`SCORE t2.13 (M13 + t2d landing, re-baselined #15): 187/187 (100.0%) [delta +19
+    cases, +19 passes, 0 fails]` — old: 168/168 at ae214bc; new: 187/187 at ce3546c.
+    M13's report (against the named acceptance list) verified from the cold clone:
+    INTERSECT precedence is FLAT LEFT-ASSOCIATIVE in SQLite — the reference overruled
+    the SQL-standard tighter-binding reading on `a UNION b INTERSECT c` → {2} (the
+    standard gives {1,2}); the same finding arrived via the corpus's case 7 AND by
+    probe agreeing; EXCEPT chain associativity by rows; NULL-as-equal set semantics
+    (UNION dedups, INTERSECT keeps, EXCEPT removes); first-branch column names
+    (`AS val` survives ORDER BY val); count-mismatch error text is the REFERENCE'S
+    exact wording; compound-in-derived-table/in-IN/empty-right-side/first-branch/
+    mixed-storage-class ORDER BY all match. Research's pre-registered prediction
+    164–166/167 (on the then-167 denominator) translates to **184–186/187 post-t2e —
+    actual 187/187, a full-band top-of-range pass** (case 7's hint was the report's
+    one prose correction, already neutralized by her draft's own comment corrected
+    pre-delivery per the t2b-lesson self-check).**
+  - **[HARDENING CLOSED] The SelectItem|Star type-union boundary debt is settled at
+    M13's report — `SELECT *` expands to ColumnRef projections once at the top of the
+    simple path, `Star` never reaches downstream code (three deferrals ended, the
+    fourth did not happen). The new invariant flushed out `SELECT *, expr` returning
+    early without parsing the trailing items (now fixed and tested); star-with-window
+    covered by the new cases.**
+  - **[CHECK — engineer's tree statement vs the pushed tree] His M13 summary said
+    "t2d's 19 and t2e's 20 both in-corpus" at 168/168, but the pushed `07efd3c` has
+    t2e only (148+20=168). The t2d file lived untracked in HIS working tree; Default
+    landed it from the parked draft (ce3546c), the park is now discharged — the
+    landing arithmetic belongs to the LANDING, not the working tree (protocol note:
+    tree claims must name the commit).**
+  - **`SCORE t2.15-fix (t2e landing, re-baselined #14): 168/168 (100.0%) [Δ +20 cases,
+    +20 passes, 0 fails]` — old: 148/148 at 0f1219b; new: 168/168 at ae214bc. t2e
+    settled at 20/20 (matching Build's preview number — the landing verdict is
+    Default's, from a fresh cold clone at ae214bc: 168/168, syntax 46/46, suite OK).
+    Coverage: views (plain / column-aliased / over-join / view-over-view / IF-NOT-
+    EXISTS / DROP / duplicate-create noun split) + CTEs (chained, read-twice, WITH
+    RECURSIVE working-table loop with UNION dedupe + 1000-guard + empty-base +
+    adjacency-tree walk) + windows (RANK gap semantics / DENSE_RANK / ROW_NUMBER /
+    aggregate windows / PARTITION BY / LAG / explicit frames). The missing-observed
+    M13 residue carried into next-tasks as the [Build] item; the t2d slice landing
+    remains its own event (19 cases + 164–166/167 prediction).**
+  - **[GATE PRE-SET — benchmark spec ratified into STATE per Default's recording rule]
+    docs/benchmark-spec.md delivered BEFORE Tier 3 (research's authorship, committed
+    as-is): ten fixed workloads at fixed data sizes; N=7 median-of-ratios headline
+    with per-workload ceiling; output-OK-else-discard via the one-conformance-
+    normalizer rule; and the multiple for the gate is written by Default AFTER the
+    FIRST FULL RUN, not during — pre-registered before further milestones to close the
+    gaming hole. Tier-3's gate additionally awaits: the M23 file-format spec and
+    Tier-4's property-test corpus shape (both research's, authored before their
+    milestones).**
+  - **`SCORE t2.15 (M15 landing, re-baselined #13): 148/148 (100.0%), 299 tests —
+    windows, UPDATE/DELETE, the DAG fix — accepted`** (t2e lands after M15 per the
+    sequencing rule, so the numerator stays 148 in the ledger until then). Verified vs
+    binary: **(a) the DAG dedupe fix is root-caused and closed** — the SEED, not the
+    recursive step, was leaking (two outgoing edges from node 1 emitted `(1,0)` twice;
+    UNION filtered only the recursion), seed now deduped under UNION (4 rows matching
+    binary), UNION ALL preserved at 10 rows on BOTH engines (the operators provably
+    different, not accidentally similar); **(b) UPDATE/DELETE exist with old-row SET
+    reads** (`SET a = b, b = a` swaps — verified `[(2,1)]`), view-write refusal carries
+    the established wording for BOTH statements; **(c) windows** — RANK gap-after-tie /
+    DENSE_RANK no-gap verified against the binary on tie and gap shapes (probe verified
+    [(1,1,1),(2,2,2)] then [(1,1,1),(2,2,2),(5,3,3)]) including the aggregate-window,
+    PARTITION BY, LAG, and explicit frame surface engineer's report names (16/20+ of
+    t2e's preview covers these — final landing number at t2e's post-M15 commit).
+  - **[RULING — the Tier-2 gate denominator, recorded pre-gate per research's
+    recommendation] The Tier-2 gate = the t2a–f slice (122 cases ≥95%) AND the FULL
+    corpus reported with an explicit no-regression line at the same event.** Rationale:
+    symmetric with the Tier-1 ruling (the gate measures THAT tier's work), while the
+    full-corpus/care line catches aTier-1 regression a pure-slice number could hide —
+    the anti-gaming rule that forbids a gate passing while old cases rot. The fuzz
+    semantic-rate split's first LARGE run gets a deliberate gate-run plan from Build
+    (dialect features declared per spec; expressions/set-ops/windows/triggers all
+    exercised) at the same M17 boundary — not a reused smoke invocation.
+  - **`SCORE t2.14 (M14 landing, re-baselined #12): 148/148 (100.0%), 286 tests —
+    views + CTEs surface, accepted`** — base corpus reaffirmed; t2e stays parked until
+    M15 (the preview 14/20's six misses are the window cases, M15's scope). Verified
+    against the binary: the read-only view rule (`cannot modify v because it is a view`
+    — engineer implemented the PostgreSQL-style auto-updatable path first, then the
+    reference refused it and the case measures the real rule); duplicate-create nouns
+    split correctly (`view v already exists` / `table v already exists`); chained CTEs,
+    `WITH RECURSIVE` working-table loop with the 1000-iteration guard. **Engineer's
+    harness change (the WITH-line structural join — a `WITH` line stays incomplete until
+    a `SELECT` appears at paren depth 0) verified in the cold clone: 148/148, syntax
+    intact, the reopen directive's phase machinery unregressed.**
+  - **[PROBE-FOUND #1 — M14 fix round ordered] Recursive-CTE UNION-dedupe leaks a
+    duplicate on DAG shapes.** Repro: `edge(1,2),(1,3),(2,4),(3,4)`; `WITH RECURSIVE
+    walk(n,depth) AS (SELECT parent,0 FROM edge WHERE parent=1 UNION SELECT
+    child,depth+1 FROM edge JOIN walk ON parent=n) SELECT n,depth FROM walk ORDER BY n`
+    → pinned binary: `1|0, 2|1, 3|1, 4|2` (4 rows); MiniDB: `[(1,0),(1,0),(2,1),(3,1),
+    (4,2)]` — the root row twice. Found by Default's independent probe (shape-sensitive:
+    a plain TREE passes, a DAG duplicates — consistent with engineer's t2e tree-walk
+    preview pass). Owned: M14 fix round; the repro joins the regression set, and t2e's
+    case gets re-verified at the M15 landing.
+  - **[PROBE-FOUND #2 — new known-failures line] The UPDATE/DELETE statement families
+    do not exist: parser-level `near "DELETE": syntax error` / `near "UPDATE": syntax
+    error`, rows untouched; the binary executes both, including the view-modify refusal
+    (`cannot modify v3 because it is a view`) delivered on INSERT already and carrying
+    over to DELETE once statements exist. Not covered by any delivered tranche and not
+    declared by the ladder line — found by Default's probe, owned by M15's scope.**
+  - **`SCORE t2.12-fix (fix round closed): 148/148 (100.0%), 255 tests — ORDER BY
+    evaluation is Star-safe`** — the six previously-crashing t2c cases (1–4) plus new
+    regression coverage (3 unit + 2 differential) that FAILS on the pre-fix commit
+    (engineer's own test design, confirmed in my cold-clone run: 148/148, syntax intact,
+    crash_check untouched). Root cause classified by verification: `SELECT *` puts a
+    bare `ast.Star` into `node.items` where the ORDER BY alias-scan assumed every entry
+    is a `SelectItem` — a TYPE-UNION hole, not a logic slip. Build tracked the
+    structural follow-up (annotation + `_headings()` helper, deferred to a milestone —
+    queued in this file's next-tasks as an owned hardening item for the post-Tier-2
+    milestone boundary).
+  - **`SCORE t2.12 (M12 landing + t2b fix round + t2c, re-baselined #10): 144/148
+    (97.3%) [Δ +21 cases, +17 passes, 4 fail — all ONE root cause]`** — old: 124/127
+    (97.6%) at 9a575b4; new: 144/148 (97.3%) at 74d4274. **The t2b fix round is verified
+    in-corpus (21/21):** scalar min/max → any NULL → NULL (the rule the draft's comment
+    had backwards, engine followed the comment); `date('2024-01-31','+1 month')` →
+    2024-03-02 (normalisation, not clamp — verified against the binary); math functions
+    alive (sqrt confirmed 2.0 on the binary). M12: ORDER BY (mixed directions,
+    NULLs-last-DESC/first-ASC verified vs binary), comma LIMIT, LIMIT 0/-1, the
+    LIMIT-after-DISTINCT ordering bug fixed pre-commit (3 distinct rows, not 2).
+    **t2c's 4 fails = ONE root cause: `SELECT * … ORDER BY …` crashes —
+    `AttributeError: 'Star' object has no attribute 'alias'` in the ORDER BY path**
+    (M12's own spot-checks used named expressions; the corpus cases 1–4 used Star +
+    ORDER BY — the exact class the drafts system keeps catching). **Build's fix round:
+    make ORDER BY evaluation Star-safe; the other 17 t2c cases pass, including the
+    rule-test case 21 (DISTINCT + ORDER BY non-selected column).** Research's
+    pre-registered 20–21/21 vs actual 17/21 — the miss is the crash class, not scope.
+- 2026-10-30 (process incident — t2b corpus commit gap + the sweep): engineer's `git
+  add -A` swept the UNTRACKED t2b.txt corpus file (and the parked t2c-draft) into the
+  M12 code commit — the t2b re-baseline (recorded in STATE before this) had been logged
+  with NO corpus commit of its own, so its corpus-revision anchor pointed at a code
+  commit. Recorded, not rewritten (the anchor stays — the corpus content at 74d4274 is
+  verified by the cold-clone run above). **Protocol ruling: in the shared working tree,
+  stage explicit paths only, never `-A`** — Default committed the t2c landing with
+  explicit paths (and still under-delivered once with a rename-only commit — the lesson
+  generalizes beyond who writes the commit: never write the message before measuring
+  the diff, second occurrence of that failure class this project).
+  - **`SCORE t2.11 (M11 landing + t2b, re-baselined #10): 124/127 (97.6%) [Δ +21 cases,
+    +18 passes, 3 fails]`** — old: 106/106 (100.0%) at 9a575b4; new: 124/127 (97.6%) at
+    477b5bb. M11 delivered the built-in list; **t2b's landing found 3 engine gaps (2
+    predicted-fail-by-declaration, 1 REAL divergence):** (a) **case 12: scalar min/max
+    NULL rule diverges from the reference** — the reference returns NULL when ANY
+    argument is NULL (documented SQLite semantics); the engine ignores NULLs (2, 2)
+    — the draft's own comment had the rule backwards and the engine implemented the
+    comment; **fix owned by Build immediately** (scalar min/max → any NULL → NULL; the
+    aggregate forms are correct and stay). (b) **case 19: date modifiers** — the
+    reference COMPUTES `'+1 day'` (→ '2024-01-16'); the engine's "return NULL rather
+    than guessing" design turns out to be divergence, not both-reject — modifier
+    support is a real gap, owned now. (c) **case 20: math functions** — the swing case
+    resolved: **the reference build HAS SQLite's optional math** (`sqrt(4)` → 2.0), so
+    the math-function set is a real gap. 239 engine tests OK, syntax 46/46.
+  - `HARNESS FIXES (Default, this round): the loader gained multi-line-statement
+    continuation join` — t2b case 17's two-line SELECT split per-line, producing a
+    broken trailing-comma statement on both sides ('near ";"' vs 'incomplete input';
+    case 17's engine strftime implementation was correct). Added post-commit, now
+    verified in the cold clone. Plus (from the M10 round) the counted-tolerance
+    implementation + my probe-error fix (a built-in gap, `chr()`, flagged as advance
+    notice for M11 — the M10 probe false-alarm was exactly an unimplemented builtin).
+  - **`SCORE t2.10 (M10 landing + t2a, re-baselined #9): 106/106 (100.0%) [Δ +20 cases,
+    +20 passes — engine accepted]** — old: 86/86 (100.0%) at 14c41e1; new: 106/106
+    (100.0%) at 9a575b4. t2a: research's 20 pre-M10-authored cases (precedence,
+    C-semantics division/modulo with sign-follows-dividend, REAL promotion, `||` with
+    SQLite float formatting, CASE all three forms, CAST with the
+    non-numeric-text→0 quirk, NULL propagation, three-valued logic truth tables,
+    IS/IS NOT, BETWEEN, arithmetic-in-WHERE, unary minus on columns) — **19–20/20
+    predicted; actual 20/20: every case M10's report spot-checked landed, and the
+    truthy() fix (`WHERE 1` matched nothing before) is exactly what cases 1–6's
+    FROM-less regression net was designed to catch.** Default's probes vs binary:
+    WHERE 1 / 'abc'+1 / NULL / NOT NULL / CAST('12abc') / division-trio — all exact.
+    230 engine tests + harness suite OK.
+  - **`SCORE t1.9+ (t1e landing, re-baselined #8): 86/86 (100.0%) [Δ +11 cases, +11 passes
+    — ALL GREEN]`** — old: 75/75 (100.0%) at 9ece60d; new: 86/86 (100.0%) at 14c41e1.
+    Cases added: 11 fuzz-seed-shaped cases (NULL join keys, join-aggregates over empty
+    results, bare aggregates over empty tables — M8's IndexError pinned as seed, both
+    halves of the IN/NOT-IN empty-truth-table, LEFT-join padding feeding AVG, DISTINCT
+    with NULLs, three-table join chain, scalar aggregates in WHERE and projection,
+    never-matching compound ON). **Research's pre-registered prediction (11/11 → 86/86
+    at gate verification) confirmed exactly — 3 for 3 on falsifiable predictions.**
+    Valid-input seeds only per the corrected spec: crash/torn-WAL scenarios correctly
+    NOT corpus cases (reference runs :memory:; no log to tear) — they live in the
+    fuzzer's stateful scenario mode against the proven seam, per the spec correction
+    research recorded in the file header.
+  - **`SCORE t1.8+ (t1c landing, re-baselined #6): 67/75 (89.3%) [Δ +12 cases, +6 passes,
+    −6 fails — BELOW THE TIER-1 GATE LINE]`** — old: 61/63 (96.8%) at 4e29319; new: 67/75
+    (89.3%) at 4e29319+dirty (t1c.txt). Failures classified from the raw list: 5 declared
+    scope fails (comma-join, LEFT, RIGHT, FULL OUTER, FROM-subquery — engineer's stated
+    M8 limits) + **1 undeclared: `(SELECT MAX(id) FROM t) AS top` → `incomplete input`,
+    the FROM-less bug wearing a subquery hat (same root cause as t1a cases 4–5, M10)**.
+    **Research's pre-registered floor (68/75 = 7 fails) was violated by one — her own
+    framing said "below 68 is a bug delta, not scope," and it is case 9.** Both recorded
+    predictions missed (hers 68–69, engineer's 69): falsifiability working, not failing.
+    **BELOW-90 FLAG: at 89.3% the projected Tier-1 gate does not clear; formal
+    verification stays held for t1a–e complete (t1e outstanding), and the remedy decision
+    goes to Steven with the options in the decision log.**
+  - **`SCORE t1.8++ (Tier-1 remediation, remedy C accepted): 75/75 (100.0%) [Δ +0 cases,
+    +8 passes, engine change — no re-baseline event: corpus unchanged at 9ece60d]`** —
+    FROM-less SELECT, comma joins as cross-join+filter, LEFT/RIGHT/FULL OUTER with NULL
+    padding inside the join loop, derived tables. **Executed remedy C against Default's
+    recommendation of B** — ratified post-hoc: the delta was ~30 lines on an abstraction
+    the comma-join work required anyway, cooling a known-cost debate with a smaller
+    number in practice. Corrected-in-review: three pre-commit bugs (RIGHT-as-alias
+    parser bug — a keyword list silently reading valid SQL as a table name; star
+    expansion refusing to evaluate over joins; plus the duplicate-heading harness
+    change below). All Default probes reproduce: LEFT/RIGHT/FULL NULL-padding in both
+    directions vs the pinned binary (differential, `no such function: chr` probe
+    artifact identified and re-run with literals), comma-join × filter, derived tables,
+    duplicate-headings collapse. **One governance catch by Default: the duplicate-
+    heading fix is a NORMALIZER change (columns compared after heading de-duplication
+    on both sides) → zero-delta re-baseline entry #7 stands, corpus floats untouched —
+    logged in the decision log, not skipped.** Post-remediation fuzz: 2000 queries,
+    seed 11 → 0 mismatches (both M7-expected rejection-class hits absent on this seed;
+    the rejection class remains tracked, not gone). 218 unit tests, syntax 46/46.
+   - `SCORE t1.9 (M9): fuzz pipeline delivered; gate metric measured raw — see decision
+    log` — **the Tier-1 conformance score is unchanged (61/63, 96.8%); this milestone
+    measures a different quantity.** Engineer's published gate run: 25/10k
+    (22 rejection-position + 2 float + 1 FROM-less). **Default's independent re-run on
+    the same seed AFTER the two pre-filing fixes: 7/10k, all float-last-digit**
+    (`avg(v)` differing in the 15th significant digit only) — the rejection-position
+    class was eliminated by the fixes, confirming both the defect reading and the float
+    ruling's necessity. The published gate number was pre-fix; post-fix is the honest
+    current rate.
+    - `SCORE t1.4 (M4): 41/43 (95.3%) [Δ +0 — expected; the corpus cannot observe index
+      choice]` — plan-level evidence instead: `tools/plan_check.py` (Default re-ran from
+      cold clone: full-scan 2000 examined before, index access 1 examined after, index
+      chosen for equality). **Default's additional plan probes via `last_plan`
+      introspection: prefix-only on a composite index → full (no partial-index results),
+      both columns constrained → index, OR predicate → full, single-column equality →
+      index. Message conformance against the pinned binary: composite violation =
+      `UNIQUE constraint failed: t.a, t.b` (exact), create-unique-over-duplicates =
+      `UNIQUE constraint failed: t.id` (exact), two NULLs coexist under UNIQUE (exact),
+      failed create leaves no index registered (dup insert succeeds afterwards — Default
+      probe). 133 unit tests, durability PASS, syntax 46/46.**
+  The pre-corpus 100% measured a corpus that hadn't asked the hard questions yet; the
+  honest trajectory is 35/41 → 39/41 and Tier-1's gate is 90% of the conformance suite.
+- Tier-1 budget: **18 rounds after Steven's +6 top-up. Used: 18** (M7 build 17, M8
+  build+review 18). Budget rule changed by
+  Steven's standing directive ("finish up all of the milestones"): the stop-and-ask cap is
+  **suspended for the rest of the project** — round counts are still logged here for
+  transparency, and Default still flags anything impossible or too slow per the charter's
+  honesty rule, but the ladder no longer pauses at a round count. Checkpoint cadence
+  stays (every 3 milestones) but checkpoints are **reports, not approval waits** —
+  advance approval stands for any checkpoint whose verification passes.
+- Language: **Python, stdlib-first** — confirmed by Build at M1. Revisited at the Tier-3
+  gate as planned (hot-path rewrite is M38).
+- Reference caveat: box Python `sqlite3` module is 3.53.1; the harness deliberately shells
+  out to the `sqlite3` CLI (3.54.0 = pinned). The pin lives in `tools/syntax_conformance.py`
+  (`PINNED = "3.54.0"`) **and** here — change both together; the tool prints `*** PINNED IS
+  ***` when the CLI drifts from the pin.
+
+## Next three tasks
+
+1. [Research] t2c designed BEFORE M12 started (drafts-before-fixes,
+   Tier-2 edition is in force): ORDER BY (asc/desc, multi-key mixed directions,
+   NULLs-first-in-ASC, alias, computed expression), LIMIT/OFFSET (keyword + comma
+   forms, `LIMIT 0`, LIMIT-over-table, top-N), DISTINCT (two-column with a NULL cell,
+   DISTINCT+ORDER BY on a selected column), GROUP BY (single/two keys, NULL as its own
+   group, the M8-sorted-groups pin), HAVING (aggregate condition + the no-GROUP-BY
+   quirk), and the GROUP+ORDER+LIMIT combination. **Pre-registered prediction:
+   20–21/21**, with named swing case 21 (DISTINCT + ORDER BY on a non-selected column —
+   the restriction-rule case). **Also delivered: t2f (21 cases, M16/M17 scope) authored
+   BEFORE M16 started — third consecutive drafts-first tranche (t1c, t2a, t2f pattern
+   since the t2b slip). Default's landing-split ruling: t2f lands as ONE event after
+   M17's review (the prediction covers the whole file; a two-part landing would split
+   the attribution the DDR relies on).**
+2. [Build] M13 — set ops (UNION/UNION ALL/INTERSECT/EXCEPT, precedence by rows, compound
+   ORDER-BY rules with reference-emitted error text). t2d delivered and confirmed
+   (19 cases); **Acceptance highlights (research's named swings, now the
+   acceptance:list):** INTERSECT-binds-tighter decided BY ROWS (t1 UNION…INTERSECT …
+   gives {1,2} vs flat {2}); EXCEPT chain associativity ({1} vs {1,2,3}); NULL-as-equal
+   set semantics (UNION dedups, INTERSECT keeps, EXCEPT removes); mixed storage-class
+   ORDER BY 1 (int/text order — the "sorts by repr" rule check); INTERSECT ALL —
+   runtime decides (both-reject is agreement); compound-in-derived-table and
+   compound-in-IN; empty right side; first-branch column names (`AS val` through
+   UNION); **compound count-mismatch error text: the REFERENCE'S wording, not ours**.
+   **Build's fix-round follow-up carried onto the M13→M14 boundary: SelectItem|Star
+   annotation + `_headings()` helper.**
+3. [Build ✓ done note] The accepted M12 also closed the ORDER BY surface
+   (Star-safe, mixed-direction multi-key, NULLs-last-DESC/first-ASC) and
+   landed `LIMIT`/`OFFSET` in both keyword and comma forms, plus the t2b fix round
+   (scalar min/max NULL rule, date modifiers, math functions) — all verified in-corpus
+   and unregressed per the cold-clone run above.
+
+## Known failures
+
+- `SELECT 1` (no FROM) — **CLOSED by M10** (cases 4–5 of t1a and t1c case 9 now pass;
+  M10's expression engine includes FROM-less SELECT).
+- No type affinity — `'5'` into an INTEGER column stores text. M17.
+- Arithmetic in expressions beyond simple scalar forms — **largely CLOSED by M10**
+  (arithmetic in WHERE and unary minus on columns now parse per t2a); residual edgeforms
+  (exponent, hex numeric literals) owned by M10 follow-up or M11.
+- No ORDER BY / LIMIT / OFFSET / DISTINCT — GROUP BY/HAVING **landed with M8** (with
+  M8's sorted-structure ordering); the rest M12.
+- No DELETE / UPDATE / DROP; table-level `CHECK` rejected. M16.
+- Joins — **INNER (+ comma/cross/LEFT/RIGHT/FULL via the Tier-1 remediation) CLOSED at
+  M8; subqueries in WHERE/select items landed M8; FROM-subquery derivation CLOSED at
+  the Tier-1 remediation (t1c derived-table case green since 75/75); correlated
+  subqueries remain owned (M8 report's stated limit), now with t3c's 4-case tranche
+  parked to pin it (3–4/4 pre-registered; EXISTS/NOT EXISTS the named swing)**. M8 follow-up or
+  M12+.
+- Column DEFAULT evaluated without SQLite's constant-expression rules — untested against
+  quirks, flagged rather than assumed correct.
+- No crash safety: writes are write-through, fsync only on clean close — M7 (WAL) owns.
+  → **CLOSED by M7** (WAL with CRC frames, crash sweep 5/5 commit positions correct).
+- Rows larger than a page raise `row too large` — M20 (overflow pages) owns.
+
+## Known divergences
+
+- none yet
+
+## Decision log
+
+- 2026-10-30: Project chartered by Steven. Decisions 1–4 ratified by Default (with the
+  normalization-delta amendment in #3). Tier-1 budget: 12 rounds. Reference pinned to
+  SQLite 3.54.0. Milestone 1 ordered.
+- 2026-10-30 (later): M1 **accepted** after Default's independent cold-clone review (57
+  tests OK, score line reproduced, version guard and error-classification logic read and
+  confirmed sound). Python stdlib-first confirmed by Build. Tier-3 gate principle: the
+  speed multiple will be set from first measurement against what is honestly achievable
+  for a Python engine — if the honest number makes the gate theatre, Default raises it
+  with Steven instead of quietly loosening it.
+- 2026-10-30 (M2): M2 **accepted** — cold-clone reproduction (88 OK, syntax 46/46,
+  behaviour 21/21); CHECK-error wording divergence independently confirmed against the
+  pinned binary (`CHECK constraint failed: n > 0`). Conformance-spec + t1a corpus delivered
+  by Research (untracked); corpus wiring + combined run ordered as the re-baseline step.
+  Case format: Build's differential design adopted as the single format per Research's
+  spec; Research owns the spec file, Build never edits normalization rules (decision 3).
+- 2026-10-30 (re-baseline event #1): corpus grew 21 → 41 cases (Research's t1a, +20).
+  Old score: behaviour 21/21 (100.0%), syntax 46/46. New: **35/41 (85.4%) behaviour**,
+  syntax 46/46 unchanged. Six failures: 4 parser-message-text (M2.5), 2 SELECT-without-FROM
+  (M10). Wiring executed by Default under delegated judgment (Build's harness commits
+  f12cee8/f189d1d already carried the glob and as-is file commits; Default added the
+  spec-required corpus-revision output and ran the cold-clone verification). Build reviews
+  the Default-written runner addition next round.
+- 2026-10-30 (M2.5): M2.5 **accepted** — cold-clone reproduction (94 tests OK, syntax
+  46/46, behaviour 39/41). Default independently confirmed against the pinned binary:
+  `SELECT 1e` → `unrecognized token: "1e"` (crash fixed), unterminated block comment
+  accepted as comment-to-EOI (fix real; `SELECT 1 /*…` still fails only via the known
+  FROM gap), bracket/backtick identifiers → `no such column: apple` without the hint,
+  and ParseError.detail preserved alongside conformance wording. Build's nit on the
+  5e62a3c commit message was correct — the diff carried spec + runner only, not t1a
+  (Build's f12cee8 already had it); logged as a message-accuracy lesson, not corrected
+  retroactively.
+- 2026-10-30 (re-baseline event #2): t1a grew 20 → 22 cases (quote-style identifiers).
+  Old score 39/41 (95.1%) at corpus f12cee8; new 41/43 (95.3%) at 1c24177. **Cases added,
+  engine unchanged** — a score rise with zero code diff is corpus growth, recorded here
+  so no reader mistakes it for progress. Both new cases pass on first run (Build had
+  implemented the quote-style distinction at M2.5); the `-dirty` corpus-revision suffix
+  was observed live on the uncommitted edit before commit — mechanism validated in the
+  field, not just in tests.
+- 2026-10-30 (CHECKPOINT 1): three milestones complete (M1 parser, M2 in-memory tables,
+  M2.5 error wording). Score trajectory 35/41 → 39/41 (95.1%) behaviour, 46/46 syntax.
+  Remaining known failures: 2 corpus cases (SELECT-without-FROM, M10) + features not yet
+  reached (M8 joins, M10 expressions, M12 ordering, M16 constraints/DML, M17 affinity).
+  Budget: 7 of 12 rounds. M3 (disk storage, B-tree) ordered on approval.
+- 2026-10-30 (CHECKPOINT 1 approved): Steven approved ("just keep going"). M3 opened;
+  round 1 = on-disk page-format decision (expensive to reverse). Research's spec
+  amendments ratified as-is: `--sort`/`--reopen` directives roadmap (reopen lands with
+  t1b, not mid-M3), crash-recovery and index-choice evidence is engineer-owned because
+  the corpus cannot observe them (M4 rider: plan-level artifact required for any "index
+  works" claim). No re-baseline — no normalization or scoring change in the spec edit.
+- 2026-10-30 (budget warning, threshold 9): Tier-1 budget at 9 of 12 rounds. At the
+  current pace (M3 ≈ 2 rounds, M4 ≈ 1) the cap lands during M4's review. Default will
+  stop and ask Steven to top up the budget before spending round 12.
+- 2026-10-30 (M3): M3 **accepted** — cold-clone reproduction (114 tests OK, syntax 46/46,
+  behaviour 41/43, corpus revision unchanged at 1c24177 for engine-only commits).
+  Default re-ran the durability tool: write/reopen sha256 identical, append persisted;
+  **Default's additional probe: CHECK constraint still enforced after reopen** (violating
+  insert fails with SQLite's wording), independently confirming the store-original-CREATE
+  catalog design. Runner zero-diff claim verified (`git diff` across both commits empty).
+  `Database(path)` signature change reported separately as required. Format doc read and
+  ratified: page-0 header, B+tree with leftmost-pointer interior nodes, deliberately-
+  absent table maps every gap to its owning milestone. M3 counted as ONE round per the
+  new counting rule (milestone = one round regardless of commit count).
+- 2026-10-30 (M4): M4 **accepted** — cold-clone reproduction (133 tests OK, syntax 46/46,
+  behaviour 41/43, durability PASS). Every message claim probed against the pinned
+  binary (composite UNIQUE wording, NULL exemption, create-over-dup error text — all
+  exact) and the failed-create-leaves-no-index behavior probed on the engine (dup insert
+  succeeds after the failed create). Plan eligibility claims verified via `last_plan`:
+  prefix fallback, full-composite use, OR fallback, single-column use — all as stated.
+  Index definitions persist / structures rebuild ratified (a second structure that can
+  disagree with data pre-WAL is worse than a slow scan — documented in the format doc).
+  M4 closes the M3 uniqueness-scan limit. **Directive-syntax amendment ratified for the
+  t1b landing: distinct marker + error on unknown directive-shaped lines** (Build's
+  amendment to Research's negative-control requirement). Round 12 consumed; ladder
+  paused pending top-up.
+- 2026-10-30 (standing directive — the entry later tiers assume): Steven said
+  **"finish up all of the milestones, i approve of both of them."** Default's recorded
+  interpretation: (1) the +6 top-up is approved; (2) "both of them" and "finish up all"
+  together read as **advance approval to run the entire ladder (Tiers 1–6) without
+  pausing for per-checkpoint or per-tier approval**, provided each gate is met and
+  verified. Tier gates (90% T1, 95% T2, etc.) become **verification events Default
+  reports**, not stopping points; the every-3-milestones checkpoint cadence stays as
+  reporting. **Exit clause preserved:** if Steven meant only Tier 1, one word at any
+  checkpoint restores the pause rule from that point. Rounds are logged, not enforced.
+  Irreversible actions still require explicit words per standing rules.
+- 2026-10-30 (M5): M5 **accepted** — cold-clone reproduction (142 tests OK, syntax 46/46,
+  behaviour 41/43, durability PASS, plan_check 5/5). Rule verified at its edges by
+  Default: name tie-break, unique preference (disambiguated from name order by probing
+  UNIQUE-named-zzz vs regular-named-aaa), non-selective fallback (bucket == table →
+  scan), range/OR exclusion. Planner rule documented in docs/planner.md — "the planner
+  picked it" is no longer an unexplained answer.
+- 2026-10-30 (t1b landing — re-baseline event #3, executed by Default per the standing
+  directive): runner machinery implemented — `--directive: reopen` is POSITIONAL
+  (phases split at markers; multi-reopen cases supported; SQLite side = one CLI
+  invocation per phase on a temp file, MiniDB side = Database(path)/close/reopen),
+  `--directive: sort` implemented case-level (sort by JSON repr — no inert members in
+  the known set), loader errors on unknown marker values and near-miss keys
+  (edit distance ≤ 1: `--reopn:`), **prose `-- reopen: ...` lines stay comments** (the
+  marker is the only directive syntax; corpus prose predates it — reconciled reading of
+  the error-on-unknown rule, which cannot mean failing on the draft's own case
+  descriptions). Negative control: 12 new harness tests, including breaking reopen on
+  EACH side independently and asserting the constraints-survive case FAILS.
+  Default's own landing bug found and fixed before commit: the first test asserted
+  surviving rows via a case whose honest outcome is ERROR AGREEMENT (the violating
+  insert aborts the phase before any SELECT) — the runner was right, the test's
+  expectation was wrong; fixed by testing both shapes (rows-visible and
+  error-agreement). Corpus: t1b 9/9 first run, 50/52 (96.2%), research's prediction
+  exact. Build reviews the full runner diff next round.
+- 2026-10-30 (M6): M6 **accepted** — cold-clone reproduction (transaction_check 8/8,
+  durability 3/3 incl. rolled-back-row-absent, syntax 46/46, behaviour 50/52). Default's
+  probes against the pinned binary all exact (wordings, DDL rollback, close-rolls-back on
+  both engines). Snapshot-per-transaction cost ratified as documented-and-replaced-by-M7.
+- 2026-10-30 (harness fixes from Build's M6 review): both defects confirmed and fixed by
+  Default (dead `pending` state removed; empty/comment-only corpus file now raises a
+  clean error with two new tests). **Process failure logged honestly: the first fix
+  commit (a9e6d6b) shipped with a failing test** — Default chained `unittest | tail` and
+  `git commit` in one shell line, and the pipe masked the exit code, so the failure
+  scrolled past. Caught on the next command, fixed in `4c4199a` (the guard had counted
+  ANY comment as a directive marker; corrected to directive markers only), invariant
+  asserts added in `9308de2`. Lesson: never chain a commit after piped test output —
+  pipefail or separate turns.
+- 2026-10-30 (M7): M7 **accepted** — cold-clone reproduction (185 tests, syntax 46/46,
+  behaviour 50/52, crash_check 4/4). **Default's own probe initially produced a false
+  alarm** (first-commit crash → `no such table`) — the child had crashed inside the
+  header-initialisation commit, before CREATE was durable, so `no such table` was correct
+  behaviour, not data loss; logged rather than hidden. The subsequent sweep (crash at
+  every commit position, 1–5) verified recovery correctness at each, including the
+  headline case: kill during the INSERT's own commit, 0-byte main file + valid WAL → row
+  survives. M6's cost estimate (snapshot-per-transaction) formally superseded — rollback
+  is now O(1). Timing re-measure still owed by the M7 report (acceptance asked for it;
+  nothing arrived in the milestone report — non-blocking, carried as a review note).
+- 2026-10-30 (Tier-1 gate timing, precise): engineer's arithmetic is correct — 50/52 =
+  96.2% ≥ 90% — but the charter defines Tier 1 as milestones 1–9, so the gate is the
+  tier-COMPLETION gate, formally verified after M9 with the full tranche set (t1b/t1c/
+  t1d/t1e) in the denominator. Recording this now so nobody closes Tier 1 early on a
+  partial denominator.
+- 2026-10-30 (t1d landing — re-baseline event #4): executed by Default after engineer
+  advanced to M8 build before the ordered landing — sequencing deviation logged; the
+  re-baseline stays attributable to one tranche. **Landed raw at 60/63 with ONE FAIL**
+  (t1d case 11: `SQLite returned rows, MiniDB errored: 'no such table: t'`), investigated
+  live: manual probe through `db.run()` passed, runner probe through `db.execute()`
+  failed the same shape → root cause: the harness' MiniDB side never autocommitted, so a
+  phase ending in ROLLBACK discarded pre-transaction statements (the CREATE never
+  committed) while SQLite's side committed them. **Engine semantics correct throughout —
+  the CLI-autocommit parity is the harness's to carry.** Fixed (`db.run` in the runner;
+  second Default-authored harness defect caught by a tranche's first run), suite re-run:
+  **61/63 (96.8%), research's pre-registered prediction exact.** The two loader fixes
+  engineer proposed at the M6 review were verified already at HEAD. Budget cap consumed
+  (18/18) but suspended per the standing directive.
+- 2026-10-30 (M8): M8 **accepted** — cold-clone reproduction (204 tests, syntax 46/46,
+  behaviour 50/52 at the pre-t1d denominator, plan_check join scenario: nested-loop,
+  examined=40000 = scan×scan stated honestly, with a test now guarding that the reported
+  plan is the executed one). Default probes vs the pinned binary: GROUP BY ordering with
+  NULLs-first exact-match; empty-table aggregates exact (0 and four NULLs). **Two scope
+  findings: (a) `NOT IN (SELECT …)` is a parse-level gap (`near "NOT": syntax error`) —
+  research's t1c swing case settles at 68/75, not 69; (b) `SELECT t.a` (qualified
+  reference, single table, no alias) is an undeclared gap (`no such column: t.a`) —
+  ordered INTO M10's scope (cheap parser fix, needed by any future multi-table work).**
+  INNER-only join scope ruled acceptable as stated in the report (ladder wording
+  unqualified; OUTER/comma-join remain owned failures, tracked for the gate decision).
+- 2026-10-30 (early scope landing, Default-ratified): engineer fixed the two M8 review
+  findings in `3579571` as two isolated additive commits — ahead of M10's position in the
+  ladder. Default verification: cold-clone, 208 tests OK, syntax 46/46, corpus unchanged
+  at 61/63 (4e29319); probes vs the pinned binary exact (NOT IN with NULL in the set →
+  empty result on both engines; IN → [(1,),(2,)]; `SELECT u.a` → header `a`, value 2).
+  **Ruling: the early landing is accepted** — engineer's argument stands ("IN without NOT
+  IN is half of a predicate"), the landings are isolated and reversible, and the
+  NULL-trap differential test is now durable rather than assumption. **Consequence:
+  research's t1c prediction settles at 69/75** (the swing case passes; only the five
+  join-scope failures + two M10 cases fail). STATE's "owned failures" adjusted
+  accordingly. `execute(autocommit=False)` keyword ratified for M10's scope (the
+  call-site distinction kills the two-spellings-of-query hazard before Tier 2).
+- 2026-10-30 (gate-margin ruling — Default's answer to Research's flag before M9): the
+  Tier-1 gate is verified on the COMPLETE t1a–e denominator at M9's completion — not
+  revisitable, and no scope expansion happens to protect the number. Margin flag
+  reported at every landing: post-t1c predicted ~90.7% (0.7 points headroom), t1e's
+  seeds able to move it either way. **If the verified number landed below 90%, the
+  gate reports NOT MET and the remedy options went to Steven — no corpus edits, no
+  silent re-scoping.** ✶ SUPERSEDED by events: engineer implemented remedy C directly
+  under the standing "finish up all of the milestones" directive, **before Steven
+  picked explicitly** — Default's audit trail records the deviation plainly; Default
+  ratified post-hoc on the verification (see remediation entries below — the remedy
+  was real, verified, and the option C-with-reasoning way beyond B was sound).
+- 2026-10-30 (Tier-1 remediation, remedy C — accepted): engineer implemented remedy C
+  directly (75/75 = 100% at corpus revision 9ece60d): FROM-less SELECT (constants and
+  single-row aggregates), comma joins as cross-join+filter, LEFT/RIGHT/FULL OUTER with
+  NULL padding inside the join loop, derived tables. **Default ratified the C-over-B
+  decision post-hoc on the numbers** — the delta was ~30 lines sharing the comma-join
+  abstraction, so B's debate cost was smaller in practice than its scars looked. All
+  claims verified from a cold clone: 218 tests, syntax 46/46, plan_check + crash_check
+  green; **Default's differential probes vs the pinned binary: LEFT, RIGHT and FULL
+  OUTER matching padded with NULLs both directions, comma-join × filter, derived
+  tables, duplicate-heading pairs — all PASS** (two probe cases initially failed on a
+  `no such function: chr` difference — MY probe used a built-in MiniDB does not have
+  yet (M11's built-ins); re-run with literals — a probe bug, not a join defect, and
+  flagged as advance notice for M11).
+  **The remediation shipped one governance obligation Default caught:** the
+  duplicate-heading fix changes the harness comparison (headings de-duplicated on both
+  sides — SQLite's JSON cannot express the distinction either) — that is a NORMALIZER
+  change, so per the standing rule it gets a re-baseline entry even with zero delta:
+  see entry below. Also two pre-commit bugs confirmed by code read: the RIGHT-as-alias
+  parser bug (a keyword list silently reading valid SQL as a table name) and the
+  star-expansion-over-joins defect.
+- 2026-10-30 (re-baseline event #7 — zero delta, normalizer): column heading lists are
+  now de-duplicated on BOTH sides before compare (SQLite's JSON output cannot express a
+  duplicate column name either way): corpus floats untouched (1.5, 2), scored corpora
+  identical, scores unchanged → Δ0 recorded here. Counts reported with every fuzz line;
+  the fuzz line after the change reported **0 mismatches on 2000 queries seed 11** —
+  consistent with the tracked rejection-position class, whose absence on this seed is
+  seed luck, not a structural claim (the sixty-second position rate is per-seed; the
+  semantic rate at issue is unaffected).
+- 2026-10-30 (t1b draft verification): Default ran Research's parked `docs/t1b-draft.txt`
+  (9 cases, outside the runner glob — parking confirmed: main run still 41/43) through the
+  CURRENT runner: **4/9**. The five index cases fail correctly per decision 2
+  (`near "UNIQUE": syntax error` etc. — no CREATE INDEX until M4). **The four `--reopen`
+  cases PASS silently** — the current loader treats `--` lines as comments, so the
+  directive is inert and the cases run as plain sequential statements against in-memory
+  engines. Research's parking rationale ("would fail for the wrong reason") is therefore
+  **empirically backwards: accidental early inclusion would inflate the score with fake
+  passes, not fail loudly** — the parking is right, but for the opposite reason.
+  **Ratified requirement for the `--reopen` implementation (M5+, Research-owned spec
+  wording): the directive must ship with a negative control — a harness test that breaks
+  the reopen step and asserts the constraints-survive case FAILS — or four corpus cases
+  can silently no-op forever.**
+- 2026-10-30 (M9): M9 **accepted** — cold-clone reproduction (210 tests, syntax 46/46,
+  behaviour 61/63, corpus revision 4e29319; fuzz.py re-run by Default: seed 3, 10k
+  queries → **7 mismatches, all float-last-digit**). Fuzzer implements the spec:
+  structured/mutation/rejection generators, seed-logged, comparison through the harness
+  normalizer only (no second comparator), minimization on every hit, MiniDB tracebacks
+  counted as mismatches regardless of SQLite's answer. **Engineer's published 25/10k was
+  pre-fix** — the two fidelity fixes it found (reserved-word split for identifiers
+  vs keywords; no trailing semicolon on the reference script) belonged to the rejection
+  class; Default's post-fix re-run shows that class gone on the same seed, leaving the
+  float class — which is exactly the input the float ruling needed.
+- 2026-10-30 (M9 ratifications — both rulings verified by Default's own post-fix data,
+  one flagged to Steven per the standing rule): (1) **Tier-2 gate metric becomes the
+  semantic rate** (dialect-valid mismatches); rejection-position rate stays printed raw
+  forever and monotonic non-increasing between gates; edit-distance-of-valid-syntax
+  repros become ordinary corpus cases, pure soup stays diagnostic. **FLAGGED: Steven, a
+  charter requirement ("<1 fuzzer mismatch per 10k" unqualified) is unreachable as
+  literally worded (22/25 were error-token placement on random soup — no user value) and
+  this redefines the metric BEFORE Tier 2 rather than working around it silently; one
+  word rejects the split and restores the literal gate.** (2) **Float comparison: 1e-12
+  relative tolerance, COUNTED per comparison and reported raw every run** — the
+  reference's 15-sig-digit JSON loses digits (SQLite's serialization, not a MiniDB bug:
+  exact-after-round-trip was unsatisfiable against the tool framing the normalizer
+  exists to strip). Counts stop the tolerance from becoming an unmonitored softer
+  failure mode. **Zero-delta re-baseline entry required for the normalizer amendment**
+  (any normalizer change → entry — see below).
+- 2026-10-30 (re-baseline event #5 — zero delta): the spec's "exact equality after
+  round-trip" normalizer replaced by the counted 1e-12 relative tolerance **before**
+  any scored re-run against new floats: corpus floats (1.5, 2) are untouched, verified
+  corpora identical, scores unchanged → Δ0 recorded here. Counts reported with every
+  fuzz line henceforth. **IMPLEMENTED in the M10 round** (`rows_equal` in the harness
+  compare path, after `normalise_numbers`; equality-first ordering so identical floats
+  never fire the tolerance). Landing honesty: two defects in Default's first
+  implementation, caught before posting — identical values were counted as
+  tolerance-fired, and the corpus glob was still `t1*.txt` (the spec says `t*.txt`) so
+  t2a was invisible to the first run; both fixed, tolerance_count now reports raw with
+  every run (first corpus landing: 0 fired on 106 comparisons — all floats exact).
+  **Reproducibility finding ledgered the same round: engineer's M10 fuzz line
+  (seed 21, 3000q: 4 mismatches, "all rejection-position") does not reproduce on the
+  same commit/seed/count — Default's runs (3× pinned hashseed, 2× free) give exactly
+  1 mismatch, float-last-digit (`avg`), which the counted tolerance now absorbs.
+  25-vs-7 on seed 3 remains explained by the two pre-filing fixes; seed-21's 4-vs-1
+  is unexplained and unexplained-by-me counts as a defect at this project's standard.**
+- 2026-10-30 (t1c landing — re-baseline event #6, executed by Default): corpus 63 → 75
+  (@12 research-authored cases). **Landed at 67/75 (89.3%) — BOTH predictions missed and
+  loaded raw before any fix: research pre-registered 68–69/75, engineer 69/75, actual
+  67/75 = 8 fails.** Failure classification (raw list in the scores section): five
+  declared-scope fails (comma-join, LEFT, RIGHT, FULL OUTER, FROM-subquery) + one
+  undeclared fail (FROM-less scalar subquery — the M10-owned root cause, found by the
+  tranche exactly as her floor framing predicted: "below 68 is a bug delta, not scope").
+  Research's prediction quality remains exemplary overall (2-for-2 prior) — and the
+  under-count was the *undeclared* class, which is what pre-registration is for.
+- 2026-10-30 (TIER-1 GATE PROJECTION BELOW LINE — 89.3% < 90% with t1e outstanding;
+  remedy decision to Steven per the recorded rule): options with numbers, raw:
+  - **A. FROM-less fix only** (M10-owned; fixes t1a 4–5 + t1c case 9 = 3 cases):
+    → 70/75 = **93.3%**. Estimated ~1 round (M10's first parser fix).
+  - **B. A + join-scope support** (comma + LEFT + RIGHT + FULL OUTER = 4 more cases;
+    nested-loop engine already pairs rows — the delta is NULL-padded outer semantics
+    and parser forms): → 74/75 = **98.7%** (FROM-subquery remains owned). Estimated
+    ~1–2 rounds. Makes "joins" honest against the ladder's unqualified wording.
+  - **C. Full completion** (+ FROM-subquery/derived tables): → 75/75 = 100%. Est.
+    2–3 rounds — highest cost, touches the planner rules for derived tables.
+  **Default recommends B.** A clears the gate but leaves "joins" meaning INNER-only;
+  B matches the ladder's plain wording, closes 7 of 8 failures, and the cheaper C
+  remains owned and reachable. All options keep raw FAIL lines posted and the
+  maximally-relevant scope decision real: nothing here is a silent re-scope. THE GATE
+  NUMBER VERIFICATION STAYS HELD UNTIL t1e (research-owned) LANDS; the %s above are
+  projections, not the verification.
+- 2026-10-30 (t1e ownership confirmed): the fuzz seed scenarios (torn WAL frame,
+  first-commit-on-empty-file — reusing `MINIDB_CRASH_POINT`) remain Research's authored
+  deliverable per her spec; the fuzzer machinery is ready to consume them.
+- 2026-10-30 (M11): M11 **accepted with 3 engine-side gaps found by the t2b tranche
+  (scalar min/max NULL rule divergence — the draft comment had the SQLite rule
+  backwards and the engine followed the comment; date modifiers + math functions —
+  both are REAL reference-supported gaps, not both-reject; sqrt confirmed on the
+  pinned binary).** Fix round ordered. Harness: Default added multi-line-statement
+  continuation join (t2b case 17's two-line SELECT split per-line), post-commit+
+  cold-clone verified. **Fuzz reconciliation closed with numbers:** Default's exact
+  invocation for the 1 = commit `dd88d79`, default mode (structured), seed 21,
+  3000q; engineer's 3 = commit `3e44c2a`, `--mode all` — different streams, not
+  comparable, both correct; mode now permanently in every fuzz-line sentence.
+- 2026-10-30 (re-baseline event #8 — t1e landing): corpus 75 → 86 (+11 fuzz-seed cases),
+  **86/86 (100.0%) at 14c41e1 — the complete Tier-1 denominator (t1a–e).** No normalizer
+  changes this landing (counted-float rule already in force from event #5); no new
+  failures.
+- **TIER-1 GATE VERIFICATION REPORT — VERIFIED PASS, 2026-10-30 (Default, the full
+  per-charter reading applied):**
+  - **Result: PASS — 86/86 = 100.0% ≥ 90% gate**, complete t1a–e denominator in place
+    (86 cases across behavior/t1a/t1b/t1c/t1d/t1e), verified from a **cold public clone**
+    at corpus revision **14c41e1** — raw output posted in-thread before this entry.
+  - Verification method: every prior milestone's numbers were independently re-verified
+    on cold clones (scores, five evidence tools); the final gate run checks the complete
+    denominator plus syntax 46/46, durability 3/3, crash 4/4, transactions 8/8,
+    plan_check (incl. the guarded join-cost honesty), and an independent fuzz run
+    (2000 queries seed 11 → 0 mismatches, semantic class; per the ratified split, the
+    rejection-position rate stays printed and tracked, 0 on this seed).
+  - **Gate margin: 10.0 points of headroom on the complete denominator.** t1e's seed
+    count (11) was the variable — it landed at the top, 100.0%.
+  - The charter amendment ("finish up all of the milestones", advance approval for
+    verification-passing gates) was applied: this verification closes Tier 1 per the
+    recorded interpretation; the exit clause remains Steven's at any time.
+  - **Tier-1 RETROSPECTIVE (per charter — what broke, what surprised us):**
+    - *What broke:* the harness, twice (missing autocommit parity in the runner — the
+      seed-1 lesson; plus inert directive markers caught twice by the parked-draft
+      probe); the GROUP BY row-order assumption; the aggregate-empty-table IndexError;
+      the RIGHT-as-alias parser bug; and the t1c landing landing BELOW its predicted
+      floor — which is exactly what caught the undeclared FROM-less scalar-subquery
+      class. The remediation round that followed converted a 6.7-point gate miss into
+      a closed tier.
+    - *What surprised us:* how little the engine itself broke — every milestone's
+      differential evidence survived independent probing, and the two "data loss"
+      alarms both turned out to be probe errors or correct empty-DB semantics, not
+      engine bugs. The cost models flipped twice (rollback O(n)→O(1), remedy-C at
+      ~30 lines); and the falsifiable-prediction culture turned what could have been
+      silent drift (t1c's miss) into a classified finding with an owner.
+  - **Verdict: Tier 1 CLOSED. Tier 2 starts at M10 per the standing directive.**
+
+- Phase-2 start (order recorded by Default, no approval per charter): goals taken
+  as 1 memory split (later goals record into the split ledger, so it comes
+  first), 2 `make verify` (goals 4-6 lean on it), 5 skeptic round (findings feed
+  LIMITS), 3 LIMITS.md (collects skeptic output + existing knowns), 4
+  independent reference (needs installs), 6 perf rewrite last (biggest, wants
+  the hardened harness beneath it). Split verified: LOG.md body byte-identical
+  to STATE.md lines 88-1441 pre-split (diff clean); new STATE.md 88 lines.
