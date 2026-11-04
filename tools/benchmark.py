@@ -168,6 +168,17 @@ def loadavg():
         return None
 
 
+def band_percent(values):
+    """(max - min) / median: the spread a gate call must report, and the checker re-derives.
+
+    A span, not an uncertainty — it widens with N and cannot be argued down by adding samples.
+    Emitted so the freeze's "either leg's band unreported => INCONCLUSIVE" clause has a field to
+    read, instead of being a hand derivation at call time.
+    """
+    median = statistics.median(values)
+    return 0.0 if median == 0 else (max(values) - min(values)) / median * 100.0
+
+
 def w9_open_setup(s, m):
     """Build the two 100k-row files W9 opens, outside every timed region.
 
@@ -270,13 +281,19 @@ def main():
             discards.append(wid)
             continue
 
-        # warm-up discarded, then N=7 per (engine, workload)
+        # warm-up discarded, then N samples per (engine, workload). Load is read immediately
+        # before each sample: a group-level reading cannot show whether the slow samples are the
+        # loaded ones, which is the evidence the regime-variance branch of the freeze needs.
         run_sq(); run_md()
-        t_sq, t_md = [], []
+        t_sq, t_md, loads_sq, loads_md = [], [], [], []
         for _ in range(args.n):
+            load = loadavg()
             t0 = time.perf_counter(); run_sq(); t_sq.append((time.perf_counter() - t0) * 1000)
+            loads_sq.append(load)
         for _ in range(args.n):
+            load = loadavg()
             t0 = time.perf_counter(); run_md(); t_md.append((time.perf_counter() - t0) * 1000)
+            loads_md.append(load)
 
         ratio = statistics.median(t_md) / statistics.median(t_sq)
         ratio_min = statistics.median(t_md) / min(t_sq)
@@ -285,8 +302,14 @@ def main():
         print("%s  %-40s rows=%d  loadavg=%s  loadavg_after=%s"
               % (wid, name, shapesq, "n/a" if load_before is None else "%.2f" % load_before,
                  "n/a" if load_after is None else "%.2f" % load_after))
-        print("     sqlite_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_sq), " ".join("%.2f" % x for x in t_sq)))
-        print("     minidb_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_md), " ".join("%.2f" % x for x in t_md)))
+        print("     sqlite_ms median=%.2f  raw7=[ %s ]  band=%.1f%%"
+              % (statistics.median(t_sq), " ".join("%.2f" % x for x in t_sq), band_percent(t_sq)))
+        print("     sqlite_loads=[ %s ]"
+              % " ".join("n/a" if x is None else "%.2f" % x for x in loads_sq))
+        print("     minidb_ms median=%.2f  raw7=[ %s ]  band=%.1f%%"
+              % (statistics.median(t_md), " ".join("%.2f" % x for x in t_md), band_percent(t_md)))
+        print("     minidb_loads=[ %s ]"
+              % " ".join("n/a" if x is None else "%.2f" % x for x in loads_md))
         print("     ratio=%.3f  output: OK  ratio_min=%.3f" % (ratio, ratio_min), flush=True)
         ratios.append(ratio)
 

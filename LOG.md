@@ -2613,3 +2613,26 @@ Nothing above the first entry was edited in the move.
   noise; a **uniformly** degraded reference leg is what the in-window pre-load condition and the
   per-sample load trace already exist to catch. A run whose either-leg band is unreported is
   **INCONCLUSIVE**, not a pass.
+
+- **Gate-2 artifacts now carry every field the frozen judge reads, and `--gate-only` refuses the
+  ones that do not.** The checker's `ratio=` regex was unanchored, so it matched the new line and
+  silently dropped `ratio_min`; its required-keys tuple did not know the gate field; and `band=` did
+  not exist in either tool — so the freeze's "either leg's band unreported ⇒ INCONCLUSIVE" clause
+  pointed at a field no instrument emitted. As of this entry `benchmark.py` prints, per workload,
+  `band=` on both `*_ms` lines, `sqlite_loads=` / `minidb_loads=` — the load read immediately
+  before **each sample**, not once per group — and `ratio_min=` beside `ratio=`. `bench_pair.py
+  --gate-only` now requires `ratio_min`, both bands and both load traces; **re-derives** `ratio_min`
+  and each band from the published raw samples (a presence check passes a false `999.000`; only
+  recomputation kills it, which is QA's case); enforces `ratio_min ≥ ratio`; enforces the frozen
+  **N≥11** floor and a pre-load inside **[1.0, 3.0]**; and requires each load trace to match its
+  leg's sample count. Pairing/trend mode is unchanged — artifacts without the fields still pair,
+  which is what keeps the 400.147 → 83.790 → 46.424 series readable.
+  *Scope held deliberately:* the checker certifies **artifact fitness only** and does not apply the
+  60x threshold; a synthetic artifact far above 60x still certifies, and a test pins that, because
+  the gate call belongs at the scheduled event reading the emitted field.
+  *Fixtures (nine new; suite 581 OK, 0 unclosed-file warnings, `make verify` PASS 5/5):* complete
+  artifact passes; missing `ratio_min` fails; false `ratio_min` fails only by recomputation;
+  inconsistent `band` fails; missing load trace fails; out-of-window pre-load fails; N=7 cannot
+  certify; an old-format artifact fails certification but still pairs; a >60x artifact certifies.
+  *Plumbing check on real output (W1, scale 1000, N=11, load 1.73 — not gate evidence):* both bands,
+  both traces, `ratio=23.207  ratio_min=24.522`, and `--gate-only` returns 0.

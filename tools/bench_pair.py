@@ -20,6 +20,7 @@ Usage:
 
 import argparse
 import re
+import statistics
 import sys
 
 WORKLOADS = ("W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W10")
@@ -33,6 +34,12 @@ ERRORED = re.compile(r"ERROR:\s*(.*)$")
 SQLITE = re.compile(r"^\s+sqlite_ms median=([\d.]+)")
 MINIDB = re.compile(r"^\s+minidb_ms median=([\d.]+)")
 RATIO = re.compile(r"^\s+ratio=([\d.]+)\s+output:\s*(\S+)")
+RATIO_MIN = re.compile(r"\bratio_min=([\d.]+)")
+BAND = re.compile(r"\bband=([\d.]+)")
+RAW = re.compile(r"raw7=\[\s*([\d.\s]*)\]")
+SQLITE_LOADS = re.compile(r"^\s+sqlite_loads=\[\s*([\d.\s]*)\]")
+MINIDB_LOADS = re.compile(r"^\s+minidb_loads=\[\s*([\d.\s]*)\]")
+GATE_N = 11                # the freeze's floor: an N=7 artifact cannot certify a gate-2 call
 
 
 def parse(path, require_header=True):
@@ -86,14 +93,38 @@ def parse(path, require_header=True):
                         raise ValueError(f"{path}:{lineno}: {key} before any workload header")
                     if key == "ratio":
                         current["ratio"], current["status"] = float(match.group(1)), match.group(2)
+                        gate = RATIO_MIN.search(line)
+                        if gate:
+                            current["ratio_min"] = float(gate.group(1))
                     else:
                         current[key] = float(match.group(1))
+                        leg = "sq" if key == "sqlite_ms" else "md"
+                        raw = RAW.search(line)
+                        if raw:
+                            current[f"raw_{leg}"] = [float(x) for x in raw.group(1).split()]
+                        band = BAND.search(line)
+                        if band:
+                            current[f"band_{leg}"] = float(band.group(1))
                     break
+            else:
+                for pattern, key in ((SQLITE_LOADS, "loads_sq"), (MINIDB_LOADS, "loads_md")):
+                    match = pattern.match(line)
+                    if match:
+                        if current is None:
+                            raise ValueError(f"{path}:{lineno}: {key} before any workload header")
+                        current[key] = [float(x) for x in match.group(1).split()]
+                        break
     return runs
 
 
-def check(label, runs, expected):
-    """The hollow-artifact gate: completeness asserted, never inferred from exit status."""
+def check(label, runs, expected, gate=False):
+    """The hollow-artifact gate: completeness asserted, never inferred from exit status.
+
+    In gate mode the artifact must also carry everything the frozen judge reads: `ratio_min` (the
+    gate quantity), both bands, both per-sample load traces, N at or above the floor, and a pre-load
+    inside [1.0, 3.0]. Pairing never requires those: historical artifacts predate the fields and the
+    freeze explicitly keeps the trend line readable.
+    """
     problems = []
     missing = [name for name in expected if name not in runs]
     if missing:
@@ -105,24 +136,90 @@ def check(label, runs, expected):
         if run["status"] is None:
             problems.append(f"{label}: workload {name} has no terminal line — partial row")
         elif run["status"] == "OK":
-            gaps = [key for key in ("sqlite_ms", "minidb_ms", "ratio") if key not in run]
+            keys = ["sqlite_ms", "minidb_ms", "ratio"]
+            if gate:
+                keys += ["ratio_min", "band_sq", "band_md"]
+            gaps = [key for key in keys if key not in run]
             if gaps:
                 problems.append(f"{label}: workload {name} has no {', '.join(gaps)} — partial row")
+            if gate:
+                problems.extend(gate_shape(label, name, run))
     return problems
 
 
-def consistency(label, runs, expected):
+def gate_shape(label, name, run):
+    """The frozen preconditions that can be checked from the artifact alone.
+
+    Presence is not enough for the gate fields -- `consistency` re-derives them -- but a missing
+    field is the wider failure (any pre-freeze artifact certifies as complete without it), so the
+    two checks are kept apart on purpose.
+    """
+    problems = []
+    for key, leg in (("raw_sq", "sqlite"), ("raw_md", "minidb")):
+        raw = run.get(key)
+        if raw is None:
+            problems.append(f"{label}: workload {name} has no raw samples for {leg}")
+        elif len(raw) < GATE_N:
+            problems.append(f"{label}: workload {name} has N={len(raw)} on {leg}, below the "
+                            f"frozen floor of {GATE_N}")
+    for key, leg, raw_key in (("loads_sq", "sqlite", "raw_sq"), ("loads_md", "minidb", "raw_md")):
+        loads = run.get(key)
+        if loads is None:
+            problems.append(f"{label}: workload {name} has no per-sample load trace for {leg}")
+        elif run.get(raw_key) and len(loads) != len(run[raw_key]):
+            problems.append(f"{label}: workload {name} has {len(loads)} load readings for "
+                            f"{len(run[raw_key])} {leg} samples")
+    load = run.get("loadavg")
+    if load is None:
+        problems.append(f"{label}: workload {name} has no pre-load reading")
+    elif not (1.0 <= load <= 3.0):
+        problems.append(f"{label}: workload {name} ran at loadavg={load:.2f}, outside the "
+                        f"frozen [1.0, 3.0] window")
+    return problems
+
+
+def band_percent(values):
+    """The same span the instrument emits: (max - min) / median, in percentage points."""
+    median = statistics.median(values)
+    return 0.0 if median == 0 else (max(values) - min(values)) / median * 100.0
+
+
+def consistency(label, runs, expected, gate=False):
     """ratio must equal minidb_ms / sqlite_ms: an artifact whose own arithmetic disagrees with
-    itself has been edited, truncated or interleaved, and its numbers cannot be paired."""
+    itself has been edited, truncated or interleaved, and its numbers cannot be paired.
+
+    Gate mode additionally re-derives `ratio_min` and both bands from the published raw samples.
+    A presence check would pass a false `ratio_min`; only recomputation kills it, which matters
+    because `ratio_min` is the quantity the gate call reads.
+    """
     problems = []
     for name in expected:
         run = runs.get(name)
         if run is None or "ratio" not in run:
             continue
-        derived = run["minidb_ms"] / run["sqlite_ms"] if run["sqlite_ms"] else float("inf")
+        sq, md = run.get("raw_sq"), run.get("raw_md")
+        derived = (statistics.median(md) / statistics.median(sq) if sq and md
+                   else run["minidb_ms"] / run["sqlite_ms"] if run["sqlite_ms"] else float("inf"))
         if abs(derived - run["ratio"]) > max(0.01 * run["ratio"], 0.01):
             problems.append(f"{label}: workload {name} says ratio={run['ratio']:.3f} but its "
                             f"medians give {derived:.3f}")
+        if not gate:
+            continue
+        if sq and md and "ratio_min" in run:
+            derived_min = statistics.median(md) / min(sq)
+            if abs(derived_min - run["ratio_min"]) > max(0.01 * run["ratio_min"], 0.01):
+                problems.append(f"{label}: workload {name} says ratio_min={run['ratio_min']:.3f} "
+                                f"but its raw samples give {derived_min:.3f}")
+            if run["ratio_min"] < run["ratio"] - max(0.01 * run["ratio"], 0.01):
+                problems.append(f"{label}: workload {name} says ratio_min={run['ratio_min']:.3f} "
+                                f"< ratio={run['ratio']:.3f} — impossible, min <= median")
+        for leg in ("sq", "md"):
+            if f"raw_{leg}" in run and f"band_{leg}" in run:
+                derived_band = band_percent(run[f"raw_{leg}"])
+                if abs(derived_band - run[f"band_{leg}"]) > max(0.01 * derived_band, 0.01):
+                    problems.append(f"{label}: workload {name} says band_{leg}="
+                                    f"{run[f'band_{leg}']:.1f}% but its raw samples give "
+                                    f"{derived_band:.1f}%")
     return problems
 
 
@@ -142,7 +239,9 @@ def main(argv=None):
     parser.add_argument("--workloads", default=",".join(WORKLOADS),
                         help="comma-separated subset (default: all nine)")
     parser.add_argument("--gate-only", action="store_true",
-                        help="assert one artifact's completeness and consistency; no pairing")
+                        help="assert one artifact's completeness, gate fields (ratio_min, bands, "
+                             "per-sample loads, N floor, pre-load window) and self-consistency; "
+                             "does not apply the threshold; no pairing")
     parser.add_argument("--allow-foreign", action="store_true",
                         help="pair a hand-made fixture that lacks the harness header (tests only; "
                              "never quote such a pairing as a result)")
@@ -155,7 +254,8 @@ def main(argv=None):
         except (OSError, ValueError) as exc:
             print(f"bench_pair: unreadable input: {exc}", file=sys.stderr)
             return 2
-        problems = check(args.before, runs, expected) + consistency(args.before, runs, expected)
+        problems = (check(args.before, runs, expected, gate=True)
+                    + consistency(args.before, runs, expected, gate=True))
         if problems:
             print("bench_pair: artifact FAILS the gate:", file=sys.stderr)
             for problem in problems:

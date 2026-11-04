@@ -11,6 +11,7 @@ import contextlib
 import importlib.util
 import io
 import os
+import statistics
 import sys
 import tempfile
 import unittest
@@ -26,19 +27,27 @@ RATIOS = {"W1": 50479.0, "W2": 900.0, "W3": 77.6, "W4": 144.2, "W5": 70.0,
           "W6": 16.2, "W7": 30.0, "W8": 40.0, "W10": 60.0}
 
 
+def band_percent(values):
+    median = statistics.median(values)
+    return 0.0 if median == 0 else (max(values) - min(values)) / median * 100.0
+
+
 def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ratio_override=None,
-              discard=(), errored=(), bare=()):
+              discard=(), errored=(), bare=(), n=7, omit=(), ratio_min_override=None,
+              band_override=None, loadavg=2.0):
     """A file in the harness's printed shape: header, then per-workload blocks.
 
     The two sides move independently so a denominator-only move can be modelled: that is the
-    artefact the reference-delta column exists to expose.
+    artefact the reference-delta column exists to expose. `n` sets both legs' sample count and
+    `omit` drops individual gate fields, so the four certification failure modes are fixtures
+    rather than mutations of a real artifact.
     """
-    lines = ["BENCH first-full-run  module-sqlite 3.53.1  N=7  scale=20000  lookups=1000", ""]
+    lines = ["BENCH first-full-run  module-sqlite 3.53.1  N=%d  scale=20000  lookups=1000" % n, ""]
     for name, ratio in RATIOS.items():
         if name in drop:
             continue
         if name in discard:
-            lines.append(f"{name}  synthetic {name}          DISCARDED: outputs differ (first mismatch: [(1,)] vs [(2,)])")
+            lines.append(f"{name}  synthetic {name}          DISCARDED: outputs differ (first mismatch: [(1,)] vs [(2,)]")
             continue
         if name in errored:
             lines.append(f'{name}  synthetic {name}          ERROR: OperationalError("boom")')
@@ -50,10 +59,30 @@ def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ra
         sqlite_ms = base * sqlite_shift
         minidb_ms = base * ratio * minidb_shift
         shown_ratio = (ratio_override or {}).get(name, minidb_ms / sqlite_ms)
-        lines += [f"{name}  synthetic {name}          rows=1",
-                  f"     sqlite_ms median={sqlite_ms:.2f}  raw7=[ {sqlite_ms:.2f} ]",
-                  f"     minidb_ms median={minidb_ms:.2f}  raw7=[ {minidb_ms:.2f} ]",
-                  f"     ratio={shown_ratio:.3f}  output: {output}"]
+        samples_sq, samples_md = [sqlite_ms] * n, [minidb_ms] * n
+        shown_min = (ratio_min_override or {}).get(name, statistics.median(samples_md) / min(samples_sq))
+        band_sq = (band_override or {}).get(("sq", name), band_percent(samples_sq))
+        band_md = (band_override or {}).get(("md", name), band_percent(samples_md))
+        bench_header = f"{name}  synthetic {name}          rows=1  loadavg={loadavg:.2f}"
+        lines += [bench_header,
+                  f"     sqlite_ms median={statistics.median(samples_sq):.2f}  raw7=[ "
+                  f"{' '.join('%.2f' % x for x in samples_sq)} ]  band={band_sq:.1f}%"
+                  if "band" not in omit else
+                  f"     sqlite_ms median={statistics.median(samples_sq):.2f}  raw7=[ "
+                  f"{' '.join('%.2f' % x for x in samples_sq)} ]"]
+        if "loads" not in omit:
+            lines.append(f"     sqlite_loads=[ {' '.join('%.2f' % loadavg for _ in samples_sq)} ]")
+        lines.append(f"     minidb_ms median={statistics.median(samples_md):.2f}  raw7=[ "
+                     f"{' '.join('%.2f' % x for x in samples_md)} ]  band={band_md:.1f}%"
+                     if "band" not in omit else
+                     f"     minidb_ms median={statistics.median(samples_md):.2f}  raw7=[ "
+                     f"{' '.join('%.2f' % x for x in samples_md)} ]")
+        if "loads" not in omit:
+            lines.append(f"     minidb_loads=[ {' '.join('%.2f' % loadavg for _ in samples_md)} ]")
+        tail = f"     ratio={shown_ratio:.3f}  output: {output}"
+        if "ratio_min" not in omit:
+            tail += f"  ratio_min={shown_min:.3f}"
+        lines.append(tail)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
     return path
@@ -121,6 +150,58 @@ class BenchPairTest(unittest.TestCase):
         fold, word = bench_pair.verdict(before_runs["W3"]["ratio"], after_runs["W3"]["ratio"])
         self.assertAlmostEqual(fold, 2.0)
         self.assertEqual(word, "improved")   # the table's job is to show it, the reader's to judge
+
+
+class GateCertificationTest(unittest.TestCase):
+    """`--gate-only` certifies artifact fitness for a gate-2 call: completeness, self-consistency
+    from the published samples, the frozen N floor, and the pre-load window. It never applies the
+    60x threshold — that stays a gate-event read of the emitted `ratio_min`.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def path(self, name):
+        return os.path.join(self.dir, name)
+
+    def gate(self, artifact, workloads="W1"):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return bench_pair.main(["--gate-only", "--workloads", workloads, artifact])
+
+    def test_a_complete_gate_artifact_passes(self):
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11)), 0)
+
+    def test_a_missing_ratio_min_fails_certification(self):
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11, omit=("ratio_min",))), 2)
+
+    def test_a_false_ratio_min_fails_by_recomputation(self):
+        # W6's true ratio_min is 16.2; 18.0 is above it (so the min<=median invariant passes) and
+        # 11% high (so the 1% recomputation tolerance cannot absorb it). Presence alone would pass.
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11,
+                                             ratio_min_override={"W6": 18.0}), workloads="W6"), 2)
+
+    def test_an_inconsistent_band_fails_certification(self):
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11,
+                                             band_override={("md", "W1"): 42.0})), 2)
+
+    def test_a_missing_load_trace_fails_certification(self):
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11, omit=("loads",))), 2)
+
+    def test_an_out_of_window_preload_fails_certification(self):
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11, loadavg=3.5)), 2)
+
+    def test_a_seven_sample_artifact_cannot_certify_a_gate_call(self):
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=7)), 2)
+
+    def test_an_old_artifact_still_pairs_even_though_it_cannot_certify(self):
+        old = write_run(self.path("old.txt"), n=7, omit=("ratio_min", "band", "loads"))
+        self.assertEqual(self.gate(old), 2)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(bench_pair.main([old, old]), 0)
+
+    def test_the_checker_does_not_apply_the_sixty_x_threshold(self):
+        # Far above 60x and still certified: the checker asserts fitness, not the gate call.
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11, minidb_shift=1000.0)), 0)
 
 
 if __name__ == "__main__":
