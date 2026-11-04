@@ -2371,3 +2371,15 @@ Nothing above the first entry was edited in the move.
   reference is the **pre-fix** scanner and the fix at `0399c54` deliberately changed behaviour.
   The header states that explicitly, so the equivalence test pins those two against the oracle
   rather than forcing the reference to adopt the fix. 562 tests OK.
+
+- **Goal 6, spec sync: the assertion is identity *except a closed, named exception set*.**
+  The clause as first written said "identical seven-field sequences" full stop; the file must assert
+  identity everywhere **except** the two sanctioned divergences, or it would fail on correct
+  behaviour. The exception set is **closed and named**, each entry pinned to both sides' expected
+  output — fast path = the oracle-verified text, reference = its pre-fix behaviour:
+  `2e+` (fast: `unrecognized token: "2e"`; ref: lexes) and `1e5e5` (fast: `unrecognized token:
+  "1e5e5"`; ref: lexes), both from the executed 3.54.0/3.51.0 table. **Growth requires a spec
+  amendment carrying oracle evidence** — an append-with-evidence list, never a silent widening —
+  because every future conformance fix creates one more fast-versus-reference divergence, and this
+  set is where those changes get ledgered deliberately. The file-time audit gains one line: the
+  exception set matches the spec's named two and nothing wider.
