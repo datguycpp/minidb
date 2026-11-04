@@ -2546,3 +2546,14 @@ Nothing above the first entry was edited in the move.
   reference, and this run's 59.12 ms/cycle is a different box state — the split, not the gap, is
   what this entry adds: 0.33 ms is open, 58.79 ms is the walk. Nothing is claimed toward gate 2; the
   walk+decode block and Part A's re-profile remain owed.
+
+- **`w9_split` now carries the box state per sample and prints its own band.** QA's read on the
+  Part A raw7: one load reading before each timing group cannot attribute a drift-shaped spread, so
+  mid-run drift stays *plausible*, not established. The instrument now reads `loadavg` immediately
+  before **every** sample and prints it aligned with the ms values (`open_loads=`,
+  `open_count_loads=`), and each shape prints its band, (max − min) / median — the number a later
+  walk win has to clear, produced by the instrument instead of hand-computed afterwards. Plumbing
+  checked at 5,000 rows / N=3 (load 3.43): the fields print and align; that run is a fixture check,
+  not a measurement, and no figure from it is citable. The calibration itself stays where Default
+  scheduled it — inside the settled component session, quiet and in-window — so Part A's re-profile
+  and the walk's judge are written in one pass on one box state.

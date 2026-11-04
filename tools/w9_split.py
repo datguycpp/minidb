@@ -11,8 +11,12 @@ lever has an address instead of a direction:
 
 The count share is the difference between the two medians, which keeps the page cache honest: both
 shapes open a cold file, so neither is measured warm. This is a component measurement, not gate 2 —
-the reference engine is not in this tool, and no ratio is printed. Load is read BEFORE the timed
-region, per the rule the W9 instrument had to learn.
+the reference engine is not in this tool, and no ratio is printed.
+
+Load is read immediately before **every** sample, not once per group: a single before/after pair
+cannot attribute a drift-shaped raw7 to the box, which is exactly the artefact this instrument has
+to rule out before its numbers can judge a change. Each shape also prints its own band,
+(max - min) / median, because that band is what a later win has to clear.
 """
 
 import argparse
@@ -66,6 +70,28 @@ def time_shape(fn, path):
     return (time.perf_counter() - start) * 1000
 
 
+def timed_runs(fn, path, count):
+    """N samples, each paired with the load read immediately before it.
+
+    One reading before the whole group cannot attribute a drift-shaped raw7; one per sample can.
+    The reading is taken before the sample, so a slow sample carries the box state it ran in.
+    """
+    values, loads = [], []
+    for _ in range(count):
+        load = loadavg()
+        start = time.perf_counter()
+        fn(path)
+        values.append((time.perf_counter() - start) * 1000)
+        loads.append(load)
+    return values, loads
+
+
+def band_percent(values):
+    """(max - min) / median: the calibration's own spread, the band a win must clear."""
+    median = statistics.median(values)
+    return 0.0 if median == 0 else (max(values) - min(values)) / median * 100.0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rows", type=int, default=100000)
@@ -83,11 +109,8 @@ def main():
 
     time_shape(open_only, path)
     time_shape(open_and_count, path)
-    t_open, t_both = [], []
-    for _ in range(args.n):
-        t_open.append(time_shape(open_only, path))
-    for _ in range(args.n):
-        t_both.append(time_shape(open_and_count, path))
+    t_open, open_loads = timed_runs(open_only, path, args.n)
+    t_both, both_loads = timed_runs(open_and_count, path, args.n)
 
     load_after = loadavg()
     med_open = statistics.median(t_open)
@@ -95,10 +118,16 @@ def main():
     print("loadavg=%s  loadavg_after=%s"
           % ("n/a" if load_before is None else "%.2f" % load_before,
              "n/a" if load_after is None else "%.2f" % load_after))
-    print("     open_ms median=%.2f  raw7=[ %s ]  per_open=%.2f"
-          % (med_open, " ".join("%.2f" % x for x in t_open), med_open / REPEATS))
-    print("     open_count_ms median=%.2f  raw7=[ %s ]  per_cycle=%.2f"
-          % (med_both, " ".join("%.2f" % x for x in t_both), med_both / REPEATS))
+    print("     open_ms median=%.2f  raw=[ %s ]  band=%.1f%%  per_open=%.2f"
+          % (med_open, " ".join("%.2f" % x for x in t_open), band_percent(t_open),
+             med_open / REPEATS))
+    print("     open_loads=[ %s ]"
+          % " ".join("n/a" if x is None else "%.2f" % x for x in open_loads))
+    print("     open_count_ms median=%.2f  raw=[ %s ]  band=%.1f%%  per_cycle=%.2f"
+          % (med_both, " ".join("%.2f" % x for x in t_both), band_percent(t_both),
+             med_both / REPEATS))
+    print("     open_count_loads=[ %s ]"
+          % " ".join("n/a" if x is None else "%.2f" % x for x in both_loads))
     print("     count_share_ms=%.2f  per_cycle=%.2f  (open_count - open, medians)"
           % (med_both - med_open, (med_both - med_open) / REPEATS))
 
