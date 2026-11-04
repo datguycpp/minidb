@@ -290,5 +290,53 @@ class DemoFixtureTest(unittest.TestCase):
         self.assertEqual(self.run_tool(["--allow-demo", demo, write_run(self.path("a.txt"))]), 0)
 
 
+class AdmissibilityTest(unittest.TestCase):
+    """`--admit` applies the prospective drift rule and nothing else: it reads the trace, never the
+    declared `load_span`, never the 60x threshold. Exit 0 = admissible, 5 = INCONCLUSIVE, 2 = unfit;
+    certification stays `--gate-only`, and a certified artifact can still be inadmissible."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def path(self, name):
+        return os.path.join(self.dir, name)
+
+    def admit(self, artifact, workloads="W1"):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            status = bench_pair.main(["--admit", "--workloads", workloads, artifact])
+        return status, out.getvalue()
+
+    def test_a_clean_artifact_is_admissible(self):
+        status, out = self.admit(write_run(self.path("g.txt"), n=11))
+        self.assertEqual(status, 0)
+        self.assertIn("ADMISSIBLE", out)
+
+    def test_a_trace_whose_span_crosses_the_rule_is_inconclusive(self):
+        trace = [2.10 + 0.13 * i for i in range(11)]
+        status, out = self.admit(write_run(self.path("g.txt"), n=11, trace=trace,
+                                           span_override={"sq": 0.55, "md": 0.55}))
+        self.assertEqual(status, 5)
+        self.assertIn("(b) sqlite span 1.30 > 1.0", out)
+        self.assertIn("declared load_span=0.55", out)
+
+    def test_a_sample_outside_the_window_is_inconclusive(self):
+        trace = [0.90] + [2.00] * 10
+        status, out = self.admit(write_run(self.path("g.txt"), n=11, trace=trace))
+        self.assertEqual(status, 5)
+        self.assertIn("(a) sample 0 out of window on sqlite", out)
+
+    def test_the_declared_span_is_never_consulted_for_the_verdict(self):
+        # The checker refuses this artifact (2); the verdict reads the recomputed trace and admits
+        # it. Two statements, two consumers, one recompute -- the seam security asked to keep shut.
+        artifact = write_run(self.path("g.txt"), n=11, span_override={"sq": 0.99, "md": 0.99})
+        status, _ = self.admit(artifact)
+        self.assertEqual(status, 0)
+
+    def test_the_sixty_x_threshold_is_not_applied(self):
+        status, _ = self.admit(write_run(self.path("g.txt"), n=11, minidb_shift=1000.0))
+        self.assertEqual(status, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

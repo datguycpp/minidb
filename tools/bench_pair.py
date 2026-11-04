@@ -43,6 +43,8 @@ SQLITE_LOADS = re.compile(r"^\s+sqlite_loads=\[\s*([\d.\s]*)\]")
 MINIDB_LOADS = re.compile(r"^\s+minidb_loads=\[\s*([\d.\s]*)\]")
 LOAD_SPAN = re.compile(r"\bload_span=([\d.]+)")
 GATE_N = 11                # the freeze's floor: an N=7 artifact cannot certify a gate-2 call
+DRIFT_SPAN = 1.0           # the calling condition's |delta loadavg| <= 1.0, applied within a run
+WINDOW_LOW, WINDOW_HIGH = 1.0, 3.0
 
 
 def parse(path, require_header=True, allow_demo=False):
@@ -279,6 +281,35 @@ def verdict(before, after):
     return fold, "equal"
 
 
+def admissibility(run):
+    """Apply the prospective drift rule to one run, recomputed from the trace.
+
+    Returns (issues, spans). The declared `span_sq`/`span_md` prints are never read for the
+    decision — they appear only inside the message, so a reader can see the declaration the
+    recomputation overran. One implementation serves both consumers: the checker validates these
+    same derived values, and the verdict reads them here.
+    """
+    issues, spans = [], {}
+    for leg, label in (("sq", "sqlite"), ("md", "minidb")):
+        loads = run.get(f"loads_{leg}")
+        if not loads:
+            issues.append(f"(trace) no {label} per-sample load trace — cannot admit")
+            continue
+        spans[leg] = max(loads) - min(loads)
+        outside = next((i for i, value in enumerate(loads)
+                        if not (WINDOW_LOW <= value <= WINDOW_HIGH)), None)
+        if outside is not None:
+            issues.append(f"(a) sample {outside} out of window on {label} "
+                          f"({loads[outside]:.2f} outside [{WINDOW_LOW:.1f}, {WINDOW_HIGH:.1f}])")
+        if spans[leg] > DRIFT_SPAN:
+            declared = run.get(f"span_{leg}")
+            shown = ("declared load_span=%.2f" % declared if declared is not None
+                     else "no declared load_span")
+            issues.append(f"(b) {label} span {spans[leg]:.2f} > {DRIFT_SPAN:.1f} "
+                          f"(recomputed from trace; {shown})")
+    return issues, spans
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("before")
@@ -289,6 +320,9 @@ def main(argv=None):
                         help="assert one artifact's completeness, gate fields (ratio_min, bands, "
                              "per-sample loads, N floor, pre-load window) and self-consistency; "
                              "does not apply the threshold; no pairing")
+    parser.add_argument("--admit", action="store_true",
+                        help="apply the prospective INCONCLUSIVE drift rule to one artifact "
+                             "(0 admissible, 5 inconclusive, 2 unfit); certification is --gate-only")
     parser.add_argument("--allow-foreign", action="store_true",
                         help="pair a hand-made fixture that lacks the harness header (tests only; "
                              "never quote such a pairing as a result)")
@@ -297,6 +331,35 @@ def main(argv=None):
                              "result); gate certification ignores this flag")
     args = parser.parse_args(argv)
     expected = [name.strip() for name in args.workloads.split(",") if name.strip()]
+
+    if args.admit:
+        if args.gate_only:
+            print("bench_pair: --admit and --gate-only are separate statements; run them separately",
+                  file=sys.stderr)
+            return 2
+        try:
+            runs = parse(args.before, not args.allow_foreign, allow_demo=args.allow_demo)
+        except (OSError, ValueError) as exc:
+            print(f"bench_pair: unreadable input: {exc}", file=sys.stderr)
+            return 2
+        status = 0
+        for name in expected:
+            run = runs.get(name)
+            if run is None or run.get("status") != "OK":
+                print(f"bench_pair: {name}: no terminal OK row — cannot admit", file=sys.stderr)
+                status = status or 2
+                continue
+            issues, spans = admissibility(run)
+            if issues:
+                print(f"INCONCLUSIVE: {name} — " + "; ".join(issues))
+                status = 5
+            else:
+                print("ADMISSIBLE: %s — drift rule not tripped (spans sqlite %.2f, minidb %.2f; "
+                      "every sample inside [%.1f, %.1f])"
+                      % (name, spans["sq"], spans["md"], WINDOW_LOW, WINDOW_HIGH))
+        if status == 0:
+            print("(admissibility only — the 60x threshold and pass/fail are a separate gate call)")
+        return status
 
     if args.gate_only:
         if args.allow_demo:

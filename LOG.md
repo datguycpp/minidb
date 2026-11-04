@@ -2888,3 +2888,21 @@ Nothing above the first entry was edited in the move.
   (the complete artifact had regressed to exit 2 when the diagnostic was first placed before the
   parser — caught by the suite, fixed by ordering the parse first). Suite **593 OK**; tools, tests
   and LOG only.
+
+- **Call-time evaluator for the drift rule: `bench_pair --admit`, one recompute and two consumers.**
+  QA's gap closed without a second implementation: the tool re-derives each leg's span as max − min
+  of the printed trace and applies the frozen rule. Exit **0 admissible**, **5 INCONCLUSIVE**, **2
+  unfit** — codes distinct from certification's 0/2 on purpose, because a certified artifact can
+  still be inadmissible and the record must not let a clean seal imply a window. The declared
+  `load_span=` print is **never** read for the decision; it appears only inside the message, so the
+  record shows the declaration the recomputation overran.
+  *Output discipline:* admissible reads `ADMISSIBLE: W9 — drift rule not tripped (spans sqlite 0.00,
+  minidb 0.11; every sample inside [1.0, 3.0])` plus a closing line that admissibility is not
+  pass/fail. INCONCLUSIVE names the condition and the number — `(a) sample k out of window on <leg>`
+  or `(b) <leg> span X.XX > 1.0 (recomputed from trace; declared load_span=Y.YY)`.
+  *Applied to the record:* the gate-2 artifact reads **ADMISSIBLE** (spans 0.00 / 0.11) — the frozen
+  rule's own test case, now produced by the tool instead of by hand.
+  *Pinned by five tests:* clean → 0; the manufacturing trace (real 1.30, declared 0.55) → 5 with both
+  numbers shown; a sample at 0.90 → 5 naming `(a) sample 0`; the declared-span lie (checker 2) still
+  **admissible** at 0, because the verdict reads the recompute; and a 1000× ratio (the 60× threshold)
+  still admissible at 0. Suite **598 OK**; tools, tests and LOG only.
