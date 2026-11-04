@@ -140,6 +140,10 @@ class DiskStorage:
         for _, payload in self.tree.scan(entry["root"]):
             yield self._decode(payload)
 
+    def count_rows(self, entry):
+        """Exact row count without decoding: leaf cell counts, summed by the b-tree walk."""
+        return self.tree.count_rows(entry["root"])
+
     @staticmethod
     def _decode(payload):
         try:

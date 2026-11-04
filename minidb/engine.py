@@ -2398,8 +2398,20 @@ class Database:
         return ranges
 
     def _row_count(self, table):
-        # No DELETE exists yet, so the next rowid is exactly the number of rows.
+        # An estimate, not a count: allocation is max(rowid)+1 and skips holes, so this overcounts
+        # once a mid-file row is deleted. Cost decisions tolerate that; COUNT(*) does not — see
+        # _exact_row_count.
         return table.entry["next_rowid"] - 1 if table.on_disk else len(table.rows)
+
+    def _exact_row_count(self, table):
+        """Rows actually present, without decoding one: leaf cell counts for a disk table.
+
+        The plan's `rows`/`rows_examined` for a COUNT(*) answered this way are this number because
+        every row was accounted for, not because every row was materialised.
+        """
+        if self.storage is not None and table.on_disk:
+            return self.storage.count_rows(table.entry)
+        return len(table.rows)
 
     def _plan_key(self, table, node):
         """Statement text + table + projection + predicates: the identity of a plan decision.
@@ -3208,6 +3220,26 @@ class Database:
             layout.append(("value", len(specs) - 1))
         if not specs:
             return None
+
+        if key_position is None and specs and all(spec == (0, -1) for spec in specs):
+            # COUNT(*) reads no column, so there is nothing to decode: the exact count is page
+            # metadata. `next_rowid - 1` cannot stand in — a mid-file DELETE leaves holes.
+            count = self._exact_row_count(table)
+            out = self._apply_limit(node, [tuple(count for _ in specs)])
+            alias = (node.alias or node.table).lower()
+            self.last_plan = {
+                "table": node.table,
+                "tables": [alias],
+                "access": "full",
+                "sources": [{"table": alias, "rows": count}],
+                "rows_examined": count,
+                "rows_matched": len(out),
+                "reason": "aggregate",
+                "index": None,
+                "candidates": [],
+                "native": True,
+            }
+            return items, out
 
         rows_in = list(self._rows(table))
         grouped = _native.group_aggregate(rows_in, -1 if key_position is None else key_position,

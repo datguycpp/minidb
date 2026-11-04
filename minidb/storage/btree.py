@@ -146,6 +146,34 @@ class BTree:
                 total += 12
         return total <= USABLE
 
+    # -- counting -----------------------------------------------------------
+    def count_rows(self, page_id):
+        """Exact row count from page metadata: leaves carry their cell count, so no record is decoded.
+
+        `next_rowid - 1` cannot answer this after a mid-file DELETE (allocation is max+1 and skips
+        holes), and a full scan pays the decode this path exists to avoid. Interior nodes are walked
+        for child pointers only — 12 bytes per cell, no payload.
+        """
+        try:
+            total = 0
+            stack = [page_id]
+            while stack:
+                data = self.pager.read(stack.pop())
+                kind = data[0]
+                count = struct.unpack_from("<H", data, 1)[0]
+                if kind == LEAF:
+                    total += count
+                    continue
+                stack.append(struct.unpack_from("<I", data, 3)[0])
+                offset = HEADER
+                for _ in range(count):
+                    offset += 8                       # separator key
+                    stack.append(struct.unpack_from("<I", data, offset)[0])
+                    offset += 4
+            return total
+        except (struct.error, IndexError) as exc:
+            raise StorageError(f"page {page_id}: corrupt b-tree page ({exc})") from None
+
     # -- creation -----------------------------------------------------------
     def create(self):
         page_id = self.pager.allocate()

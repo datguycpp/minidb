@@ -141,6 +141,19 @@ class TestDiskDatabase(TempDb):
         self.assertEqual(again.run("SELECT * FROM t"), (["id", "name"], [(1, "alpha"), (2, "beta")]))
         again.close()
 
+    def test_count_rows_is_exact_after_a_mid_file_delete(self):
+        # The planner estimate (next_rowid - 1) overcounts once a middle rowid is deleted; COUNT(*)
+        # reads leaf cell counts instead, so it must not inherit that error.
+        db = Database(self.path)
+        db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+        for i in range(1, 201):
+            db.run(f"INSERT INTO t VALUES ({i}, 'v{i}')")
+        db.run("DELETE FROM t WHERE id % 2 = 0")
+        self.assertEqual(db._row_count(db.table("t")), 199)     # estimate: holes are invisible to it
+        self.assertEqual(db.storage.count_rows(db.table("t").entry), 100)
+        self.assertEqual(db.run("SELECT COUNT(*) FROM t")[1], [(100,)])
+        db.close()
+
     def test_schema_survives_reopen_including_constraints(self):
         db = Database(self.path)
         db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, n INTEGER CHECK (n > 0))")

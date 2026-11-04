@@ -2472,3 +2472,24 @@ Nothing above the first entry was edited in the move.
   identical before and after. Measured: full suite under `-W always::ResourceWarning` is **569 tests
   OK, 0 unclosed-file warnings** (4 before); corpus 293/293 at `d46618e`; `make verify` PASS 5/5,
   including 100/100 crash iterations.
+
+- **Goal 6, candidate (a) landed: COUNT(*) reads leaf metadata — W9's ratio 400.1x → 83.8x, and the
+  gate is not claimed.** `BTree.count_rows` walks pages for child pointers and sums each leaf's
+  cell count, so `SELECT COUNT(*) FROM t` decodes no record at all. The engine takes that at the
+  native-aggregate seam (`_native_aggregate`), i.e. only for the shapes that function already
+  restricts: one base table, no WHERE/JOIN/HAVING/DISTINCT/ORDER BY, projection all `COUNT(*)`.
+  `next_rowid - 1` could not answer this: allocation is max(rowid)+1 and skips holes, so a mid-file
+  DELETE leaves it overcounting. The test pins it — 200 rows inserted, the even ids deleted, 100
+  left, and the planner estimate still says 199 while `storage.count_rows` and the SQL answer say
+  100. `_row_count`'s stale "no DELETE exists yet" comment is corrected in place; its behaviour is
+  unchanged, because cost decisions tolerate the estimate.
+  *Measured, W9 at 100k (`tools/benchmark.py --workloads W9 --scale 100000 --n 7`), a load-matched
+  pair (|Δloadavg| 0.46, within the 1.0 calling condition):* baseline at `fe4d0b2`, loadavg 3.15 —
+  minidb median **19156.38 ms**, sqlite **47.87 ms**, ratio **400.147**. After, loadavg 2.69 —
+  minidb **3614.60 ms**, sqlite **43.14 ms**, ratio **83.790**; raw7 `3550.10 3770.52 3472.50
+  4011.16 3614.60 3719.15 3535.32`. That is 5.3x on the targeted workload and **still above the
+  frozen 60x gate** — candidate (b), the decode block, is the remaining shape. Moved, not priced:
+  the settled component session prices gate 1, not this entry.
+  *Landing checks, same tree:* `make verify` PASS 5/5 (570 tests, 293/293 corpus, 100/100 crash,
+  docs 7/7), syntax 46/46, fuzz seed 1 at 300 queries **1 mismatch — the same case-119 rejection as
+  the baseline worktree**, so parity is unchanged; the suite runs with 0 unclosed-file warnings.
