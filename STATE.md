@@ -74,16 +74,16 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   fixed, 0 standing limits). Goal 3 DONE (f5e7088; LIMITS.md 15 rows, both
   disciplines in preamble, research-verified; make verify 5/5 in-tree).
   Remaining: goal 6 rewrite + read-path order.
-  Goal 6 PRE-REGISTERED (57aec57, LOG only, no engine code): mechanism >
-  calibrated band, W9 ≤60x reference, parse loop ≥50%, parity = 293/293 + same
-  fuzz counts + verify 5/5 + round-3 battery. Build pending.
+  Goal 6 PRE-REGISTERED (57aec57, LOG only): mechanism > calibrated band, W9 ≤60x ref,
+  parse loop ≥50%, parity = 293/293 + same fuzz counts + verify 5/5 + round-3 battery.
   Loud baseline (d50a2f8, clean): parse 8430.8 / block 784.0, load contrast; gate-3 shape amended pre-result.
   Quiet floor (898e730, clean, load 2.00): parse-only 1626.3 (41.6%), loop 3905.4 → ≤1952.7,
   block 329.1 → ≤259.0; matched-pair rule (|Δload|≤1.0 else INCONCLUSIVE); gate 3 = chain.
   Scope (0c7575f): C behind APIs. Fuzz (a74294e): seeds 1/7, 0/0. Profile (7e49ac5): lexer 56%,
   floor ≥326.4 (bc9ecee), realistic ≈1076 ≈47%. Change 1 (a7f8d89, 562+293): Token.upper, −5.6%.
-  Change 2 (701e227): punctuation neutral; false claim corrected (330bac1), contained to one sentence (cold pass).
+  Change 2 (701e227): punctuation neutral; false claim corrected (330bac1), contained (cold pass).
   Change 3 (cf2f070, 562+293 verified): buckets in, tokenize 881 no whole win; target = advance() re-walk.
+  Change 4 (1131b26, 562+293 verified): ws+ident runs bulk-consumed, line/col derived; 3027-diff 0 (5 traps); 812@3.80 = moved, not priced.
   Isolation instrument (5592a4d): per-class ns/char, self-invalidating; durability sweep clean, no exceptions.
   Rule ADOPTED: a number enters LOG only as output of a run that produced it (lossy + inventive).
   Seam spec (7a8e750): test_lexer_equivalence.py, seed 4242, repro, 7-field tuple (55ef052), canaries (4d66db1).
