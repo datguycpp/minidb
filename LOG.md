@@ -2418,3 +2418,9 @@ Nothing above the first entry was edited in the move.
   order — the claim is corrected here: fixture check precedes the main comparison **in the file**.
   *(6) Tally parts:* nine = eight engine commits (`a7f8d89`, `701e227`, `cf2f070`, `1131b26`,
   `88e6fcd`, `0399c54`, `c4b0044`, `91d4f19`) plus one test commit (`7c68bd7`).
+
+- **Audit closure reviewed cold by Default: 567 OK + 293/293 reproduced at
+  83da651, LIMITS row 16 present with both spellings, and the four probe
+  inputs executed directly — `0x1f`/`1_000` raise as declared, `12.5abc`/`.5x`
+  raise as matches. Declare-not-fix accepted: hex/separator support is a
+  feature beyond this goal, and the row says so plainly.**

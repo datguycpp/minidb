@@ -75,11 +75,10 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   disciplines in preamble, research-verified; make verify 5/5 in-tree).
   Goal 6 PRE-REGISTERED (57aec57, LOG only): mechanism > calibrated band, W9 ≤60x ref,
   parse loop ≥50%, parity = 293/293 + same fuzz counts + verify 5/5 + round-3 battery.
-  Quiet floor (898e730, clean, load 2.00): parse-only 1626.3 (41.6%), loop 3905.4 → ≤1952.7,
-  block 329.1 → ≤259.0; matched-pair rule (|Δload|≤1.0 else INCONCLUSIVE); gate 3 = chain.
+  Quiet floor (898e730, load 2.00): loop → ≤1952.7, block → ≤259.0; matched-pair rule; gate 3 = chain.
   Scope (0c7575f): C behind APIs. Fuzz (a74294e): seeds 1/7, 0/0. Profile (7e49ac5): lexer 56%,
   floor ≥326.4 (bc9ecee), realistic ≈1076 ≈47%. Changes: a7f8d89 Token.upper −5.6% (562+293);
-  701e227 neutral, false claim corrected (330bac1); cf2f070 buckets, 881 no whole win (562+293). Tally: 8 engine, derived via git log.
+  701e227 neutral, false claim corrected (330bac1); cf2f070 buckets, 881 no whole win (562+293). Tally: 8 engine + 1 test (567), derived.
   Change 4 (1131b26, 562+293 verified): bulk runs, derived line/col; 3027-diff 0 (5 traps); 812@3.80 moved, not priced. Isolation (5592a4d): sweep clean.
   Rules: run-output numbers; verified write; stage only yours; corrections amend explicitly. Seam: lexer_equiv,
   seed 4242, repro, 7-field, canaries, traps+oddities; canary = part-sum equality (132d79a).
@@ -87,6 +86,7 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   Change 6 (0399c54, 562+293 cold-executed): exponent needs digit, ident-tail raises SQLite spans; crash (2e+) + divergence (1e5e5) fixed, fixture regenerated; tranche in-tree (f265f48) with 9th entry + test rename, strays removed.
   Change 7 (c4b0044, 562+293 cold-executed): ':memory:' → in-memory path (no file); fix-not-declare, SQLite verified first.
   Change 8 (91d4f19, 562+293 verified): _tokenize_scanner extracted, additive only; two real paths, 2 divergences pinned vs oracle.
+  File (7c68bd7): test_lexer_equivalence.py, 566 green. Audit closed (83da651, 567 verified): counters, 0x1f/1_000 → LIMITS 16, criterion → rule.
   Gate order: session (1+3) → battery (4) → W9 bench (2); load [1.0,3.0] before each. Recovered correction (archive 2692–2699; provenance 5183f33).
 
 ## Open items
