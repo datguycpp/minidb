@@ -2593,3 +2593,23 @@ Nothing above the first entry was edited in the move.
   sampling noise, and then the fix is **same-state sampling**, not a larger N. Until that run prints,
   the t-values above stand as **indicative at indicative σ**; the in-window calibration's own σ
   replaces them as the reported basis.
+
+- **Gate 2's denominator frozen: `median(minidb) / min(sqlite) ≤ 60x`, instrument-emitted, with the
+  median/median ratio printed beside it.** The precondition set above bound the reference leg's
+  *reporting* but not its *spread*: a run whose SQLite leg was differentially slow could still pass
+  on a deflated denominator — the 46.424 costume arriving through the one door the freeze left open.
+  The gate ratio is now computed against the reference leg's **minimum**, the only order statistic a
+  minority of slow samples cannot move; on that run, 3220.77 / 49.64 = **64.88**, so it fails, as it
+  should. **The limit's number is unchanged; its substance tightened** — adopted before any walk
+  result existed, which is the only window the pre-registration rules allow. A frozen percentile
+  would not do: at p25, roughly three slow samples of eleven put the percentile itself inside the
+  slow clump, which is exactly the failure class this defends against.
+  *Scope, so the two estimators are never confused:* **gate calls read `ratio_min`**; **trend lines
+  read `ratio`** (median/median, keeping the historical series 400.147 → 83.790 → 46.424
+  comparable); **their gap is that run's reference-leg noise tax**, published every run.
+  `tools/benchmark.py` now prints both from the same run (`ratio=…  output: OK  ratio_min=…`), so the
+  gate quantity is instrument-emitted rather than hand-derived at call time.
+  *Division of labour, so no condition is read as a panacea:* `min` closes **differential** reference
+  noise; a **uniformly** degraded reference leg is what the in-window pre-load condition and the
+  per-sample load trace already exist to catch. A run whose either-leg band is unreported is
+  **INCONCLUSIVE**, not a pass.

@@ -235,6 +235,9 @@ def main():
           "smoothing).")
     print("note: ratio = median(minidb)/median(sqlite) on the unrounded ms values; the "
           "medians print at 2 dp, so dividing the displayed pair can differ in the last digit.")
+    print("note: ratio_min = median(minidb)/MIN(sqlite) on the same run. Gate calls read "
+          "ratio_min (a differentially slow reference leg can never deflate it); trend lines "
+          "read ratio; the gap between them is that run's reference-leg noise tax.")
 
     ratios, discards = [], []
     for wid in picked:
@@ -276,6 +279,7 @@ def main():
             t0 = time.perf_counter(); run_md(); t_md.append((time.perf_counter() - t0) * 1000)
 
         ratio = statistics.median(t_md) / statistics.median(t_sq)
+        ratio_min = statistics.median(t_md) / min(t_sq)
         shapesq = (len(sq_out) if isinstance(sq_out, list) else 1)
         load_after = loadavg()
         print("%s  %-40s rows=%d  loadavg=%s  loadavg_after=%s"
@@ -283,7 +287,7 @@ def main():
                  "n/a" if load_after is None else "%.2f" % load_after))
         print("     sqlite_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_sq), " ".join("%.2f" % x for x in t_sq)))
         print("     minidb_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_md), " ".join("%.2f" % x for x in t_md)))
-        print("     ratio=%.3f  output: OK" % ratio, flush=True)
+        print("     ratio=%.3f  output: OK  ratio_min=%.3f" % (ratio, ratio_min), flush=True)
         ratios.append(ratio)
 
         s.close()
