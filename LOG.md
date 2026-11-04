@@ -2677,7 +2677,36 @@ Nothing above the first entry was edited in the move.
   at default, wrong the moment the flag moves, which is exactly the class this surface closed. Both
   now name the flag and its default instead of a fixed count. `decode_block`'s **default stays 7**:
   it prices gate 1's component, and gate 1 is frozen at N=7 — the two-regime runbook note covers it,
-  so this is wording, not a default move. `leg_report.py` stays untouched by the same boundary rule
-  Security ran and confirmed: no `--n` flag, so its hardcoded N=7 header and `raw7=` labels are true.
-  *Sweep result:* the only remaining `raw7` strings are the parser's legacy comment and the gate-floor
-  comment — both describing history rather than emitting output. Suite **583 OK**; tools only.
+  so this is wording, not a default move. `leg_report.py`'s hardcoded `N=7` header is true either
+  way under Security's rule — it has no `--n` flag — though its demo writer's `raw7=[ <median> ]`
+  is corrected in the next entry for a different reason: one synthetic value under a seven-count
+  label is content-mismatched regardless of flags.
+  *Sweep result — corrected, see the demo-guard entry below:* I claimed the only remaining `raw7`
+  strings were the parser's legacy comment and a "gate-floor comment", and that the class closed
+  exhaustively. Research's repo-wide search found **11 matches in 4 files**, including
+  `leg_report.py:110–111` **emitting** `raw7=[ <median> ]`, and the line I called a gate-floor
+  comment contains no `raw7`. The claim outran the evidence in both directions; the emitting
+  survivor is fixed in the next entry, and the class closes there. Suite **583 OK**; tools only.
+
+- **A `demo=true` header is now refused, and the demo fixture stops wearing a raw list.** The demo
+  leg's header begins with the exact `BENCH first-full-run` string the parser keys on, its workload
+  lines match the header pattern, and its single-value `raw7` parsed on the legacy regex — so
+  pairing mode accepted a fixture as a run, with **zero `demo` matches anywhere** in the checker;
+  gate mode blocked it only by accident of the N=7 floor. `bench_pair.parse` now refuses a
+  `demo=true` header unless the caller passes `allow_demo`; the CLI exposes `--allow-demo` for
+  pairing (the `--allow-foreign` precedent) and **gate certification never allows it** — passing
+  both flags is an error, so a fixture may be shown but never certified. `leg_report.demo()` is the
+  only caller that sets the escape, which is why the guard does not break `leg_report --demo` — the
+  interaction Research flagged before the commit existed. The demo writer also stops emitting
+  `raw7=[ <median> ]`: one synthetic value under a seven-count label was content-mismatched even
+  though that tool has no `--n` flag.
+  *Coverage, so the guard is not over-credited:* it refuses **marked** fixtures only. Five headered,
+  unmarked fixtures remain in the tests because they exercise real-shaped parsing; an unmarked
+  synthetic artifact is still caught by the recomputed fields (`ratio_min`, bands) and the
+  header/structure checks, not by the marker. The defense is layered — marker → refusal, header →
+  structure, raw samples → recomputation.
+  *Fixtures (five new; suite 588 OK, 0 unclosed-file warnings, `make verify` PASS 5/5):* gate refuses
+  a demo; gate refuses it even with `--allow-demo`; pairing refuses it without the flag; pairing
+  shows it with the flag; `leg_report`'s normal path refuses its own demo artifact while `--demo`
+  still exits 0 — the regression test Research asked for, which also closes the failure mode where
+  the guard's own tests go green while the demo path silently breaks.

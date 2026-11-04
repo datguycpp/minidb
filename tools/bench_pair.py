@@ -38,17 +38,22 @@ RATIO_MIN = re.compile(r"\bratio_min=([\d.]+)")
 BAND = re.compile(r"\bband=([\d.]+)")
 RAW = re.compile(r"raw\d*=\[\s*([\d.\s]*)\]")   # `raw=` since the label went N-neutral; `raw7=` kept for old artifacts
 HEADER_N = re.compile(r"\bN=(\d+)\b")
+DEMO = re.compile(r"\bdemo=true\b")
 SQLITE_LOADS = re.compile(r"^\s+sqlite_loads=\[\s*([\d.\s]*)\]")
 MINIDB_LOADS = re.compile(r"^\s+minidb_loads=\[\s*([\d.\s]*)\]")
 GATE_N = 11                # the freeze's floor: an N=7 artifact cannot certify a gate-2 call
 
 
-def parse(path, require_header=True):
+def parse(path, require_header=True, allow_demo=False):
     """Return {workload: {...}} or raise ValueError naming the first malformed line.
 
     A file without the harness's own header is not a run. That check exists because a hand-made
     fixture paired silently once and its numbers were read as a finding — a fixture in a report is
     indistinguishable from a result unless the tool refuses to treat it as one.
+
+    A `demo=true` header is that same fixture, self-declared. It is refused unless the caller says
+    so explicitly (the `--allow-demo` escape, mirroring `--allow-foreign`), and gate certification
+    never allows it at all: a fixture may be shown, never certified.
     """
     runs, current = {}, None
     seen_header = False
@@ -65,6 +70,9 @@ def parse(path, require_header=True):
                 declared = HEADER_N.search(line)
                 if declared:
                     header_n = int(declared.group(1))
+                if DEMO.search(line) and not allow_demo:
+                    raise ValueError(f"{path}: this is a demo fixture (demo=true), not a run — "
+                                     f"pass --allow-demo to show it as a fixture, never as a result")
             header = HEADER.match(line) if not line[:1].isspace() else None
             if header:
                 # A workload section is present if *any* terminal line names it. A discarded or
@@ -257,12 +265,19 @@ def main(argv=None):
     parser.add_argument("--allow-foreign", action="store_true",
                         help="pair a hand-made fixture that lacks the harness header (tests only; "
                              "never quote such a pairing as a result)")
+    parser.add_argument("--allow-demo", action="store_true",
+                        help="pair a fixture whose header says demo=true (shown, never quoted as a "
+                             "result); gate certification ignores this flag")
     args = parser.parse_args(argv)
     expected = [name.strip() for name in args.workloads.split(",") if name.strip()]
 
     if args.gate_only:
+        if args.allow_demo:
+            print("bench_pair: --gate-only never certifies a demo fixture; drop --allow-demo",
+                  file=sys.stderr)
+            return 2
         try:
-            runs = parse(args.before, not args.allow_foreign)
+            runs = parse(args.before, not args.allow_foreign, allow_demo=False)
         except (OSError, ValueError) as exc:
             print(f"bench_pair: unreadable input: {exc}", file=sys.stderr)
             return 2
@@ -279,7 +294,8 @@ def main(argv=None):
 
     try:
         require = not args.allow_foreign
-        before, after = parse(args.before, require), parse(args.after, require)
+        before, after = (parse(args.before, require, allow_demo=args.allow_demo),
+                         parse(args.after, require, allow_demo=args.allow_demo))
     except (OSError, ValueError) as exc:
         print(f"bench_pair: unreadable input: {exc}", file=sys.stderr)
         return 2

@@ -107,8 +107,8 @@ def write_demo_leg(path, ratios):
         sqlite_ms = DEMO_SQLITE[name]
         minidb_ms = sqlite_ms * ratios[name]
         lines += [f"{name}  synthetic {name:26s} rows={ops}",
-                  f"     sqlite_ms median={sqlite_ms:.2f}  raw7=[ {sqlite_ms:.2f} ]",
-                  f"     minidb_ms median={minidb_ms:.2f}  raw7=[ {minidb_ms:.2f} ]",
+                  f"     sqlite_ms median={sqlite_ms:.2f}",
+                  f"     minidb_ms median={minidb_ms:.2f}",
                   f"     ratio={ratios[name]:.3f}  output: OK"]
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
@@ -123,13 +123,15 @@ def demo():
         after = write_demo_leg(os.path.join(scratch, "demo-after.txt"), DEMO_AFTER)
         print(DEMO_BANNER)
         print()
-        main([before, after])
+        # allow_demo is set here and only here: the fixture is the tool's own, and the banner above
+        # already says what it is. Any other reader of a demo file gets the refusal.
+        main([before, after], allow_demo=True)
     print("\ndemo: a real report with these numbers would exit 1; this run exits 0 because nothing "
           "was measured.")
     return 0
 
 
-def main(argv=None):
+def main(argv=None, allow_demo=False):
     parser = argparse.ArgumentParser(description="gate, compare, tabulate, and price a two-leg pair")
     parser.add_argument("before", nargs="?")
     parser.add_argument("after", nargs="?")
@@ -146,7 +148,7 @@ def main(argv=None):
     parsed = {}
     for label, path in (("before", args.before), ("after", args.after)):
         try:
-            runs = bench_pair.parse(path)
+            runs = bench_pair.parse(path, allow_demo=allow_demo)
         except (OSError, ValueError) as exc:
             print(f"leg_report: {label} unreadable: {exc}", file=sys.stderr)
             return 2

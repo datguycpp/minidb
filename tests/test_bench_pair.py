@@ -34,17 +34,20 @@ def band_percent(values):
 
 def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ratio_override=None,
               discard=(), errored=(), bare=(), n=7, omit=(), ratio_min_override=None,
-              band_override=None, loadavg=2.0, raw_label="raw", header_n=None):
+              band_override=None, loadavg=2.0, raw_label="raw", header_n=None, demo=False):
     """A file in the harness's printed shape: header, then per-workload blocks.
 
     The two sides move independently so a denominator-only move can be modelled: that is the
     artefact the reference-delta column exists to expose. `n` sets both legs' sample count and
     `omit` drops individual gate fields, so the four certification failure modes are fixtures
     rather than mutations of a real artifact. `raw_label="raw7"` reproduces a pre-label-fix
-    artifact; `header_n` lets the header disagree with the printed lists on purpose.
+    artifact; `header_n` lets the header disagree with the printed lists on purpose; `demo`
+    writes the same self-declaration `leg_report`'s fixture carries.
     """
     declared = n if header_n is None else header_n
-    lines = ["BENCH first-full-run  module-sqlite 3.53.1  N=%d  scale=20000  lookups=1000" % declared, ""]
+    marker = "  demo=true" if demo else ""
+    lines = ["BENCH first-full-run  module-sqlite 3.53.1  N=%d  scale=20000  lookups=1000%s"
+             % (declared, marker), ""]
     for name, ratio in RATIOS.items():
         if name in drop:
             continue
@@ -214,6 +217,36 @@ class GateCertificationTest(unittest.TestCase):
     def test_the_checker_does_not_apply_the_sixty_x_threshold(self):
         # Far above 60x and still certified: the checker asserts fitness, not the gate call.
         self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11, minidb_shift=1000.0)), 0)
+
+
+class DemoFixtureTest(unittest.TestCase):
+    """A `demo=true` header is a fixture's own confession. It may be shown, never certified."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def path(self, name):
+        return os.path.join(self.dir, name)
+
+    def run_tool(self, argv):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return bench_pair.main(argv)
+
+    def test_gate_certification_refuses_a_demo_fixture(self):
+        self.assertEqual(self.run_tool(["--gate-only", "--workloads", "W1",
+                                        write_run(self.path("d.txt"), n=11, demo=True)]), 2)
+
+    def test_gate_certification_refuses_a_demo_even_when_the_escape_is_passed(self):
+        self.assertEqual(self.run_tool(["--gate-only", "--allow-demo", "--workloads", "W1",
+                                        write_run(self.path("d.txt"), n=11, demo=True)]), 2)
+
+    def test_pairing_refuses_a_demo_fixture_without_the_flag(self):
+        demo = write_run(self.path("d.txt"), demo=True)
+        self.assertEqual(self.run_tool([demo, write_run(self.path("a.txt"))]), 2)
+
+    def test_pairing_shows_a_demo_fixture_with_the_flag(self):
+        demo = write_run(self.path("d.txt"), demo=True)
+        self.assertEqual(self.run_tool(["--allow-demo", demo, write_run(self.path("a.txt"))]), 0)
 
 
 if __name__ == "__main__":

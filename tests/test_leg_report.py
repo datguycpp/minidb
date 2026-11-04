@@ -126,6 +126,15 @@ class ReportTest(unittest.TestCase):
         self.assertIn("nothing here may be quoted as a result", text)
         self.assertLess(text.index("DEMO --"), text.index("W1 "))
 
+    def test_the_demo_artifact_is_refused_by_the_normal_path(self):
+        # The tool refuses its own fixture unless it is the one showing it: demo numbers were once
+        # pasted into a report and read as a leg result.
+        demo = leg_report.write_demo_leg(self.path("d.txt"), leg_report.DEMO_BASE)
+        code, out, err = self.run_tool(demo, demo)
+        self.assertEqual(code, 2)
+        self.assertIn("demo fixture", err)
+        self.assertNotIn("verdict", out)
+
     def test_the_demo_reconstructs_the_published_before_leg_within_the_display_quantum(self):
         """Pin target: record-reconstruction from *displayed* medians, not formula consistency.
 
