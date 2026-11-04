@@ -2086,8 +2086,9 @@ Nothing above the first entry was edited in the move.
   checks and must run on every suite invocation, while the battery stays the end-result licence.
   Shape: corpus literals (t3a's 3,939-character literals, round-1 case 16's non-ASCII), the seeded
   fuzz stream at the same seeds, and random strings incl. quote/comment/operator boundaries, each
-  tokenized by both the master scanner and `_Scanner`, asserting identical `(kind, value, raw,
-  quote)` sequences. The random component is **seeded `random.Random(4242)`**, so the input set is
+  tokenized by both the master scanner and `_Scanner`, asserting identical **seven-field**
+  sequences `(kind, value, raw, quote, line, col, pos)` — the tuple the early differential actually
+  used, so the permanent test audits against this spec rather than against a narrower one. The random component is **seeded `random.Random(4242)`**, so the input set is
   deterministic and a seam bug is regenerable from the record rather than different every run; the
   assertion prints **the offending input plus both token sequences** on failure, because an
   equivalence test that only says "sequences differ" is half an instrument. The seam it targets is the one the battery provably *cannot* see: a pattern
