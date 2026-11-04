@@ -40,3 +40,4 @@ inputs only), **divergence** (behaves differently from SQLite on purpose or by o
   would hit, so a reader can judge relevance without reading the code.
 - A row is deleted when the behaviour lands, and the removal is recorded in `LOG.md` with the
   commit that did it. A table that only grows is a table nobody trusts.
+| 16 | Numeric literal forms | hexadecimal integer literals (`0x1f`) and digit-separator underscores (`1_000`) are rejected as `unrecognized token`; SQLite 3.54.0 returns 31 and 1000 | goal 6 lexer | schemas or queries using either spelling fail to run here and work in SQLite; decimal, exponent, leading/trailing-dot forms are supported |

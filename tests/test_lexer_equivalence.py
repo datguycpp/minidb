@@ -53,6 +53,14 @@ def sanctioned(fast):
             and SANCTIONED.fullmatch(fast[2]) is not None
             and re.search(r"[A-Za-z_$]", SANCTIONED.fullmatch(fast[2]).group(1)) is not None)
 
+# Class-edge probe against the pinned CLI (executed, 3.54.0): SQLite accepts both, MiniDB rejects
+# both. They are declared divergences -- LIMITS.md row -- not sanctioned quirks, so they are pinned
+# here rather than left to the rule's masking.
+DECLARED_DIVERGENCES = {
+    "SELECT 0x1f": 'unrecognized token: "0x1f"',
+    "SELECT 1_000": 'unrecognized token: "1_000"',
+}
+
 ALPHABET = "abc_ 0123456789()[],;.<>=!+-*/%'\"`[]|~\n\t\xc4"
 
 
@@ -97,13 +105,23 @@ class TestLexerEquivalence(unittest.TestCase):
             self.assertGreater(size, 0, f"declared {name} count must be non-zero")
 
         compared = 0
+        tokens_compared = 0
+        raised = 0
         for sql in corpus_sql + randoms + traps + oddities:
             compared += 1
             fast, ref = stream(tokenize, sql), stream(_tokenize_scanner, sql)
+            if isinstance(fast, tuple):
+                raised += 1
+            else:
+                tokens_compared += len(fast)
             if sanctioned(fast) and fast != ref:
                 continue
             self.assertFalse(differ(fast, ref),
                              f"tokenization differs on {sql!r}\n  fast: {fast}\n   ref: {ref}")
+
+        # Coverage units, not just input counts: an input that raises tests nothing past its first
+        # token, so `0 mismatches` is ambiguous without these two numbers beside it.
+        print(f"coverage: inputs={compared} tokens={tokens_compared} raised={raised}")
 
         # canary (a): executed counter against declared part-sum, never against len() of a concat.
         self.assertEqual(compared, sum(declared.values()),
@@ -114,6 +132,11 @@ class TestLexerEquivalence(unittest.TestCase):
         right = [(k, v, r, q, line, col + 1, pos + 1) for (k, v, r, q, line, col, pos) in left]
         # canary (b): if this asserts False the machinery works; the assertion's success is the proof.
         self.assertTrue(differ(left, right), "comparator failed to flag a shifted position")
+
+    def test_declared_divergences_are_pinned_separately_from_the_rule(self):
+        for sql, message in DECLARED_DIVERGENCES.items():
+            self.assertEqual(stream(tokenize, sql), ("EXC", "LexError", message),
+                             f"declared divergence moved: {sql!r}")
 
     def test_the_sanctioned_rule_is_no_wider_than_the_spec(self):
         self.assertTrue(sanctioned(("EXC", "LexError", 'unrecognized token: "2e"')))

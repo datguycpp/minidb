@@ -2090,8 +2090,8 @@ Nothing above the first entry was edited in the move.
   multi-line block comment, leading whitespace-with-newline. The traps are deterministic and
   aimed at the known drift cases of run-then-derive, which makes them stronger than the random
   set that merely might reach them; they are part of the standard, not an implementation extra.
-  **The loop's preserved oddities are named inputs too:** `1e` (raises `malformed number`),
-  `2e+` (lexes as the NUMBER `2e+`), `5.5.5` (splits into `5.5` and `.5`), `1e5e5`, `.5e2`, `4.`.
+  **The loop's preserved oddities are named inputs too:** `1e` (raises `unrecognized token: "1e"`, executed),
+  `2e+` (pre-fix reference lexes it; the fast path rejects it -- divergence fixed at `0399c54`), `5.5.5` (splits into `5.5` and `.5`), `1e5e5`, `.5e2`, `4.`.
   A rewrite that "cleans up" any of them stays green on every documented behaviour, which is
   exactly why they belong in the standard rather than in the random set's good luck.
   Every input — corpus file, fuzz string, random string, trap — is tokenized by both the master
@@ -2402,3 +2402,19 @@ Nothing above the first entry was edited in the move.
   declared part-sum (22 corpus + 3,000 random + 5 traps + 9 oddities), with every declared term
   asserted non-zero and the counter distinct from the lists it walks, so a truncated generator
   fails rather than passing trivially.
+
+- **Goal 6 audit findings 1-6: what closed, what was already closed, and one real divergence found.**
+  *(5) The class-edge probe found a genuine gap* — executed against the pinned CLI: SQLite returns
+  `31` for `0x1f` and `1000` for `1_000`, while MiniDB rejects both as `unrecognized token`. The
+  sanctioned rule would have masked them forever. **Disposition: declared, not fixed** — a new
+  `docs/LIMITS.md` row 16 names both spellings, and the test pins them in
+  `DECLARED_DIVERGENCES` so they are visible rather than absorbed by the rule. `12.5abc` and `.5x`
+  diverge on neither side (both reject). *(1) The coverage header is now implemented*: the run
+  prints `inputs=3036 tokens=12022 raised=2796`, so coverage is stated in coverage units and the
+  landing entry's overclaim is replaced by a measured line. *(2) The standard's oddity clause* now
+  reads `unrecognized token: "1e"` with its executed annotation, and `2e+` carries the pre-fix
+  qualifier. The two remaining "malformed number" mentions are **historical entries** corrected by
+  `f16ae59`, not the standard. *(4) "The fixture check runs first"* was file order, not execution
+  order — the claim is corrected here: fixture check precedes the main comparison **in the file**.
+  *(6) Tally parts:* nine = eight engine commits (`a7f8d89`, `701e227`, `cf2f070`, `1131b26`,
+  `88e6fcd`, `0399c54`, `c4b0044`, `91d4f19`) plus one test commit (`7c68bd7`).
