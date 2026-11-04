@@ -2214,3 +2214,8 @@ Nothing above the first entry was edited in the move.
   isolation identifiers **1,546 -> 985 ns/char** (110.7 -> 69.9 us/statement) and numbers
   2,135 -> 1,904. Punctuation remains ~3,068 ns/char and strings ~1,130 — those two are now the
   residual, and strings are the next run to consume. No gate claimed; box above window.
+
+- **Fifth build change reviewed cold by Default: 562 OK + 293/293 reproduced
+  at 88e6fcd; tally now five engine commits, derived. The 793-at-3.32 figure
+  is labelled unpriced in entry and message — class-level movement claimed,
+  whole-function figure deferred to the in-window session.**
