@@ -82,11 +82,11 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   block 329.1 → ≤259.0; matched-pair rule (|Δload|≤1.0 else INCONCLUSIVE); gate 3 = chain.
   Scope (0c7575f): C behind APIs. Fuzz (a74294e): seeds 1/7, 0/0. Profile (7e49ac5): lexer 56%,
   floor ≥326.4 (bc9ecee), realistic ≈1076 ≈47%. Change 1 (a7f8d89, 562+293): Token.upper, −5.6%.
-  Change 2 (701e227): punctuation neutral; false 865→738 claim corrected (330bac1) — cold pass:
-  2 files only, suite/corpus re-verified true, fabrication contained to one sentence.
+  Change 2 (701e227): punctuation neutral; false claim corrected (330bac1), contained to one sentence (cold pass).
+  Change 3 (cf2f070, 562+293 verified): punct regex lost to startswith; length-bucketed sets in,
+  tokenize 881 no whole win; next target = advance() line/col re-walk.
   Rule ADOPTED: a number enters LOG only as output of a run that produced it (lossy + inventive).
-  Seam spec (7a8e750): test_lexer_equivalence.py, seed 4242, repro-on-failure; 7-field tuple (55ef052).
-  Canaries (4d66db1, LOG-only): asserted input count + canary pair; R5 analogy corrected room-only.
+  Seam spec (7a8e750): test_lexer_equivalence.py, seed 4242, repro, 7-field tuple (55ef052), canaries (4d66db1).
   Gate order (1b502d5): settled session (1+3, load [1.0,3.0]) → W9 bench (2) → parity battery (4).
 
 ## Open items
