@@ -30,7 +30,10 @@ PUNCTUATION = sorted(
 # Alternation is first-match-wins and PUNCTUATION is sorted longest-first, so the list's
 # own ordering is what preserves longest-match semantics. One C-level scan replaces up to 21
 # startswith calls per punctuation token.
-_PUNCT_RE = re.compile("|".join(re.escape(p) for p in PUNCTUATION))
+_PUNCT_BY_LEN = {}
+for _p in PUNCTUATION:
+    _PUNCT_BY_LEN.setdefault(len(_p), set()).add(_p)
+_PUNCT_LENS = sorted(_PUNCT_BY_LEN, reverse=True)
 
 IDENT_START = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$")
 IDENT_BODY = IDENT_START | set("0123456789")
@@ -242,10 +245,14 @@ def tokenize(sql):
                                 raw=sc.sql[start_i:sc.i]))
             continue
 
-        m = _PUNCT_RE.match(sc.sql, sc.i)
-        if m is None:
+        punct = ""
+        for plen in _PUNCT_LENS:
+            cand = sc.sql[sc.i:sc.i + plen]
+            if cand in _PUNCT_BY_LEN[plen]:
+                punct = cand
+                break
+        if not punct:
             raise LexError(f"unexpected character {ch!r}", start_i, start_line, start_col, snippet=ch)
-        punct = m.group()
         sc.advance(len(punct))
         tokens.append(Token("PUNCT", punct, start_i, start_line, start_col,
                             raw=sc.sql[start_i:sc.i]))

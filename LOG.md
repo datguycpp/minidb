@@ -2142,3 +2142,18 @@ Nothing above the first entry was edited in the move.
   Precedents: the profile (lossy — existed, not durable) and 701e227
   (inventive — never existed); pre-registration covered thresholds, neither
   was a threshold.
+
+- **Goal 6, punctuation matcher: regex replaced by length-bucketed sets (post-measurement).**
+  The class-isolation run (loadavg 3.13, N=5) showed the regex made punctuation the *most*
+  expensive token class — 3,253 ns/char on a parentheses-heavy statement against 1,559 on
+  identifiers — because a 21-alternative pattern is slower per token than `startswith` for
+  single-character punctuation. Replaced with `_PUNCT_BY_LEN` buckets tried longest-first, which is
+  the same longest-match semantics with no regex engine in the loop.
+  Measured after: punct-heavy **175.7 -> 159.8 us/statement** (N=5, loadavg 2.61); `tokenize` 10k
+  median **881 ms at loadavg 2.78** against 865 at 2.27 — still no clear win at the whole-function
+  level, stated as measured. Differential unchanged: **3,022 inputs, 0 mismatches** on the
+  seven-field tuple; suite 562 OK.
+  *The class-isolation numbers themselves are the useful output:* per-character cost is
+  1,315 ns (strings) to 3,253 ns (punctuation) across classes — an order of magnitude above what a
+  Python char loop should cost, which points at `advance()` re-walking characters to maintain
+  line/col rather than at any single token class. That is the target the master scanner replaces.
