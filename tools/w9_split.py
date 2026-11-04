@@ -14,9 +14,9 @@ shapes open a cold file, so neither is measured warm. This is a component measur
 the reference engine is not in this tool, and no ratio is printed.
 
 Load is read immediately before **every** sample, not once per group: a single before/after pair
-cannot attribute a drift-shaped raw7 to the box, which is exactly the artefact this instrument has
-to rule out before its numbers can judge a change. Each shape also prints its own band,
-(max - min) / median, because that band is what a later win has to clear.
+cannot attribute a drift-shaped raw sample set to the box, which is exactly the artefact this
+instrument has to rule out before its numbers can judge a change. Each shape also prints its own
+band, (max - min) / median, because that band is what a later win has to clear.
 """
 
 import argparse
@@ -73,7 +73,8 @@ def time_shape(fn, path):
 def timed_runs(fn, path, count):
     """N samples, each paired with the load read immediately before it.
 
-    One reading before the whole group cannot attribute a drift-shaped raw7; one per sample can.
+    One reading before the whole group cannot attribute a drift-shaped raw sample set; one per
+    sample can.
     The reading is taken before the sample, so a slow sample carries the box state it ran in.
     """
     values, loads = [], []
@@ -95,8 +96,13 @@ def band_percent(values):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rows", type=int, default=100000)
-    ap.add_argument("--n", type=int, default=7)
+    ap.add_argument("--n", type=int, default=11,
+                    help="timed samples per shape (default 11, the frozen floor for a gate "
+                         "calibration; N<11 cannot certify one)")
     args = ap.parse_args()
+    if args.n < 11:
+        print("note: N=%d is below the frozen floor of 11 -- this run can measure, not certify."
+              % args.n)
 
     path = os.path.join(tempfile.mkdtemp(prefix="w9-split-"), "w9.db")
     build(path, args.rows)

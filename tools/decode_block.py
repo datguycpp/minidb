@@ -85,9 +85,9 @@ def main():
     print("loadavg=%s  loadavg_after=%s"
           % ("n/a" if load_before is None else "%.2f" % load_before,
              "n/a" if load_after is None else "%.2f" % load_after))
-    print("     python_ms median=%.2f  raw7=[ %s ]"
+    print("     python_ms median=%.2f  raw=[ %s ]"
           % (statistics.median(t_py), " ".join("%.2f" % x for x in t_py)))
-    print("     native_ms median=%.2f  raw7=[ %s ]"
+    print("     native_ms median=%.2f  raw=[ %s ]"
           % (statistics.median(t_nat), " ".join("%.2f" % x for x in t_nat)))
     print("     speedup=%.3f" % (statistics.median(t_py) / statistics.median(t_nat)))
     return 0

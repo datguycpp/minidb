@@ -156,11 +156,13 @@ WORKLOADS["W10"] = ("overflow rows (1k x 4KB full scan)", w10_setup,
 
 
 def loadavg():
-    """1-minute load average as this workload starts, or None when unreadable.
+    """Current 1-minute load average, or None when unreadable.
 
-    Recorded beside each workload because a leg's box state is invisible in the artifact
-    afterwards: identical medians come out of a quiet machine and a loaded one, and only this
-    number (next to the reference's raw7 spread) separates the two readings.
+    The caller decides — and labels — which point it captures: the workload's pre-load at the top
+    of a section, the leg's after-value at the end, or one reading immediately before each timed
+    sample. Recorded because a leg's box state is invisible in the artifact afterwards: identical
+    medians come out of a quiet machine and a loaded one, and only this number (next to the
+    reference's raw spread) separates the two readings.
     """
     try:
         with open("/proc/loadavg", "r", encoding="ascii") as handle:

@@ -2654,3 +2654,20 @@ Nothing above the first entry was edited in the move.
   declaring N=7 over eleven printed samples fails certification; the neutral label parses; the
   legacy-`raw7` artifact still pairs. *Plumbing check on real output (W1, scale 1000, N=11 — not
   gate evidence):* `raw=[ … ]` on both legs, `--gate-only` exit 0.
+
+- **Pre-session tidying: prose that names counts the flags change, and the calibration's N default.**
+  `loadavg()`'s docstring said "as this workload starts" — true of the pre-load call site and false of
+  the after-value and per-sample ones — and pointed at "the reference's `raw7` spread", a field that
+  no longer exists; it now says the **caller** labels the capture and names the raw spread.
+  `decode_block.py` printed `raw7=` while `--n` set the count (same class, same fix: `raw=`).
+  `w9_split.py`'s `--n` defaulted to **7** while the freeze requires **N≥11** for the calibration:
+  the default is now **11**, and a run below the floor prints *"this run can measure, not certify"*
+  in its own output rather than being quietly accepted.
+  *Runbook note, carried from Research:* the settled session holds **two N regimes by design** —
+  gates 1 and 3 at N=7 (frozen, LOG 2007) and gate 2 with its calibration at N≥11; neither is a
+  defect and neither should be "corrected" to match the other.
+  *Taxonomy, completed per Research:* certification attests **self-consistency**; the **same-run
+  anchor** is **structural** — a property of how the artifact was produced (one process, both
+  engines, harness header required), not a value the checker can re-derive — so it sits with trust in
+  the harness, not among the four checked items.
+  Suite **583 OK** at this tree; tools and docstrings only, no engine change.
