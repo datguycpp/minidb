@@ -2091,7 +2091,15 @@ Nothing above the first entry was edited in the move.
   used, so the permanent test audits against this spec rather than against a narrower one. The random component is **seeded `random.Random(4242)`**, so the input set is
   deterministic and a seam bug is regenerable from the record rather than different every run; the
   assertion prints **the offending input plus both token sequences** on failure, because an
-  equivalence test that only says "sequences differ" is half an instrument. The seam it targets is the one the battery provably *cannot* see: a pattern
+  equivalence test that only says "sequences differ" is half an instrument.
+  *Anti-vacuity canaries, per the `--reopen` ruling that a test guarding behaviour ships with a
+  negative control:* **(a) an input-count assertion** — the run must compare a stated non-zero set
+  (the early differential's 3,022: corpus files plus the seeded random strings), so a generator
+  that silently yields nothing fails loudly instead of passing trivially; **(b) a canary pair** —
+  one deliberately-different token sequence fed to the comparator with the assertion that it is
+  *flagged*, proving the comparison machinery itself can fire. Scheduling covers "both paths are
+  the same implementation"; these cover "the comparator is blind", which no amount of correct
+  scheduling catches. The seam it targets is the one the battery provably *cannot* see: a pattern
   that "handles" a shape but tokenizes it differently, where the difference normalizes away
   downstream. Scheduled with the scanner commit, not before — a differential against a scanner
   that does not exist yet would compare the fallback with itself and prove nothing, which is the
