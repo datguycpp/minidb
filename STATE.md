@@ -85,7 +85,7 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   Change 4 (1131b26, 562+293 verified): bulk runs, derived line/col; 3027-diff 0 (5 traps); 812@3.80 moved, not priced. Isolation (5592a4d): sweep clean.
   Rules: numbers enter LOG only as run output; commit follows a verified write (read it back);
   stage only your own change (shared-file diff check). Seam spec (7a8e750): lexer_equiv test,
-  seed 4242, repro, 7-field tuple, canaries, traps + oddities; canary asserts 3,030 (c34dd1a).
+  seed 4242, repro, 7-field tuple, canaries, traps + oddities; canary (a) = part-sum equality, independent sides, non-zero (132d79a).
   Change 5 (88e6fcd, 562+293 verified): numbers one regex run, quirks kept; full-set re-run 3030-diff 0; 793@3.32 unpriced; residual punct ~3068, strings ~1130.
   Gate order (1b502d5): settled session (1+3, load [1.0,3.0]) → W9 bench (2) → parity battery (4).
 
