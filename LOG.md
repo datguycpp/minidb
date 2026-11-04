@@ -2493,3 +2493,22 @@ Nothing above the first entry was edited in the move.
   *Landing checks, same tree:* `make verify` PASS 5/5 (570 tests, 293/293 corpus, 100/100 crash,
   docs 7/7), syntax 46/46, fuzz seed 1 at 300 queries **1 mismatch — the same case-119 rejection as
   the baseline worktree**, so parity is unchanged; the suite runs with 0 unclosed-file warnings.
+
+- **Benchmark instrument fixed, and the first load-valid W9 pair: minidb 19392 → 3221 ms, ~6.0x, and
+  the ratio is deliberately not called.** `tools/benchmark.py` read `loadavg()` *after* the timed
+  loops, so every printed load described the box the run left behind — QA's finding; Research showed
+  the same line also degraded the Δload match. The pre-event read now happens **before setup**, prints
+  as `loadavg=`, with `loadavg_after=` beside it for information (bench_pair's parser still reads the
+  first field), and the header now states that the ratio divides **unrounded** medians while both
+  medians print at 2 dp — the source of the last-digit mismatch Security found. The first pair this
+  produced, W9 at 100k, N=7, both legs inside the window and |Δload| 0.40: baseline at `fe4d0b2`,
+  pre-load **2.13**, minidb median **19392.33 ms** (raw7 `19392.33 19837.88 20119.28 18906.96
+  19063.96 19326.49 19818.09`), sqlite **47.22 ms** (raw7 `46.05 46.05 47.41 50.09 46.93 47.22
+  47.82`), ratio **410.682**. After, pre-load **2.53**, minidb **3220.77 ms** (raw7 `3951.67 3460.26
+  3164.39 2761.06 3220.77 3380.89 3098.60`), sqlite **69.38 ms** (raw7 `69.38 112.17 74.54 49.64
+  63.58 73.08 63.21`), ratio **46.424**. The minidb side moves ~6.0x; the ratio is not called,
+  because the reference leg's own spread in that run is 90% (49.64..112.17) and the quotient tracks
+  reference noise more than the engine. A second post-change run with pre-load **3.44** (outside
+  [1.0, 3.0]) is kept as a run but marked **not gate evidence** — ratio 55.674, minidb 2800.70.
+  The earlier pair recorded above (400.147 → 83.790) is the same tree but its loads were post-hoc;
+  it stands as a run, not as window evidence.

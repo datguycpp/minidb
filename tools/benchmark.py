@@ -233,10 +233,16 @@ def main():
           "spec!); the CLI's 3.54.0 is the pinned corpus reference — module-version "
           "skew accepted for timing and recorded here (the skew rule, not a "
           "smoothing).")
+    print("note: ratio = median(minidb)/median(sqlite) on the unrounded ms values; the "
+          "medians print at 2 dp, so dividing the displayed pair can differ in the last digit.")
 
     ratios, discards = [], []
     for wid in picked:
         name, pre, q_sq, q_md = WORKLOADS[wid][0], WORKLOADS[wid][1], WORKLOADS[wid][2], WORKLOADS[wid][3]
+        # The gate window is read BEFORE any setup or timing: a load captured after the loops
+        # describes the box the work left behind, not the box it was called on. The after-value
+        # is still printed, labelled, so a reader can see whether the run disturbed the machine.
+        load_before = loadavg()
         s, m = new_sq(), new_md()
         if pre:
             pre(s, m)
@@ -271,9 +277,10 @@ def main():
 
         ratio = statistics.median(t_md) / statistics.median(t_sq)
         shapesq = (len(sq_out) if isinstance(sq_out, list) else 1)
-        load = loadavg()
-        print("%s  %-40s rows=%d  loadavg=%s"
-              % (wid, name, shapesq, "n/a" if load is None else "%.2f" % load))
+        load_after = loadavg()
+        print("%s  %-40s rows=%d  loadavg=%s  loadavg_after=%s"
+              % (wid, name, shapesq, "n/a" if load_before is None else "%.2f" % load_before,
+                 "n/a" if load_after is None else "%.2f" % load_after))
         print("     sqlite_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_sq), " ".join("%.2f" % x for x in t_sq)))
         print("     minidb_ms median=%.2f  raw7=[ %s ]" % (statistics.median(t_md), " ".join("%.2f" % x for x in t_md)))
         print("     ratio=%.3f  output: OK" % ratio, flush=True)
