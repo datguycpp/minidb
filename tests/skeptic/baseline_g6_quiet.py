@@ -6,11 +6,13 @@ at the middle index for n=7). What grew is the output side — fixture identity,
 series, labels that report the count they actually printed — so a later capture can prove it
 measured the same inputs on the same box state.
 
-Fixture provenance: nothing is built here. The frozen capture recorded no hashes, so same-input on
-the baseline side is an assumption this script states rather than hides; from this revision every
-capture prints path, byte size and sha256, which makes future comparisons provable. Override with
-G6_TINY_DB / G6_W9_DB; otherwise a repo-local `tests/skeptic/fixtures/` copy is preferred, then
-the paths the frozen capture used.
+Fixture provenance: the frozen inputs' identities are pinned in EXPECTED and **asserted** — a file
+that no longer matches stops the capture (loudly, and only past `G6_ALLOW_DRIFT=1` deliberately).
+The W9 identity is reproducible, not merely recorded: two fresh builds through the committed
+harness shape (`benchmark.py`'s create + one transaction + `build_rows(100000, seed=7)`) hash to it
+byte-for-byte, so a cold clone can verify provenance by rebuilding. The tiny fixture has no
+committed builder; its identity is recorded and its history remains the assumption the record
+states. Override the paths with G6_TINY_DB / G6_W9_DB.
 
 The BLOCK fixture is a 100k-row file and its `rows=` count is printed beside the timing, so a
 rebuilt input with different content is visible in the artifact instead of arriving as a quietly
@@ -60,8 +62,28 @@ def identity(path):
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             digest.update(chunk)
-    return "%s bytes=%d sha256=%s" % (os.path.abspath(path), os.path.getsize(path),
-                                      digest.hexdigest())
+    return os.path.getsize(path), digest.hexdigest()
+
+
+def check_identity(role, path, expected):
+    """Print the input's identity and refuse a different one.
+
+    Identity is *asserted*, not merely recorded: an accidental modification (a probe opening the
+    file read-write, a checkpoint, a VACUUM, a rebuild in place) otherwise produces a valid-looking
+    file that is no longer the one the baseline measured, and the difference would show up only if
+    a human compared two hashes across two records. `G6_ALLOW_DRIFT=1` is the deliberate override,
+    and it prints the drift loudly first so the artifact carries it.
+    """
+    size, digest = identity(path)
+    print("fixture %s: %s bytes=%d sha256=%s" % (role, os.path.abspath(path), size, digest),
+          flush=True)
+    if (size, digest) != expected:
+        print("FIXTURE DRIFT %s: expected bytes=%d sha256=%s" % (role, expected[0], expected[1]),
+              flush=True)
+        if os.environ.get("G6_ALLOW_DRIFT") != "1":
+            raise SystemExit("baseline: %s input is not the frozen one — set G6_ALLOW_DRIFT=1 only "
+                             "to capture a deliberately different input" % role)
+    return path
 
 
 texts = [f"SELECT count(*) FROM t WHERE id > {i}" for i in range(10000)]
@@ -92,9 +114,18 @@ def show(tag, v):
 
 TINY = fixture("G6_TINY_DB", "g6-tiny.db", LEGACY_TINY)
 W9 = fixture("G6_W9_DB", "w9-fixture.db", LEGACY_W9)
+# The frozen inputs' identities. Both were confirmed by independent hashing, and the W9 one is
+# reproducible: two fresh builds by the committed harness shape (benchmark.py's create + one
+# transaction + build_rows(100000, seed=7)) hash to it byte-for-byte, so a cold clone can verify
+# provenance by rebuilding rather than trusting a copy. The tiny fixture is a three-page capture
+# with no committed builder; its identity is recorded, not reproducible.
+EXPECTED = {
+    "tiny": (12288, "75848fa83f696ac65f683bc22c90139cbe3bae36e0bad13d90dd2c20e45afb7a"),
+    "w9": (8085504, "f65d581dbef12f634ded07c1e5933fa6558e641dab435718ad29dfbc65d0db82"),
+}
 print("loadavg:", loadavg(), flush=True)
-print("fixture tiny:", identity(TINY), flush=True)
-print("fixture w9:", identity(W9), flush=True)
+check_identity("tiny", TINY, EXPECTED["tiny"])
+check_identity("w9", W9, EXPECTED["w9"])
 
 
 def parse_only():

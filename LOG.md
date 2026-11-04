@@ -2739,3 +2739,31 @@ Nothing above the first entry was edited in the move.
   *Plumbing check (load 2.85 → 4.23, outside the window — not a capture and not gate evidence):*
   the script runs end to end in 46 s, prints both fixture identities, per-series loads, and BLOCK
   `rows=100000`.
+
+- **The W9 fixture DIVERGE is a method artifact: the frozen input is reproducible after all.** Two
+  fresh builds through the harness's committed shape — `CREATE`, one `BEGIN`, `build_rows(100000,
+  seed=7)` inserted row by row, `COMMIT`, close, exactly `benchmark.py:201–207` — both hash to
+  `f65d581dbef12f634ded07c1e5933fa6558e641dab435718ad29dfbc65d0db82` at **8,085,504 bytes**, and
+  both equal the on-disk frozen file, which was never opened for write. So the builder is
+  deterministic and the frozen input is reproducible from a cold clone; `b7968439…` is a property of
+  that one build call's shape, not of the file's history and not of engine nondeterminism.
+  Security's three builds and my two (one script, 3m07s) agree. **The strong form is available.**
+  *Consequence for the instrument:* identities are now **asserted**, not merely printed — the script
+  pins both (tiny 12,288 B `75848fa8…`, w9 8,085,504 B `f65d581d…`) and stops the capture on a
+  mismatch with a loud `FIXTURE DRIFT` line; `G6_ALLOW_DRIFT=1` is the only override, and it prints
+  the drift before proceeding. This defends in the direction that matters: an accidental
+  modification — a probe opening the file read-write, a checkpoint, a VACUUM, a rebuild in place —
+  now fails instead of yielding a valid-looking file that is no longer the one the baseline
+  measured. The pinned file is **read-only input; never rebuild it in place**.
+  *Labels:* these are **identities of the frozen input**, not "provenance of the baseline" — past
+  equivalence to what `d89f689` measured stays the stated assumption; future equality is enforced.
+  *Verified:* both branches were exercised — a deliberate w9 drift is refused with the message, and
+  the tiny fixture's matching identity passes silently before timing starts.
+  *Cause now named from the artifacts rather than inferred:* `probe-w9-mdb.db` in Default's scratch
+  hashes to `b79684391b997d8458507a94ac7869987c95121e40d78cdf7ab98ecff904efec` at **12,288 bytes —
+  three pages — and `SELECT COUNT(*)` on a copy returns 0 rows in `t`**. A schema-only file cannot
+  carry allocation history, so the divergence is an empty insert loop (the module-level `ROWS = []`
+  is filled inside `main()`, so a build call made before that runs inserts nothing), not physical
+  state and not engine nondeterminism. Security's `div-P.db` is 815,104 bytes with 10,000 rows — a
+  different scale, unrelated to the pinned identity. Measured on copies; the originals were never
+  opened for write.
