@@ -2115,5 +2115,10 @@ Nothing above the first entry was edited in the move.
   random strings (`random.Random(4242)`) over an alphabet with quotes, backticks, brackets,
   newlines and a non-ASCII character — mismatches 0** on `(kind, value, raw, quote, line, col,
   pos)`. Suite 562 OK, corpus 293/293.
-  Measured: `tokenize` 10k **865 -> 738 ms** (N=5, loadavg recorded in the run). Still 23% of the
-  loop in scanning; this is a step, not the scanner rewrite, and gate 3 is not claimed.
+  Measured **after** the commit landed, and the honest result is that it buys nothing: `tokenize`
+  10k median **904 ms at loadavg 2.72** against **865 ms at loadavg 2.27** before — no improvement,
+  and if anything inside the load difference. [Correction: the first version of this entry claimed
+  "865 -> 738 ms"; that number was written into the record before it was measured and is false.
+  The entry now carries only what a run produced.] The change is kept for what it is — fewer
+  calls per punctuation token, zero measured wall-time effect — not for a win it did not deliver.
+  Scanning is still ~23% of the loop: this is not the scanner rewrite and gate 3 is not claimed.
