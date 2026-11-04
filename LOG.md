@@ -2277,3 +2277,20 @@ Nothing above the first entry was edited in the move.
   while testing nothing past its first token. The differential header must report **tokens
   compared and input count, plus the number of inputs that raised**, so coverage is stated in
   coverage units.
+
+- **Goal 6, the eight oddities classified against real SQLite — two were divergences, both now fixed.**
+  Executed, not recalled (Repository's prediction was itself a recalled claim, and it was wrong in
+  the same direction my prose had been): `SELECT 1e` -> `unrecognized token: "1e"` on **3.54.0 and
+  3.51.0 alike**, matching MiniDB; `.5`, `4.`, `3e-5`, `.5e2` lex and reach `no such table: t` on
+  both; `5.5.5` -> `near ".5": syntax error` on both. **Two diverged:**
+  - `2e+` — SQLite `unrecognized token: "2e"`; MiniDB lexed it and later died with a raw
+    `ValueError: could not convert string to float: '2e+'`, an uncaught Python exception escaping
+    the engine's error contract.
+  - `1e5e5` — SQLite `unrecognized token: "1e5e5"`; MiniDB returned a row.
+  *Decision: fix, not LIMITS* — the oracle is the phase's target and an anchor pinned on a
+  divergence would freeze it as contract. The lexer's number pattern now requires at least one
+  exponent digit, and a number immediately followed by an identifier character raises
+  `unrecognized token: "<number><tail>"`, which reproduces SQLite's exact wording and token span for
+  `1e`, `2e+`, `1e5e5` and `123abc` while leaving `1e5` a valid number. 562 tests OK, corpus
+  293/293, and `tests/lexer_oddities.json` regenerated **from a run of the fixed tree** — the
+  fixture is execution-derived, first check of the file-time audit.

@@ -30,7 +30,8 @@ PUNCTUATION = sorted(
 # Alternation is first-match-wins and PUNCTUATION is sorted longest-first, so the list's
 # own ordering is what preserves longest-match semantics. One C-level scan replaces up to 21
 # startswith calls per punctuation token.
-_NUM_RE = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d*)?")  # mirrors the char loop exactly
+_NUM_RE = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")  # exponent needs digits
+_NUM_TAIL_RE = re.compile(r"[A-Za-z0-9_$]*")
 _WS_RE = re.compile(r"[ \t\r\n\f\v]+")
 _IDENT_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 
@@ -230,7 +231,15 @@ def tokenize(sql):
         if ch.isdigit() or (ch == "." and sc.peek(1).isdigit()):
             text = _NUM_RE.match(sc.sql, sc.i).group()
             sc.skip(len(text))
-            if text[-1] in "eE" or text in (".",):
+            # SQLite refuses a number immediately followed by an identifier character and names
+            # the whole run in the message: `1e` -> unrecognized token: "1e", `2e+` -> "2e",
+            # `1e5e5` -> "1e5e5" (verified against 3.54.0 and 3.51.0).
+            nxt = sc.sql[sc.i:sc.i + 1]
+            if nxt and nxt in IDENT_START:
+                tail = _NUM_TAIL_RE.match(sc.sql, sc.i).group()
+                raise LexError(f'unrecognized token: "{text}{tail}"', start_i, start_line, start_col,
+                               snippet=text + tail)
+            if text in (".",):
                 raise LexError("malformed number", start_i, start_line, start_col, snippet=text)
             tokens.append(Token("NUMBER", text, start_i, start_line, start_col,
                                 raw=sc.sql[start_i:sc.i]))
