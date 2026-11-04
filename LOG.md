@@ -2788,6 +2788,36 @@ Nothing above the first entry was edited in the move.
   *Gate 4 battery in the same pass (load 2.11 → 2.79, in window at the readings):* corpus
   **293/293**, syntax **46/46**, fuzz seed 1 **1** mismatch (the known case-119 rejection), seed 7
   **0**, `make verify` **PASS 5/5** — **GATE 4 PASS**.
-  *Not run in this pass:* the `w9_split` calibration and gate 2. Both need their own fresh in-window
-  reading, and gate 2 prices last; the capture above is complete and self-contained, so nothing is
-  half-recorded. Artifact: `~/.hermes/profiles/engineer/cache/scratch/session-baseline-capture.txt`.
+  *Run after this capture, in the same session:* the `w9_split` calibration and gate 2 — see the next
+  entry, which supersedes this paragraph's "not run" line; this capture stands as recorded. Artifact:
+  `~/.hermes/profiles/engineer/cache/scratch/session-baseline-capture.txt`.
+
+- **Settled session, completed: gate 4 PASS; gates 1, 2 and 3 MISS — and gate 2's miss is the first
+  run where the conservative denominator changes the call.** All events ran at `731c1e8` (the
+  calibration with the settle patch committed alongside this entry), each on its own in-window
+  reading, fixture identities asserted, and the gate-2 artifact certified by `--gate-only` before
+  its numbers were read.
+  *Gate 2 (W9, 100k, N=11, pre-load **2.47**, after 2.29):* sqlite median **48.87** (raw `46.77
+  50.65 61.33 50.37 55.69 48.63 50.04 48.87 46.49 40.64 44.41`, band **42.3%**), minidb median
+  **2733.38** (raw `2693.59 3276.98 3145.78 2780.54 2639.75 2722.23 2778.29 2712.88 2733.38
+  2654.61 2785.06`, band **23.3%**). `ratio` = **55.932**, `ratio_min` = **67.258** → **MISS**. The
+  two estimators straddle 60 for the first time: median/median would have passed, and the minimum
+  denominator — adopted by the freeze before any result existed — says the reference leg ran
+  differentially slow (min 40.64 against a 48.87 median, a 42.3% span). The gate call reads
+  `ratio_min`; the trend line keeps 55.932.
+  *Calibration (`w9_split`, N=11, pre-load **2.60**, per-sample loads 2.60–2.90):* open+count median
+  **2745.22 ms** (raw `3493.32 3239.15 2704.72 2911.27 2745.22 2721.27 2712.71 2718.74 2921.69
+  2742.05 3089.75`), band **28.7%**, SD 262.61, CV **9.0%**, SE(median) **99.2 ms = 3.6%**; open
+  median 17.19 ms (0.34 ms/open); count share **54.56 ms/cycle**. This replaces the indicative σ:
+  the walk judge is an N≥11 median difference with the 28.7% span as context, and a 12% win is
+  **t = 3.32** at this σ — the power the freeze assumed, now measured.
+  *Instrument fix made during the session, and why:* the first calibration attempt printed
+  `loadavg=3.85` — outside the window — because the 100k build raises the very 1-minute average the
+  run is judged by. That attempt is **not** a calibration and is recorded as an out-of-window run
+  (open+count 2899.84, band 33.4%). `w9_split` now **settles** after the build (polls until load is
+  back inside [1.0, 3.0], 180 s cap) and prints the wait plus a loud `WINDOW NOT MET` line when it
+  cannot get there. The re-run settled at 2.60 and is the calibration above.
+  *Session verdict, stated plainly:* **one gate passes, three miss.** Gates 1 and 3 are untouched by
+  the two candidates (their subjects are the reference decode path and the 10k `db.run` loop); gate
+  2 moved a long way (400 → 67 on this denominator series) and still misses the frozen 60. No
+  threshold moved, none widened, and the goal-6 targets stand unmet on the record.

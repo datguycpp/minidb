@@ -94,6 +94,23 @@ def band_percent(values):
     return 0.0 if median == 0 else (max(values) - min(values)) / median * 100.0
 
 
+def settle(cap=180.0):
+    """Wait for the build's own load to decay before the timed region.
+
+    The 100k build is CPU-heavy and raises the very 1-minute average the run is about to be judged
+    by: a reading taken straight after it measures the setup, not the box the samples run on. Poll
+    until the load is back inside the frozen [1.0, 3.0] window, or the cap expires.
+    """
+    start = time.time()
+    while True:
+        current = loadavg()
+        if current is not None and current <= 3.0:
+            return current, time.time() - start
+        if time.time() - start >= cap:
+            return current, time.time() - start
+        time.sleep(5)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rows", type=int, default=100000)
@@ -109,7 +126,11 @@ def main():
     build(path, args.rows)
     size = os.path.getsize(path)
 
-    load_before = loadavg()
+    load_before, waited = settle()
+    print("settled: %.0fs after the build, loadavg=%s"
+          % (waited, "n/a" if load_before is None else "%.2f" % load_before))
+    if load_before is None or not (1.0 <= load_before <= 3.0):
+        print("WINDOW NOT MET: this run cannot calibrate the gate band; label it non-gate evidence.")
     print("W9 SPLIT  rows=%d  repeats=%d  N=%d  file_bytes=%d" % (args.rows, REPEATS, args.n, size))
     print("note: component measurement, not gate 2 -- no reference engine, no ratio; counts are a "
           "fresh open each cycle, so neither shape is measured warm.")
