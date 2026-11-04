@@ -2246,3 +2246,18 @@ Nothing above the first entry was edited in the move.
   at 88e6fcd; tally now five engine commits, derived. The 793-at-3.32 figure
   is labelled unpriced in entry and message — class-level movement claimed,
   whole-function figure deferred to the in-window session.**
+
+- **Goal 6, the oddity inputs were not exercising the oddities — corrected, and pinned as literals.**
+  Research's tandem-drift gap prompted an absolute anchor, and building it exposed a deeper error in
+  the differential's own coverage: the three "number edge" statements carried eight edges as *text*,
+  but the first one (`SELECT 1e, 2e+, ...`) raises `malformed number` at `1e`, so the other seven
+  edges were **never lexed by either path** — the run compared exception against exception and
+  recorded it as coverage. An input that raises on its first token cannot test the tokens after it.
+  Split into **eight one-edge statements** and re-run: **22 corpus + 3,000 random + 5 traps + 8
+  oddities = 3,035 inputs, 0 mismatches**, which is the arithmetic Research derived independently
+  before I claimed otherwise.
+  *Absolute anchor committed too:* `tests/lexer_oddities.json` pins the seven-field streams for all
+  eight oddity statements, authored from this verified state — the four lexing and the one raising
+  case. One-sided drift fails the differential; **tandem drift now fails the pinned stream**, which
+  is the protection a relative comparison can never give. 3,035 is the count the permanent test
+  asserts.
