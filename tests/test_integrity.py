@@ -9,9 +9,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from minidb.engine import Database  # noqa: E402
-from minidb.storage.pager import StorageError, _OFF_PAGE_COUNT, _OFF_VERSION  # noqa: E402
+from minidb.storage.pager import (  # noqa: E402
+    Pager, StorageError, _OFF_PAGE_COUNT, _OFF_VERSION)
 
 PAGE_SIZE = 4096
+
+
+def fingerprint(path):
+    """File bytes plus WAL length: what a rejected open must leave exactly as it found it."""
+    import hashlib
+    with open(path, "rb") as handle:
+        digest = hashlib.sha256(handle.read()).hexdigest()
+    wal = path + ".wal"
+    return digest, os.path.getsize(wal) if os.path.exists(wal) else None
 
 
 def build():
@@ -75,6 +85,24 @@ class TestIntegrityCheck(unittest.TestCase):
         with self.assertRaises(StorageError):
             db = Database(path)
             db.run("SELECT count(*) FROM t")
+
+    def test_catalog_corruption_is_refused_without_touching_the_file(self):
+        # Break the catalog page, not the header: a page-0 break dies inside Pager.__init__ and
+        # would test the wrong guard. This one dies in DiskStorage._load_catalog -- the seat where
+        # _ensure_catalog may already have staged a page and a header, so the cleanup there must
+        # discard rather than commit.
+        path = build()
+        reader = Pager(path)
+        root = reader.catalog_root
+        reader.close()
+        self.assertNotEqual(root, 0, "a built database must have a catalog root")
+        flip(path, root * PAGE_SIZE + 14)
+        before = fingerprint(path)
+        with self.assertRaises(StorageError) as ctx:
+            Database(path)
+        self.assertIn(f"page {root}", str(ctx.exception))
+        self.assertEqual(fingerprint(path), before,
+                         "a refused open wrote to the file it rejected")
 
 
 if __name__ == "__main__":

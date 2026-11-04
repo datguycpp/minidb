@@ -19,8 +19,14 @@ class DiskStorage:
         self.pager = Pager(path, readonly=readonly, repl_log=repl_log)
         self.tree = BTree(self.pager)
         self.catalog = {}          # lower(name) -> {"name", "sql", "root", "next_rowid", "key"}
-        self._ensure_catalog()
-        self._load_catalog()
+        try:
+            self._ensure_catalog()
+            self._load_catalog()
+        except StorageError:
+            # `_ensure_catalog` can stage a page and a header before the catalog read fails, so
+            # this is a discard, not a close: commit would write into a file the open rejected.
+            self.pager.abandon()
+            raise
 
     def _ensure_catalog(self):
         """A rolled-back transaction can leave the header pointing at no catalog at all."""
@@ -163,3 +169,7 @@ class DiskStorage:
     # -- lifecycle ----------------------------------------------------------
     def close(self):
         self.pager.close()
+
+    def abandon(self):
+        """A failed open: release the page file without writing staged state."""
+        self.pager.abandon()

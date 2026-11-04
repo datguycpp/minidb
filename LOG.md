@@ -2452,3 +2452,21 @@ Nothing above the first entry was edited in the move.
   `_read_header` raises inside `Pager.__init__`, and close `self.pager` when `DiskStorage.__init__`
   fails in `_ensure_catalog`/`_load_catalog`. That is a storage change, not a test change, so it
   waits for its own approval and commit rather than riding in this one.
+
+- **Failed opens release the page file without writing: the last four warnings go to zero, and the
+  guard discards rather than closes.** Three constructors can raise after the page file is open,
+  and in each the caller never receives the object: `Pager.__init__` on a rejected header,
+  `DiskStorage.__init__` on a catalog read, `Database.__init__` in `_load_schema` — where the
+  truncated tail actually dies, rebuilding an index. Each seat now calls a new `abandon()`: drop
+  `dirty` and the page cache, unlock, close, **no commit**, because `close()` flushes whatever is
+  staged into the file the open just rejected. The staged case is reachable: `_ensure_catalog` sees
+  `catalog_root == 0` after a rolled-back transaction and stages a page plus a header before
+  `_load_catalog` runs, which is exactly why plain `close()` was unsafe there. Two tests pin the
+  property: `test_abandon_discards_staged_pages_without_writing` stages a page and a header, then
+  asserts the file bytes are unchanged and the handle closed; and
+  `test_catalog_corruption_is_refused_without_touching_the_file` corrupts the **catalog** page with
+  page 0 left valid, so the raise lands in `_load_catalog` (the `DiskStorage` seat) rather than in
+  `Pager.__init__`, asserts the error names that page, and asserts file SHA-256 and `.wal` size are
+  identical before and after. Measured: full suite under `-W always::ResourceWarning` is **569 tests
+  OK, 0 unclosed-file warnings** (4 before); corpus 293/293 at `d46618e`; `make verify` PASS 5/5,
+  including 100/100 crash iterations.

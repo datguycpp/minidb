@@ -53,6 +53,16 @@ class TestPager(TempDb):
             Pager(self.path)
         self.assertIn("not a MiniDB file", str(ctx.exception))
 
+    def test_abandon_discards_staged_pages_without_writing(self):
+        pager = Pager(self.path)
+        pager.allocate()                      # stages one page and the header, uncommitted
+        with open(self.path, "rb") as handle:
+            before = handle.read()
+        pager.abandon()
+        self.assertTrue(pager.fh.closed)
+        with open(self.path, "rb") as handle:
+            self.assertEqual(handle.read(), before, "abandon committed staged pages")
+
 
 class TestRecord(unittest.TestCase):
     def test_roundtrip_all_types(self):

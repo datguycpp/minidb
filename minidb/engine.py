@@ -1050,7 +1050,15 @@ class Database:
             self.read_only = True
             self._load_sqlite_file(path)
         elif self.storage is not None:
-            self._load_schema()
+            try:
+                self._load_schema()
+            except Exception:
+                # Opening is not complete until the schema is rebuilt, and that walk reads table
+                # pages: truncation, a checksum mismatch or corrupt catalog SQL all land here.
+                # The caller never receives this Database, so this is the last chance to release
+                # the page file -- as a discard, since the open is being rejected.
+                self.storage.abandon()
+                raise
 
     def _load_schema(self):
         from .sql.parser import parse

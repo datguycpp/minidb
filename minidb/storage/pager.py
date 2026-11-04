@@ -137,7 +137,12 @@ class Pager:
             self._stage_header()
             self.commit()
         else:
-            self._read_header()
+            try:
+                self._read_header()
+            except StorageError:
+                # No Pager reaches the caller, so this is the only chance to release the handle.
+                self.abandon()
+                raise
 
     # -- header (page 0) ----------------------------------------------------
     def _header_page(self):
@@ -404,6 +409,22 @@ class Pager:
         self.commit()
         self.fh.flush()
         os.fsync(self.fh.fileno())
+        self.fh.close()
+
+    def abandon(self):
+        """Release a handle whose owner never finished constructing.
+
+        `close()` commits whatever is staged, which is wrong for an open that has already been
+        rejected: those pages would land in a file the caller has just been told cannot be read.
+        Nothing has reached the disk yet, so dropping the staged set is the whole undo, and the
+        handle is released without a commit.
+        """
+        self.dirty.clear()
+        self.cache.clear()
+        try:
+            fcntl.flock(self.fh.fileno(), fcntl.LOCK_UN)
+        except (OSError, ValueError):     # already closed: abandon() is idempotent
+            pass
         self.fh.close()
 
     def __enter__(self):
