@@ -1925,6 +1925,8 @@ Nothing above the first entry was edited in the move.
   ≤ 4215.4 ms (engineer's 4215 ✓); band = (max − min) / median = 57.9% (parse) and 37.7%
   (block) → gate 1's block must land ≤ ≈ 488 ms (down ≥ 37.7%). Both ceilings are derived
   from the baseline by definition, not independently chosen.
+  *Amended 2026-11-04: superseded by the quiet re-capture at `d89f689` (entry below). Gate 1's
+  operative ceiling is ≤ 259.0 ms; 488 stands as the loud-box contrast only, not a live threshold.*
   *The hole:* gates 1 and 3 compare across TIME (frozen baseline vs post-run); gate 2 is
   same-run against real SQLite and therefore immune — which is exactly why the charter
   anchors externally in-run. The baselines were captured at **loadavg 5.77**: the block
