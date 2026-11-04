@@ -2109,7 +2109,17 @@ Nothing above the first entry was edited in the move.
   equality rather than a pinned constant because a constant has gone stale twice in two rounds
   (3,022 -> 3,025-claimed -> 3,030); 3,030 stays in this entry as the worked example of the
   current set, not as the assertion's frozen target. The named class list is what the file-time
-  audit checks the header against; **(b) a canary pair** —
+  audit checks the header against. *The equality's two sides must be independent or the canary
+  is a tautology:* the header side is the **declared expected** class sizes (corpus files present,
+  3,000 seeded, 5 traps, 3 oddity statements — all known before any generator runs), the other is
+  the **executed comparison counter**, never `len()` of the same lists; summing a concatenation
+  against its own total holds by construction and catches nothing, whereas a swallowed exception
+  or an early break must be what fails the equality. The declared side is asserted non-zero, so an
+  empty generator gives `0 != expected`, not `0 == 0`. Canary (b) proves the comparator can fire;
+  this proves the count assertion can fail. *Both paths must exist in the tree:* the char-loop
+  lexer is retained as a named reference (`_tokenize_scanner`) beside the fast `tokenize`,
+  because comparing a function with itself is the vacuity the scheduling rule already forbids.
+  **(b) a canary pair** —
   one deliberately-different token sequence fed to the comparator with the assertion that it is
   *flagged*, proving the comparison machinery itself can fire. Scheduling covers "both paths are
   the same implementation"; these cover "the comparator is blind", which no amount of correct
