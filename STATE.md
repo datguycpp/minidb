@@ -86,7 +86,7 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   stage only your own change (shared-file diff check). Seam spec (7a8e750): lexer_equiv test,
   seed 4242, repro, 7-field tuple, canaries, traps + oddities; canary (a) = part-sum equality, independent sides, non-zero (132d79a).
   Change 5 (88e6fcd, 562+293 verified): numbers one regex run, quirks kept; full-set 3035-diff 0 (edges split); fixture execution-verified (f16ae59); 793@3.32 unpriced.
-  Change 6 (0399c54, 562+293 cold-executed): exponent needs digit, ident-tail raises SQLite spans; crash (2e+) + divergence (1e5e5) fixed, fixture regenerated; tranche parked post-gate.
+  Change 6 (0399c54, 562+293 cold-executed): exponent needs digit, ident-tail raises SQLite spans; crash (2e+) + divergence (1e5e5) fixed, fixture regenerated; tranche in-tree (f265f48) with 9th entry + test rename, strays removed.
   Gate order (1b502d5): settled session (1+3, load [1.0,3.0]) → W9 bench (2) → parity battery (4).
 
 ## Open items
