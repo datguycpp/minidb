@@ -2212,9 +2212,15 @@ Nothing above the first entry was edited in the move.
   sign and digits — including its quirks: `1e` still raises `malformed number` because the pattern
   permits a trailing `e` and the existing check fires on it, and `2e+` still lexes as the NUMBER
   `2e+` because that is what the loop did. Equivalence: **3,025 inputs, 0 mismatches** on the
-  seven-field tuple, now including the number edge cases (`1e`, `2e+`, `.5`, `4.`, `5.5.5`, — derived, not recalled: **22 corpus files + 3,000 seeded random strings + 3 statements
-  carrying the 8 number edges = 3,025**. Nothing was dropped; the edges ride inside three
-  SELECTs, which is why 3,025 and not 3,035.
+  seven-field tuple, now including the number edge cases (`1e`, `2e+`, `.5`, `4.`, `5.5.5`, — derived, not recalled, and **the parts must match the claim**. The 3,025 run was
+  **22 corpus files + 3,000 seeded random strings + 3 number-edge statements**, and it did
+  **not** include the five position traps: this was a numbers-only change, so the run-then-derive
+  guard had nothing new to exercise (it was last proven with traps in the 3,027 run at `1131b26`).
+  That omission was not stated in the first version of this entry; it is stated now, because a
+  derivation that reaches the right total while silently missing a claimed component fails the
+  same audit as one that does not add up. **Re-run with both components present: 22 corpus +
+  3,000 random + 5 traps + 3 edges = 3,030 inputs, 0 mismatches.** That 3,030 is the number the
+  permanent test's canary asserts.
   `1e5e5`, `.5e2`), suite 562 OK, corpus 293/293.
   Measured at loadavg 3.32, outside the gate window: `tokenize` 10k median **793 ms**; class
   isolation identifiers **1,546 -> 985 ns/char** (110.7 -> 69.9 us/statement) and numbers
