@@ -282,5 +282,10 @@
     ]
    ]
   ]
+ ],
+ "SELECT 123abc FROM t": [
+  "EXC",
+  "LexError",
+  "unrecognized token: \"123abc\""
  ]
 }

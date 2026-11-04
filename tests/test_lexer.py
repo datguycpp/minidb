@@ -76,7 +76,7 @@ class TestLexer(unittest.TestCase):
         self.assertIn("unexpected character", ctx.exception.message)
         self.assertEqual(str(ctx.exception), 'unrecognized token: "#"')
 
-    def test_malformed_number(self):
+    def test_a_dangling_exponent_is_an_unrecognized_token(self):
         with self.assertRaises(LexError) as ctx:
             tokenize("SELECT 1e")
         self.assertEqual(str(ctx.exception), 'unrecognized token: "1e"')
