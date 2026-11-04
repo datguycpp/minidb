@@ -123,6 +123,7 @@ def parse(path, require_header=True, allow_demo=False):
                             current[f"band_{leg}"] = float(band.group(1))
                     break
             else:
+                matched_loads = False
                 for pattern, key in ((SQLITE_LOADS, "loads_sq"), (MINIDB_LOADS, "loads_md")):
                     match = pattern.match(line)
                     if match:
@@ -132,7 +133,19 @@ def parse(path, require_header=True, allow_demo=False):
                         span = LOAD_SPAN.search(line)
                         if span:
                             current[key.replace("loads", "span")] = float(span.group(1))
+                        matched_loads = True
                         break
+                if not matched_loads:
+                    stripped = line.strip()
+                    if stripped.startswith(("sqlite_loads=", "minidb_loads=")):
+                        leg = "sqlite" if stripped.startswith("sqlite_loads=") else "minidb"
+                        body = stripped.split("[", 1)[1].split("]", 1)[0] if "[" in stripped else ""
+                        tokens = body.split()
+                        bad = next((i for i, token in enumerate(tokens) if token == "n/a"), None)
+                        if bad is not None:
+                            raise ValueError(f"{path}:{lineno}: load unreadable at sample {bad} on "
+                                             f"the {leg} trace — trace incomplete")
+                        raise ValueError(f"{path}:{lineno}: unparseable {leg} load trace")
     return runs
 
 
@@ -157,7 +170,7 @@ def check(label, runs, expected, gate=False):
         elif run["status"] == "OK":
             keys = ["sqlite_ms", "minidb_ms", "ratio"]
             if gate:
-                keys += ["ratio_min", "band_sq", "band_md"]
+                keys += ["ratio_min", "band_sq", "band_md", "span_sq", "span_md"]
             gaps = [key for key in keys if key not in run]
             if gaps:
                 problems.append(f"{label}: workload {name} has no {', '.join(gaps)} — partial row")
@@ -244,6 +257,16 @@ def consistency(label, runs, expected, gate=False):
                     problems.append(f"{label}: workload {name} says band_{leg}="
                                     f"{run[f'band_{leg}']:.1f}% but its raw samples give "
                                     f"{derived_band:.1f}%")
+            loads = run.get(f"loads_{leg}")
+            if loads and f"span_{leg}" in run:
+                derived_span = max(loads) - min(loads)
+                # 0.011: both the trace and the field print at 2 dp, so a faithful span agrees
+                # exactly; anything past one rounding step is a different trace or a stale field.
+                if abs(derived_span - run[f"span_{leg}"]) > 0.011:
+                    problems.append(f"{label}: workload {name} says span_{leg}="
+                                    f"{run[f'span_{leg}']:.2f} but its load trace gives "
+                                    f"{derived_span:.2f} — the trace moved further than the field "
+                                    f"admits")
     return problems
 
 

@@ -34,7 +34,8 @@ def band_percent(values):
 
 def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ratio_override=None,
               discard=(), errored=(), bare=(), n=7, omit=(), ratio_min_override=None,
-              band_override=None, loadavg=2.0, raw_label="raw", header_n=None, demo=False):
+              band_override=None, loadavg=2.0, raw_label="raw", header_n=None, demo=False,
+              trace=None, span_override=None):
     """A file in the harness's printed shape: header, then per-workload blocks.
 
     The two sides move independently so a denominator-only move can be modelled: that is the
@@ -65,6 +66,10 @@ def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ra
         minidb_ms = base * ratio * minidb_shift
         shown_ratio = (ratio_override or {}).get(name, minidb_ms / sqlite_ms)
         samples_sq, samples_md = [sqlite_ms] * n, [minidb_ms] * n
+        samples_loads = trace if trace is not None else [loadavg] * n
+        spans = span_override or {}
+        span_sq = spans.get("sq", max(samples_loads) - min(samples_loads))
+        span_md = spans.get("md", max(samples_loads) - min(samples_loads))
         shown_min = (ratio_min_override or {}).get(name, statistics.median(samples_md) / min(samples_sq))
         band_sq = (band_override or {}).get(("sq", name), band_percent(samples_sq))
         band_md = (band_override or {}).get(("md", name), band_percent(samples_md))
@@ -76,16 +81,18 @@ def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ra
                   f"     sqlite_ms median={statistics.median(samples_sq):.2f}  {raw_label}=[ "
                   f"{' '.join('%.2f' % x for x in samples_sq)} ]"]
         if "loads" not in omit:
-            lines.append(f"     sqlite_loads=[ {' '.join('%.2f' % loadavg for _ in samples_sq)} ]"
-                         f"  load_span=0.00")
+            span_text = "" if "span" in omit else f"  load_span={span_sq:.2f}"
+            lines.append(f"     sqlite_loads=[ {' '.join('%.2f' % x for x in samples_loads)} ]"
+                         f"{span_text}")
         lines.append(f"     minidb_ms median={statistics.median(samples_md):.2f}  {raw_label}=[ "
                      f"{' '.join('%.2f' % x for x in samples_md)} ]  band={band_md:.1f}%"
                      if "band" not in omit else
                      f"     minidb_ms median={statistics.median(samples_md):.2f}  {raw_label}=[ "
                      f"{' '.join('%.2f' % x for x in samples_md)} ]")
         if "loads" not in omit:
-            lines.append(f"     minidb_loads=[ {' '.join('%.2f' % loadavg for _ in samples_md)} ]"
-                         f"  load_span=0.00")
+            span_text = "" if "span" in omit else f"  load_span={span_md:.2f}"
+            lines.append(f"     minidb_loads=[ {' '.join('%.2f' % x for x in samples_loads)} ]"
+                         f"{span_text}")
         tail = f"     ratio={shown_ratio:.3f}  output: {output}"
         if "ratio_min" not in omit:
             tail += f"  ratio_min={shown_min:.3f}"
@@ -177,6 +184,33 @@ class GateCertificationTest(unittest.TestCase):
 
     def test_a_complete_gate_artifact_passes(self):
         self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11)), 0)
+
+    def test_a_declared_span_that_contradicts_a_flat_trace_fails_gate(self):
+        # QA's construction: flat 2.00 trace, declared span 0.99. The field is the only place the
+        # run's drift would be reported, and the trace says the run never moved.
+        artifact = write_run(self.path("g.txt"), n=11, span_override={"sq": 0.99, "md": 0.99})
+        self.assertEqual(self.gate(artifact), 2)
+
+    def test_a_trace_that_drifts_under_a_small_declared_span_fails_gate(self):
+        # Research's inverse, the dangerous direction: real span 1.30 (2.10 -> 3.40) admitted as
+        # 0.55. Certifying this would let a call price a run the frozen rule calls INCONCLUSIVE.
+        trace = [2.10 + 0.13 * i for i in range(11)]
+        artifact = write_run(self.path("g.txt"), n=11, trace=trace,
+                             span_override={"sq": 0.55, "md": 0.55})
+        self.assertEqual(self.gate(artifact), 2)
+
+    def test_a_missing_span_field_fails_gate(self):
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11, omit=("span",))), 2)
+
+    def test_an_unreadable_load_sample_is_named_not_silently_absent(self):
+        artifact = write_run(self.path("g.txt"), n=11)
+        with open(artifact, encoding="utf-8") as handle:
+            text = handle.read()
+        with open(artifact, "w", encoding="utf-8") as handle:
+            handle.write(text.replace("sqlite_loads=[ 2.00", "sqlite_loads=[ n/a", 1))
+        with self.assertRaises(ValueError) as caught:
+            bench_pair.parse(artifact)
+        self.assertIn("load unreadable at sample 0", str(caught.exception))
 
     def test_a_missing_ratio_min_fails_certification(self):
         self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11, omit=("ratio_min",))), 2)

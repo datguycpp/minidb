@@ -2849,3 +2849,42 @@ Nothing above the first entry was edited in the move.
   than hand arithmetic. `w9_split` now prints `file_sha256=` beside `file_bytes`, closing the
   calibration-input identity loop Research flagged (optional, done because the instrument was open).
   Suite **589 OK** at this commit; tools and LOG only, no engine change.
+
+- **Postscript to the drift amendment: the span field is now checked, and the checker's seal is not
+  the window's.** Three holes named against `69969e3`, all closed here.
+  *1. `load_span` was parsed and never validated* — the `ratio_min` hole in a new field: a declared
+  `load_span=0.10` over a trace spanning 3.4 certified COMPLETE. Gate mode now **requires**
+  `span_sq`/`span_md` and **re-derives** max − min from the printed `*_loads=` trace, tolerance
+  **0.011** (both print at 2 dp, so a faithful span agrees exactly; one rounding step is the whole
+  budget). Two fixtures pin it, in both directions: a flat trace declared as 0.99 refuses, and the
+  dangerous inverse — a real **1.30** span (2.10 → 3.40) declared as **0.55** — refuses too. The
+  second is the one that matters: certifying it would manufacture a gate call on a run the frozen
+  rule says is INCONCLUSIVE.
+  *2. The call-time verdict must read the recomputed span, not the declared field.* Otherwise
+  certification is honest against a lie while the judge consults the unvalidated copy. The rule
+  text already said "the emitted trace"; this makes it mechanical — **nothing gates or triggers on a
+  declared summary when the artifact carries the raws it was computed from**, which is the general
+  form of both the `ratio_min` fix and this one.
+  *3. An unreadable sample now names itself.* `benchmark.py` prints `n/a` for an unreadable reading;
+  the checker's load regex then failed the whole line and the artifact was reported as having "no
+  sqlite_loads" — right verdict, wrong diagnosis. It now raises `load unreadable at sample k on the
+  <leg> trace — trace incomplete`, which is the message that tells a caller a rerun is the answer.
+  *Taxonomy, stated so neither class is over-read:* every recompute here — bands, `ratio`,
+  `ratio_min`, and now `load_span` — is **internal consistency between an emitted summary and the
+  artifact's own declared raws**. The fix makes `load_span` consistent with its trace; it does not
+  make the trace true, and no artifact field can. The raws stay declared, which is what the
+  recomputed/declared split exists to keep visible.
+  *Boundary sentence, so a clean seal is never read as a satisfied window:* `--gate-only` does **not**
+  apply the INCONCLUSIVE rule. It certifies completeness and self-consistency; the rule is a
+  **call-time verdict** read off the emitted trace, exactly as the 60× threshold is a call-time read
+  and never a certification failure (the `>60×` artifact still certifies, pinned by test). Exit 0 on
+  an out-of-window artifact means the artifact is fit to be read, not that its run is admissible.
+  *Reconciliation clause for the corrected gate-2 quote:* `ratio`/`ratio_min` are computed from
+  **unrounded internals**; re-deriving from the printed raws reproduces them to print precision
+  (55.937 vs 55.932 = 0.005, ≈8.9 × 10⁻⁵ relative; 67.257 vs 67.258 = 0.001, ≈1.5 × 10⁻⁵; both
+  ~670× inside the 1% gate tolerance) — **quote the emitted fields, and treat a re-derived match at
+  print precision as agreement, not discrepancy.**
+  *Verification:* the four new fixtures fail for the stated reasons before the fix and pass after
+  (the complete artifact had regressed to exit 2 when the diagnostic was first placed before the
+  parser — caught by the suite, fixed by ordering the parse first). Suite **593 OK**; tools, tests
+  and LOG only.
