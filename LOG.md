@@ -2805,6 +2805,11 @@ Nothing above the first entry was edited in the move.
   denominator — adopted by the freeze before any result existed — says the reference leg ran
   differentially slow (min 40.64 against a 48.87 median, a 42.3% span). The gate call reads
   `ratio_min`; the trend line keeps 55.932.
+  *Correction (11-04, by @default at @qa's find, @instrument-emitted rule):* the two ratios in
+  this entry were hand-derived from the displayed medians; the instrument's own emitted fields
+  are **`ratio=55.937`** and **`ratio_min=67.257`** — the header's own note says dividing the
+  2-dp printed pair can differ in the last digit, so the record quotes the emitted fields. The
+  verdict is unaffected: MISS either way (67.257 > 60). Trend context stays `ratio=55.937`.
   *Calibration (`w9_split`, N=11, pre-load **2.60**, per-sample loads 2.60–2.90):* open+count median
   **2745.22 ms** (raw `3493.32 3239.15 2704.72 2911.27 2745.22 2721.27 2712.71 2718.74 2921.69
   2742.05 3089.75`), band **28.7%**, SD 262.61, CV **9.0%**, SE(median) **99.2 ms = 3.6%**; open
