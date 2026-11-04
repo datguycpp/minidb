@@ -2105,3 +2105,15 @@ Nothing above the first entry was edited in the move.
   together**, so both gates and every component read from the same load-matched pair rather than
   two sessions at different loads. The rule exists to stop load deciding gates; the schedule
   should respect it rather than discover it.
+
+- **Goal 6, scanner micro-step: punctuation matching via one compiled alternation (`a7f8d89`+).**
+  Each punctuation token was matched by up to 21 `str.startswith` calls against `PUNCTUATION`; it
+  is now a single `_PUNCT_RE.match` whose ordering is the list's own (longest first, and regex
+  alternation is first-match-wins), so longest-match semantics are preserved by construction.
+  *Equivalence evidence (the seam rule, applied at the token layer for this step):* old `tokenize`
+  from `HEAD~` versus the new one over **3,022 inputs — every corpus file plus 3,000 seeded
+  random strings (`random.Random(4242)`) over an alphabet with quotes, backticks, brackets,
+  newlines and a non-ASCII character — mismatches 0** on `(kind, value, raw, quote, line, col,
+  pos)`. Suite 562 OK, corpus 293/293.
+  Measured: `tokenize` 10k **865 -> 738 ms** (N=5, loadavg recorded in the run). Still 23% of the
+  loop in scanning; this is a step, not the scanner rewrite, and gate 3 is not claimed.

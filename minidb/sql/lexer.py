@@ -4,6 +4,7 @@ Produces tokens carrying their source position so parse errors can point at the 
 character instead of a line number nobody can trust.
 """
 
+import re
 from dataclasses import dataclass, field
 
 KEYWORDS = frozenset("""
@@ -25,6 +26,11 @@ PUNCTUATION = sorted(
     key=len,
     reverse=True,
 )
+
+# Alternation is first-match-wins and PUNCTUATION is sorted longest-first, so the list's
+# own ordering is what preserves longest-match semantics. One C-level scan replaces up to 21
+# startswith calls per punctuation token.
+_PUNCT_RE = re.compile("|".join(re.escape(p) for p in PUNCTUATION))
 
 IDENT_START = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$")
 IDENT_BODY = IDENT_START | set("0123456789")
@@ -236,11 +242,10 @@ def tokenize(sql):
                                 raw=sc.sql[start_i:sc.i]))
             continue
 
-        for punct in PUNCTUATION:
-            if sc.sql.startswith(punct, sc.i):
-                sc.advance(len(punct))
-                tokens.append(Token("PUNCT", punct, start_i, start_line, start_col,
-                                    raw=sc.sql[start_i:sc.i]))
-                break
-        else:
+        m = _PUNCT_RE.match(sc.sql, sc.i)
+        if m is None:
             raise LexError(f"unexpected character {ch!r}", start_i, start_line, start_col, snippet=ch)
+        punct = m.group()
+        sc.advance(len(punct))
+        tokens.append(Token("PUNCT", punct, start_i, start_line, start_col,
+                            raw=sc.sql[start_i:sc.i]))
