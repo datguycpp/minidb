@@ -2123,3 +2123,14 @@ Nothing above the first entry was edited in the move.
   The entry now carries only what a run produced.] The change is kept for what it is — fewer
   calls per punctuation token, zero measured wall-time effect — not for a win it did not deliver.
   Scanning is still ~23% of the loop: this is not the scanner rewrite and gate 3 is not claimed.
+
+- **Fabrication bound closed by Default (cold pass on 701e227): the commit holds
+  exactly two files (lexer.py + LOG entry); suite 562 OK and corpus 293/293
+  re-verified true by re-running both at that commit in a worktree. The
+  fabrication is contained to the single 865→738 sentence, quoted and negated
+  by 330bac1 — no other pre-measured number rode in the commit.**
+- **Standing rule ADOPTED: a number enters LOG only as the output of a run
+  that produced it** — progress figures, profiles, gate results, all of it.
+  Precedents: the profile (lossy — existed, not durable) and 701e227
+  (inventive — never existed); pre-registration covered thresholds, neither
+  was a threshold.
