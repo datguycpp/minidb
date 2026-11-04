@@ -2102,9 +2102,14 @@ Nothing above the first entry was edited in the move.
   assertion prints **the offending input plus both token sequences** on failure, because an
   equivalence test that only says "sequences differ" is half an instrument.
   *Anti-vacuity canaries, per the `--reopen` ruling that a test guarding behaviour ships with a
-  negative control:* **(a) an input-count assertion** — the run must compare a stated non-zero set
-  (the early differential's 3,022: corpus files plus the seeded random strings), so a generator
-  that silently yields nothing fails loudly instead of passing trivially; **(b) a canary pair** —
+  negative control:* **(a) a part-sum equality** — the run asserts that its input count equals
+  the sum its own header enumerates over the named classes (corpus files, seeded random strings,
+  position traps, preserved oddities), parts first and total second, so an empty or truncated
+  generator fails the equality (0 != part-sum) instead of passing trivially. The clause is an
+  equality rather than a pinned constant because a constant has gone stale twice in two rounds
+  (3,022 -> 3,025-claimed -> 3,030); 3,030 stays in this entry as the worked example of the
+  current set, not as the assertion's frozen target. The named class list is what the file-time
+  audit checks the header against; **(b) a canary pair** —
   one deliberately-different token sequence fed to the comparator with the assertion that it is
   *flagged*, proving the comparison machinery itself can fire. Scheduling covers "both paths are
   the same implementation"; these cover "the comparator is blind", which no amount of correct
