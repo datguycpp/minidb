@@ -85,7 +85,7 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   Change 4 (1131b26, 562+293 verified): bulk runs, derived line/col; 3027-diff 0 (5 traps); 812@3.80 moved, not priced. Isolation (5592a4d): sweep clean.
   Rules: numbers enter LOG only as run output; commit follows a verified write (read it back);
   stage only your own change (shared-file diff check). Seam spec (7a8e750): lexer_equiv test,
-  seed 4242, repro, 7-field tuple, canaries (4d66db1), 5 traps (98ffb3f).
+  seed 4242, repro, 7-field tuple, canaries (4d66db1), 5 traps (98ffb3f; sentence repaired bdbb12c).
   Incident (7e511fa): failed patch + && chain committed Default's LOG line under engineer's message; stands, corrected in 98ffb3f.
   Gate order (1b502d5): settled session (1+3, load [1.0,3.0]) → W9 bench (2) → parity battery (4).
 
