@@ -2383,3 +2383,22 @@ Nothing above the first entry was edited in the move.
   because every future conformance fix creates one more fast-versus-reference divergence, and this
   set is where those changes get ledgered deliberately. The file-time audit gains one line: the
   exception set matches the spec's named two and nothing wider.
+
+- **Goal 6, the equivalence file landed: 566 tests OK, corpus 293/293.**
+  `tests/test_lexer_equivalence.py` (127 lines) implements the frozen standard and found three real
+  design errors while being built, each fixed in the file rather than in the spec:
+  1. **The exception set could not be a list of two strings.** The random component produces
+     number-adjacent-identifier inputs *generically* (`3b`, `5.b1`, `.4b`), so a fixed two-entry
+     list failed on correct behaviour. It is now a closed **rule** — `sanctioned()` matches
+     `unrecognized token: "<run>"` where the run starts at a digit or dot and contains at least one
+     identifier character — anchored to the executed oracle table, with a test asserting the rule
+     rejects a pure number and a non-`LexError`.
+  2. **The fixture values were single-entry wrap lists**, so the fixture comparison initially
+     compared a run against `(['OK', [...]],)`. Normalised at read time, and the fixture check runs
+     first, as the audit requires.
+  3. **Canary (b) was born green and therefore untested:** the shifted-position pair is now asserted
+     to differ, with the assertion's success being the proof the machinery fires.
+  *Coverage header per the spec:* the run reports the executed comparison counter against the
+  declared part-sum (22 corpus + 3,000 random + 5 traps + 9 oddities), with every declared term
+  asserted non-zero and the counter distinct from the lists it walks, so a truncated generator
+  fails rather than passing trivially.
