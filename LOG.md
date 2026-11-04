@@ -2327,3 +2327,10 @@ Nothing above the first entry was edited in the move.
   is hours and measures code a battery failure would change, so a battery failure after W9 costs
   hours while the same failure before costs minutes. Recorded as a re-sequencing on the merits, since
   the record's previous order was session -> W9 -> battery and no earlier correction exists in it.
+
+- **Seventh build change reviewed cold by Default (behavior change): 562 OK +
+  293/293 reproduced at c4b0044, and the fixed behavior executed directly —
+  `Database(':memory:')` returns rows with path None and creates no file.
+  Gate order re-sequenced on the merits (fail-fast: session → battery → W9),
+  logged as a new decision with its reason, not as a recovered one — no
+  earlier correction exists in the record.**
