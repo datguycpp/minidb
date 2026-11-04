@@ -78,11 +78,15 @@ def differ(fast, ref):
 
 def build_inputs():
     corpus = sorted(glob.glob(os.path.join(ROOT, "tests", "corpus", "*")))
-    corpus_sql = [open(path).read() for path in corpus]
+    corpus_sql = []
+    for path in corpus:
+        with open(path) as handle:          # closed here, not left to GC: build_inputs runs in
+            corpus_sql.append(handle.read())  # two tests, so a leak warns once per file per run
     rnd = random.Random(SEED)
     randoms = ["".join(rnd.choice(ALPHABET) for _ in range(rnd.randint(1, 60)))
                for _ in range(RANDOM_COUNT)]
-    fixture = json.load(open(os.path.join(ROOT, "tests", "lexer_oddities.json")))
+    with open(os.path.join(ROOT, "tests", "lexer_oddities.json")) as handle:
+        fixture = json.load(handle)
     return corpus_sql, randoms, list(TRAPS), list(fixture), fixture
 
 

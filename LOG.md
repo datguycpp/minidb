@@ -2424,3 +2424,18 @@ Nothing above the first entry was edited in the move.
   inputs executed directly — `0x1f`/`1_000` raise as declared, `12.5abc`/`.5x`
   raise as matches. Declare-not-fix accepted: hex/separator support is a
   feature beyond this goal, and the row says so plainly.**
+
+- **Lexer equivalence: the corpus handles are closed — 51 unclosed-file warnings to 5, and the
+  five that remain are attributed by tracemalloc rather than guessed.** `build_inputs()` read the
+  22 corpus files and `tests/lexer_oddities.json` with bare `open(...)`; two tests call it, so
+  that one file produced 46 of the suite's 51 unclosed-file warnings. Both sites now close with
+  `with`. Measured at `3070a26` in a worktree carrying the built accelerator (567 OK there too),
+  `-W always::ResourceWarning`: 51 warnings before, 5 after; suite 567 OK, coverage line unchanged
+  (`inputs=3036 tokens=12022 raised=2796`), corpus 293/293 at revision `d46618e`. The five that
+  remain are **test-side, not an engine leak**: `tests/test_explain.py:74` reads
+  `docs/plan-vocabulary.md` bare, and four `Database(path)` objects are never closed —
+  `test_integrity.py:61/68/76` (three `integrity.db` handles) and `test_storage.py:53`
+  (`test.db`) — each allocated at `storage/pager.py:110` through `disk.py:19` from
+  `engine.py:1019`. The pager holding a handle while the database is open is the design; the
+  absent `close()` is the test's, so that cleanup belongs in the tests and is left for its own
+  commit. This entry covers only the file `7c68bd7` added.
