@@ -2169,3 +2169,17 @@ Nothing above the first entry was edited in the move.
   ns/char, i.e. the diagnosis is spent). Reproduced at loadavg 1.89: ident 1,546 / number 2,135 /
   string 1,158 / **punct 3,229 ns per character** — the ordering that sent the build at `advance()`
   rather than at the token classes, which two earlier changes had already tried blind.
+
+- **Goal 6, bulk run-consumption for whitespace and identifiers (post-measurement, load noted).**
+  `advance()`'s per-character line/col bookkeeping was the cost, exactly as the class-isolation
+  instrument indicated. Two runs now consume in one step: whitespace via `_WS_RE` with line/col
+  derived from the consumed text (newline count and `rfind`, which is the run-then-derive design
+  the differential exists to police), and identifiers via `_IDENT_RE` + a new `skip(n)` that
+  advances without per-character work because an identifier can never contain a newline.
+  Measured after: `tokenize` 10k median **812 ms at loadavg 3.80** against 865 at 2.27 — recorded
+  with the load caveat rather than claimed as a gate-relevant win; the honest reading is "moved,
+  and the box was too loaded to price it".
+  *Equivalence:* **3,027 inputs, 0 mismatches** on the seven-field tuple — every corpus file,
+  3,000 seeded random strings, plus five hand-written position traps (multi-line string, trailing
+  newlines, line comment, multi-line block comment, leading whitespace-with-newline) that target
+  exactly where derived positions drift from tracked ones. Suite 562 OK, corpus 293/293.

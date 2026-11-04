@@ -30,6 +30,9 @@ PUNCTUATION = sorted(
 # Alternation is first-match-wins and PUNCTUATION is sorted longest-first, so the list's
 # own ordering is what preserves longest-match semantics. One C-level scan replaces up to 21
 # startswith calls per punctuation token.
+_WS_RE = re.compile(r"[ \t\r\n\f\v]+")
+_IDENT_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+
 _PUNCT_BY_LEN = {}
 for _p in PUNCTUATION:
     _PUNCT_BY_LEN.setdefault(len(_p), set()).add(_p)
@@ -99,11 +102,29 @@ class _Scanner:
                     self.col += 1
                 self.i += 1
 
+    def skip(self, n):
+        """Advance n characters known to contain no newline -- col only, one step.
+
+        The char-at-a-time `advance` exists because newlines must update line/col as they pass;
+        a run with no newline needs none of that bookkeeping, and identifiers/numbers can never
+        contain one.
+        """
+        self.i += n
+        self.col += n
+
     def skip_space_and_comments(self):
         while True:
             ch = self.peek()
             if ch in (" ", "\t", "\r", "\n", "\f", "\v"):
-                self.advance()
+                chunk = _WS_RE.match(self.sql, self.i).group()
+                newlines = chunk.count("\n")
+                if newlines:
+                    self.line += newlines
+                    # col after consuming the run: 1-based position of the char following it.
+                    self.col = len(chunk) - chunk.rfind("\n")
+                else:
+                    self.col += len(chunk)
+                self.i += len(chunk)
             elif ch == "-" and self.peek(1) == "-":
                 while self.peek() and self.peek() != "\n":
                     self.advance()
@@ -235,11 +256,8 @@ def tokenize(sql):
             continue
 
         if ch in IDENT_START:
-            buf = []
-            while sc.peek() in IDENT_BODY:
-                buf.append(sc.peek())
-                sc.advance()
-            word = "".join(buf)
+            word = _IDENT_RE.match(sc.sql, sc.i).group()
+            sc.skip(len(word))
             kind = "KEYWORD" if word.upper() in KEYWORDS else "IDENT"
             tokens.append(Token(kind, word, start_i, start_line, start_col,
                                 raw=sc.sql[start_i:sc.i]))
