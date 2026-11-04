@@ -2710,3 +2710,32 @@ Nothing above the first entry was edited in the move.
   shows it with the flag; `leg_report`'s normal path refuses its own demo artifact while `--demo`
   still exits 0 — the regression test Research asked for, which also closes the failure mode where
   the guard's own tests go green while the demo path silently breaks.
+
+- **The gate-1/3 baseline instrument is audited and fixed, and the timed region did not move.** The
+  frozen ceilings rest on `tests/skeptic/baseline_g6_quiet.py`, which had never been read against
+  this phase's standards. Four findings, all fixed, with the honest limit stated rather than
+  invented:
+  1. **Fixture provenance.** `LOOP` opened `/tmp/g6-tiny.db` and `BLOCK` a profile-scratch
+     `w9-fixture.db` — neither built nor hashed nor row-count-asserted, so a rebuilt input would
+     have silently measured a different baseline. The script now resolves each fixture (`G6_TINY_DB`
+     / `G6_W9_DB`, then a repo-local `tests/skeptic/fixtures/` copy, then the legacy path) and
+     prints **path, bytes and SHA-256** beside the load before timing. The frozen capture recorded
+     no hashes, so same-input on the baseline side is an **assumption the record now states**; from
+     here every capture is provable. Current identities: tiny **12,288 B**
+     `75848fa83f696ac65f683bc22c90139cbe3bae36e0bad13d90dd2c20e45afb7a`, w9 **8,085,504 B**
+     `f65d581dbef12f634ded07c1e5933fa6558e641dab435718ad29dfbc65d0db82`.
+  2. **One load reading per series.** A single process-start reading covered a span the `w9_split`
+     clumps showed this box drifts within; PARSEONLY, LOOP and BLOCK each print a load before and
+     after now.
+  3. **`show()` prints the count it printed** — `n=len(v)`, median at `len(v)//2` — instead of a
+     hardcoded `n=7` and index 3. For n=7 those are the same values, so the frozen series is
+     unchanged.
+  4. **Hardcoded absolutes gone.** The `sys.path` insert is derived from `__file__` and the fixture
+     paths resolve from env or relative locations, so a worktree re-run can reach the same inputs
+     instead of depending on one user's home directory.
+  *The timed region is untouched*, per Security's condition: `series()` is byte-identical —
+  `perf_counter` around a bare `fn()`, sorted, median at the middle index — so the `d89f689`
+  ceilings remain the referent and no fresh baseline is mandated. Output side only.
+  *Plumbing check (load 2.85 → 4.23, outside the window — not a capture and not gate evidence):*
+  the script runs end to end in 46 s, prints both fixture identities, per-series loads, and BLOCK
+  `rows=100000`.
