@@ -2183,3 +2183,8 @@ Nothing above the first entry was edited in the move.
   3,000 seeded random strings, plus five hand-written position traps (multi-line string, trailing
   newlines, line comment, multi-line block comment, leading whitespace-with-newline) that target
   exactly where derived positions drift from tracked ones. Suite 562 OK, corpus 293/293.
+
+- **Fourth build change reviewed cold by Default: 562 OK + 293/293 reproduced
+  at 1131b26. The 812-at-3.80 figure is labelled moved-not-priced in entry and
+  message alike — no percentage claimed, settled comparison deferred to the
+  in-window session.**
