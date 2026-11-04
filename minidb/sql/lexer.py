@@ -30,6 +30,7 @@ PUNCTUATION = sorted(
 # Alternation is first-match-wins and PUNCTUATION is sorted longest-first, so the list's
 # own ordering is what preserves longest-match semantics. One C-level scan replaces up to 21
 # startswith calls per punctuation token.
+_NUM_RE = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d*)?")  # mirrors the char loop exactly
 _WS_RE = re.compile(r"[ \t\r\n\f\v]+")
 _IDENT_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 
@@ -227,28 +228,8 @@ def tokenize(sql):
             continue
 
         if ch.isdigit() or (ch == "." and sc.peek(1).isdigit()):
-            buf = []
-            seen_dot = False
-            seen_exp = False
-            while True:
-                c = sc.peek()
-                if c.isdigit():
-                    buf.append(c)
-                    sc.advance()
-                elif c == "." and not seen_dot and not seen_exp:
-                    seen_dot = True
-                    buf.append(c)
-                    sc.advance()
-                elif c in ("e", "E") and not seen_exp and buf:
-                    seen_exp = True
-                    buf.append(c)
-                    sc.advance()
-                    if sc.peek() in ("+", "-"):
-                        buf.append(sc.peek())
-                        sc.advance()
-                else:
-                    break
-            text = "".join(buf)
+            text = _NUM_RE.match(sc.sql, sc.i).group()
+            sc.skip(len(text))
             if text[-1] in "eE" or text in (".",):
                 raise LexError("malformed number", start_i, start_line, start_col, snippet=text)
             tokens.append(Token("NUMBER", text, start_i, start_line, start_col,

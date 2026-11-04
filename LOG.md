@@ -2202,3 +2202,15 @@ Nothing above the first entry was edited in the move.
   read the file back, since exit 0 is itself unverified; (2) the staged diff
   must show only your own change — `git diff --cached` on a shared file
   before committing, another seat's line present means stop.**
+
+- **Goal 6, numbers consumed as one run (post-measurement, load noted).** `_NUM_RE` mirrors the
+  character loop's grammar exactly — `\d+(?:\.\d*)?|\.\d+` with an optional `[eE]` and optional
+  sign and digits — including its quirks: `1e` still raises `malformed number` because the pattern
+  permits a trailing `e` and the existing check fires on it, and `2e+` still lexes as the NUMBER
+  `2e+` because that is what the loop did. Equivalence: **3,025 inputs, 0 mismatches** on the
+  seven-field tuple, now including the number edge cases (`1e`, `2e+`, `.5`, `4.`, `5.5.5`,
+  `1e5e5`, `.5e2`), suite 562 OK, corpus 293/293.
+  Measured at loadavg 3.32, outside the gate window: `tokenize` 10k median **793 ms**; class
+  isolation identifiers **1,546 -> 985 ns/char** (110.7 -> 69.9 us/statement) and numbers
+  2,135 -> 1,904. Punctuation remains ~3,068 ns/char and strings ~1,130 — those two are now the
+  residual, and strings are the next run to consume. No gate claimed; box above window.
