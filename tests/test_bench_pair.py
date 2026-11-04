@@ -34,15 +34,17 @@ def band_percent(values):
 
 def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ratio_override=None,
               discard=(), errored=(), bare=(), n=7, omit=(), ratio_min_override=None,
-              band_override=None, loadavg=2.0):
+              band_override=None, loadavg=2.0, raw_label="raw", header_n=None):
     """A file in the harness's printed shape: header, then per-workload blocks.
 
     The two sides move independently so a denominator-only move can be modelled: that is the
     artefact the reference-delta column exists to expose. `n` sets both legs' sample count and
     `omit` drops individual gate fields, so the four certification failure modes are fixtures
-    rather than mutations of a real artifact.
+    rather than mutations of a real artifact. `raw_label="raw7"` reproduces a pre-label-fix
+    artifact; `header_n` lets the header disagree with the printed lists on purpose.
     """
-    lines = ["BENCH first-full-run  module-sqlite 3.53.1  N=%d  scale=20000  lookups=1000" % n, ""]
+    declared = n if header_n is None else header_n
+    lines = ["BENCH first-full-run  module-sqlite 3.53.1  N=%d  scale=20000  lookups=1000" % declared, ""]
     for name, ratio in RATIOS.items():
         if name in drop:
             continue
@@ -65,17 +67,17 @@ def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ra
         band_md = (band_override or {}).get(("md", name), band_percent(samples_md))
         bench_header = f"{name}  synthetic {name}          rows=1  loadavg={loadavg:.2f}"
         lines += [bench_header,
-                  f"     sqlite_ms median={statistics.median(samples_sq):.2f}  raw7=[ "
+                  f"     sqlite_ms median={statistics.median(samples_sq):.2f}  {raw_label}=[ "
                   f"{' '.join('%.2f' % x for x in samples_sq)} ]  band={band_sq:.1f}%"
                   if "band" not in omit else
-                  f"     sqlite_ms median={statistics.median(samples_sq):.2f}  raw7=[ "
+                  f"     sqlite_ms median={statistics.median(samples_sq):.2f}  {raw_label}=[ "
                   f"{' '.join('%.2f' % x for x in samples_sq)} ]"]
         if "loads" not in omit:
             lines.append(f"     sqlite_loads=[ {' '.join('%.2f' % loadavg for _ in samples_sq)} ]")
-        lines.append(f"     minidb_ms median={statistics.median(samples_md):.2f}  raw7=[ "
+        lines.append(f"     minidb_ms median={statistics.median(samples_md):.2f}  {raw_label}=[ "
                      f"{' '.join('%.2f' % x for x in samples_md)} ]  band={band_md:.1f}%"
                      if "band" not in omit else
-                     f"     minidb_ms median={statistics.median(samples_md):.2f}  raw7=[ "
+                     f"     minidb_ms median={statistics.median(samples_md):.2f}  {raw_label}=[ "
                      f"{' '.join('%.2f' % x for x in samples_md)} ]")
         if "loads" not in omit:
             lines.append(f"     minidb_loads=[ {' '.join('%.2f' % loadavg for _ in samples_md)} ]")
@@ -194,10 +196,20 @@ class GateCertificationTest(unittest.TestCase):
         self.assertEqual(self.gate(write_run(self.path("g.txt"), n=7)), 2)
 
     def test_an_old_artifact_still_pairs_even_though_it_cannot_certify(self):
-        old = write_run(self.path("old.txt"), n=7, omit=("ratio_min", "band", "loads"))
+        old = write_run(self.path("old.txt"), n=7, omit=("ratio_min", "band", "loads"),
+                        raw_label="raw7")
         self.assertEqual(self.gate(old), 2)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(bench_pair.main([old, old]), 0)
+
+    def test_a_header_that_disagrees_with_its_raw_lists_fails_certification(self):
+        # 11 samples printed under a header that declares N=7: the label and the data disagree.
+        self.assertEqual(self.gate(write_run(self.path("g.txt"), n=11, header_n=7)), 2)
+
+    def test_the_neutral_raw_label_parses(self):
+        runs = bench_pair.parse(write_run(self.path("g.txt"), n=11))
+        self.assertEqual(len(runs["W1"]["raw_sq"]), 11)
+        self.assertEqual(len(runs["W1"]["raw_md"]), 11)
 
     def test_the_checker_does_not_apply_the_sixty_x_threshold(self):
         # Far above 60x and still certified: the checker asserts fitness, not the gate call.

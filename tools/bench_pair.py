@@ -36,7 +36,8 @@ MINIDB = re.compile(r"^\s+minidb_ms median=([\d.]+)")
 RATIO = re.compile(r"^\s+ratio=([\d.]+)\s+output:\s*(\S+)")
 RATIO_MIN = re.compile(r"\bratio_min=([\d.]+)")
 BAND = re.compile(r"\bband=([\d.]+)")
-RAW = re.compile(r"raw7=\[\s*([\d.\s]*)\]")
+RAW = re.compile(r"raw\d*=\[\s*([\d.\s]*)\]")   # `raw=` since the label went N-neutral; `raw7=` kept for old artifacts
+HEADER_N = re.compile(r"\bN=(\d+)\b")
 SQLITE_LOADS = re.compile(r"^\s+sqlite_loads=\[\s*([\d.\s]*)\]")
 MINIDB_LOADS = re.compile(r"^\s+minidb_loads=\[\s*([\d.\s]*)\]")
 GATE_N = 11                # the freeze's floor: an N=7 artifact cannot certify a gate-2 call
@@ -51,6 +52,7 @@ def parse(path, require_header=True):
     """
     runs, current = {}, None
     seen_header = False
+    header_n = None
     with open(path, encoding="utf-8") as handle:
         for lineno, line in enumerate(handle, 1):
             if not seen_header:
@@ -60,6 +62,9 @@ def parse(path, require_header=True):
                 if require_header and not line.startswith("BENCH first-full-run"):
                     raise ValueError(f"{path}: not a benchmark artifact — first line is not the "
                                      f"harness header (pair a fixture with --allow-foreign)")
+                declared = HEADER_N.search(line)
+                if declared:
+                    header_n = int(declared.group(1))
             header = HEADER.match(line) if not line[:1].isspace() else None
             if header:
                 # A workload section is present if *any* terminal line names it. A discarded or
@@ -70,6 +75,8 @@ def parse(path, require_header=True):
                     raise ValueError(f"{path}:{lineno}: workload {name} appears twice")
                 title = header.group(2).strip()
                 current = runs[name] = {"title": title, "status": None}
+                if header_n is not None:
+                    current["header_n"] = header_n
                 rows = ROWS.search(title)
                 if rows:
                     current["rows"] = int(rows.group(1))
@@ -155,13 +162,18 @@ def gate_shape(label, name, run):
     two checks are kept apart on purpose.
     """
     problems = []
+    declared_n = run.get("header_n")
     for key, leg in (("raw_sq", "sqlite"), ("raw_md", "minidb")):
         raw = run.get(key)
         if raw is None:
             problems.append(f"{label}: workload {name} has no raw samples for {leg}")
-        elif len(raw) < GATE_N:
-            problems.append(f"{label}: workload {name} has N={len(raw)} on {leg}, below the "
-                            f"frozen floor of {GATE_N}")
+        else:
+            if len(raw) < GATE_N:
+                problems.append(f"{label}: workload {name} has N={len(raw)} on {leg}, below the "
+                                f"frozen floor of {GATE_N}")
+            if declared_n is not None and len(raw) != declared_n:
+                problems.append(f"{label}: workload {name} declares N={declared_n} in the header "
+                                f"but prints {len(raw)} raw samples for {leg}")
     for key, leg, raw_key in (("loads_sq", "sqlite", "raw_sq"), ("loads_md", "minidb", "raw_md")):
         loads = run.get(key)
         if loads is None:

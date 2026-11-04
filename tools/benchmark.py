@@ -10,8 +10,9 @@ side's index makes it O(log n) either way, so we run at the full scale for the
 gate.
 
 Default-authored harness per research's spec (committed as-is). Method:
-warm-up discarded; N=7 timed runs per (engine, workload), ALL raw values
-printed; identical-output check (the conformance normalizer's tuple shape —
+warm-up discarded; N timed runs per (engine, workload) -- N is the header's
+`N=` value, the flag's default is 7; ALL raw values printed; identical-output
+check (the conformance normalizer's tuple shape —
 no second comparator); ratio = minidb_ms/sqlite_ms per workload; the headline
 is the MEDIAN of per-workload ratios (never total/total). python-side module
 version skew (3.53.1 vs the CLI's 3.54.0) is recorded in the header per the
@@ -302,11 +303,11 @@ def main():
         print("%s  %-40s rows=%d  loadavg=%s  loadavg_after=%s"
               % (wid, name, shapesq, "n/a" if load_before is None else "%.2f" % load_before,
                  "n/a" if load_after is None else "%.2f" % load_after))
-        print("     sqlite_ms median=%.2f  raw7=[ %s ]  band=%.1f%%"
+        print("     sqlite_ms median=%.2f  raw=[ %s ]  band=%.1f%%"
               % (statistics.median(t_sq), " ".join("%.2f" % x for x in t_sq), band_percent(t_sq)))
         print("     sqlite_loads=[ %s ]"
               % " ".join("n/a" if x is None else "%.2f" % x for x in loads_sq))
-        print("     minidb_ms median=%.2f  raw7=[ %s ]  band=%.1f%%"
+        print("     minidb_ms median=%.2f  raw=[ %s ]  band=%.1f%%"
               % (statistics.median(t_md), " ".join("%.2f" % x for x in t_md), band_percent(t_md)))
         print("     minidb_loads=[ %s ]"
               % " ".join("n/a" if x is None else "%.2f" % x for x in loads_md))

@@ -2636,3 +2636,21 @@ Nothing above the first entry was edited in the move.
   certify; an old-format artifact fails certification but still pairs; a >60x artifact certifies.
   *Plumbing check on real output (W1, scale 1000, N=11, load 1.73 — not gate evidence):* both bands,
   both traces, `ratio=23.207  ratio_min=24.522`, and `--gate-only` returns 0.
+
+- **The raw-sample label now means what it says, and the checker ties the lists to the header's N.**
+  `benchmark.py` printed `raw7=` regardless of `--n`, so an N=11 gate artifact named a seven-sample
+  set; the checker counted values and certification held, so nothing broke — but the label would
+  have lied to every future reader of the first gate-shaped artifact. The field is now `raw=`
+  (N-neutral; the header carries the count), the checker's pattern widens to `raw\d*=` so **legacy
+  `raw7=` artifacts keep parsing** for historical pairing, and gate mode cross-checks each raw
+  list's length against the header's `N=` — eleven samples under a header that says seven now fail
+  certification. The module docstring's hardcoded "N=7 timed runs" is fixed in the same commit, for
+  the same reason: the first field a source reader meets should not name a count the flag can change.
+  *Taxonomy, per Security:* the new cross-check is **declared-vs-emitted self-consistency**, not
+  independent provenance — the same side of his line as the trace length and the pre-load window.
+  Only `ratio_min` and the bands are recomputed from the artifact's own published samples and
+  therefore unfakeable without contradicting the raw7.
+  *Fixtures (two new; suite 583 OK, 0 unclosed-file warnings, `make verify` PASS 5/5):* a header
+  declaring N=7 over eleven printed samples fails certification; the neutral label parses; the
+  legacy-`raw7` artifact still pairs. *Plumbing check on real output (W1, scale 1000, N=11 — not
+  gate evidence):* `raw=[ … ]` on both legs, `--gate-only` exit 0.
