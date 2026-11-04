@@ -2531,3 +2531,18 @@ Nothing above the first entry was edited in the move.
   warnings, corpus 293/293, syntax 46/46, fuzz seed 1 at 300 queries 1 mismatch (the same case-119
   rejection), `make verify` PASS 5/5 at loadavg **3.81** — a green run on a box outside the gate
   window, which is fine for a landing and is why no number here is called toward a gate.
+
+- **W9's cycle split: open is 0.33 ms, the COUNT walk is 58.79 ms — the next lever is the walk, not
+  open.** New committed instrument `tools/w9_split.py` (one 100k file, 50 repetitions per timed run,
+  N=7, load read before timing; no reference engine and no ratio, so this is a component measurement
+  and not a gate call): 50 opens take **16.62 ms** median — **0.33 ms/open**; 50 open+COUNT cycles
+  take **2956.19 ms** — **59.12 ms/cycle**; the count share by difference is **2939.57 ms, 58.79 ms
+  per cycle**. raw7 open `17.18 18.53 16.62 16.53 17.50 16.40 16.37`, open+count `2851.27 2820.28
+  2848.24 2956.19 2966.46 3621.54 3374.68`; load **3.22** before / 3.03 after. The file is 8,085,504
+  bytes = **1,974 pages**, so the walk costs ~**29.8 us/page** against a floor of one read plus one
+  CRC: the per-page Python overhead — seek+read per page, the CRC, the 4 KiB reassembly copy `read()`
+  makes, and a cache insert/evict for a one-pass walk — is the address. Research's remaining
+  **−12.0%** now has a place to come from: her 56.66 ms/cycle target is derived at the 47.22 ms
+  reference, and this run's 59.12 ms/cycle is a different box state — the split, not the gap, is
+  what this entry adds: 0.33 ms is open, 58.79 ms is the walk. Nothing is claimed toward gate 2; the
+  walk+decode block and Part A's re-profile remain owed.
