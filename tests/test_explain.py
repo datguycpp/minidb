@@ -71,7 +71,8 @@ class TestExplain(unittest.TestCase):
         # documented form in docs/plan-vocabulary.md, and every documented form must be
         # exercised by at least one shape — so neither side can rot silently.
         import re
-        doc = open(os.path.join(ROOT, "docs", "plan-vocabulary.md"), encoding="utf-8").read()
+        with open(os.path.join(ROOT, "docs", "plan-vocabulary.md"), encoding="utf-8") as handle:
+            doc = handle.read()
         cells = re.findall(r"^\| `([^`]+)` \|", doc, re.M)
 
         def to_rx(cell):

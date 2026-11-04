@@ -2439,3 +2439,16 @@ Nothing above the first entry was edited in the move.
   `engine.py:1019`. The pager holding a handle while the database is open is the design; the
   absent `close()` is the test's, so that cleanup belongs in the tests and is left for its own
   commit. This entry covers only the file `7c68bd7` added.
+
+- **Warning cleanup, part 2: the single test-side site is closed; the other four cannot be fixed
+  from a test, and that is the finding.** `test_explain.py:74` read `docs/plan-vocabulary.md` bare
+  and now closes with `with`; suite 567 OK, corpus 293/293 at `d46618e`, unclosed-file warnings
+  **5 → 4** under `-W always::ResourceWarning`. The four that remain are not test hygiene:
+  tracemalloc attributes three to `Database(path)` at `test_integrity.py:61/68/76` (bad version,
+  payload checksum, truncated tail — each raises *during* open) and one to a bare `Pager(path)` at
+  `test_storage.py:53` (foreign file, raises in `_read_header`). All four are the handle opened at
+  `storage/pager.py:110` and abandoned when the constructor raises: **no reference reaches the
+  caller, so no test can close it.** The fix belongs in the producers — close `self.fh` when
+  `_read_header` raises inside `Pager.__init__`, and close `self.pager` when `DiskStorage.__init__`
+  fails in `_ensure_catalog`/`_load_catalog`. That is a storage change, not a test change, so it
+  waits for its own approval and commit rather than riding in this one.
