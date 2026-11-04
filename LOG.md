@@ -2767,3 +2767,27 @@ Nothing above the first entry was edited in the move.
   state and not engine nondeterminism. Security's `div-P.db` is 815,104 bytes with 10,000 rows — a
   different scale, unrelated to the pinned identity. Measured on copies; the originals were never
   opened for write.
+
+- **Settled session, gates 1 and 3: both MISS on a load-matched capture, and the reason is
+  structural, not a weak win.** Capture at **`731c1e8`**, pre-load **1.89** against the frozen
+  baseline's **2.00** — |Δ| **0.11**, inside the ≤1.0 calling condition — with the fixture identities
+  asserted by the instrument (w9 `f65d581d…`, tiny `75848fa8…`). Raw, N=7:
+  - `PARSEONLY` `1347.3 1405.8 1484.7 1533.8 1544.7 1786.3 2125.8` — median **1533.8**
+    (baseline 1626.3, −5.7%), spread 50.8%.
+  - `LOOP` `3616.6 3636.6 3670.5 3791.5 3796.3 4104.3 4132.4` — median **3791.5** against the frozen
+    ceiling **1952.7** → **GATE 3 MISS** (−2.9% from the 3905.4 baseline; the gate needs −50%).
+  - `BLOCK` `319.3 319.8 320.8 320.9 347.0 353.4 375.8` — median **320.9** against the frozen
+    ceiling **259.0** → **GATE 1 MISS** (−2.5% from 329.1; the gate needs −21%).
+  *Why the C work does not appear here, stated because it will be asked:* gate 1's subject is
+  `walk + record.decode` and the capture calls the **reference decoder** directly — the C decoder
+  landed at `DiskStorage._decode`, which this path never enters. The frozen definition names
+  `record.decode`, so the capture is faithful to the freeze; the C decode is real for every workload
+  that decodes through storage (W1–W8/W10, corpus, fuzz) and touches neither of these two gates.
+  Gate 3's subject is the 10k `db.run` loop, which no candidate targeted at all.
+  Both misses are recorded as misses; no threshold moved and none is widened.
+  *Gate 4 battery in the same pass (load 2.11 → 2.79, in window at the readings):* corpus
+  **293/293**, syntax **46/46**, fuzz seed 1 **1** mismatch (the known case-119 rejection), seed 7
+  **0**, `make verify` **PASS 5/5** — **GATE 4 PASS**.
+  *Not run in this pass:* the `w9_split` calibration and gate 2. Both need their own fresh in-window
+  reading, and gate 2 prices last; the capture above is complete and self-contained, so nothing is
+  half-recorded. Artifact: `~/.hermes/profiles/engineer/cache/scratch/session-baseline-capture.txt`.
