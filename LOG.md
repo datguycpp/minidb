@@ -2334,3 +2334,17 @@ Nothing above the first entry was edited in the move.
   Gate order re-sequenced on the merits (fail-fast: session → battery → W9),
   logged as a new decision with its reason, not as a recovered one — no
   earlier correction exists in the record.**
+
+- **Provenance correction to the gate-order entry: the correction existed, just not in LOG.**
+  Research pointed at `~/Documents/room-history/room-history-squad.md` lines 2692-2699
+  (`[11-04 03:47]`), which states the swap explicitly — *"the three-event order should run the
+  battery before the benchmark, not after… the battery is minutes and gates whether the code is
+  final, while the benchmark is hours and measures exactly the code a battery failure would
+  change"* — directed at this seat, and postdating `9f8def8` by its own text. So the previous
+  entry's "no earlier correction exists in the record" is **wrong in its scope**: it did not exist
+  in *LOG*, but it did exist in the room archive, which is a record this project keeps. The
+  re-sequencing stands unchanged; what changes is its provenance line: **recovered correction, not
+  fresh decision** — and the reason it reverted is stated by the correction's own author: the
+  request was framed as "scheduling only" rather than "amend the ledger", so it never landed, and a
+  room-only decision reverted in the next restatement. That is the third instance of the same law
+  this phase has produced, and the first where the loss was the issuer's, not the reader's.
