@@ -2301,3 +2301,14 @@ Nothing above the first entry was edited in the move.
   with SQLite's spans (no raw ValueError), valid `1e5` still lexes. Parked
   tranche `docs/lexer-oddities-tranche-draft.txt` confirmed present with its
   gate-deferral reason; it lands as `tests/corpus/lexer.txt` post-gate.**
+
+- **Goal 6, the stray's producer named: this round's own classification probe.** The `:memory:` +
+  `:memory:.wal` pair at 11:07 was created by `python3 -c "... Database(':memory:') ..."` — the
+  throwaway loop that classified the eight oddities against MiniDB. `Database(':memory:')` is a
+  *filename* to the on-disk engine, so it created files by design; the run even failed with
+  `database is locked` on the second construction and was re-run with `tempfile.mktemp` instead,
+  which is when the pair was left behind. **Discipline line, specific rather than atmospheric:**
+  probes use the in-memory constructor, never a filename argument — a path becomes a file, and a
+  scratch probe that forgets it litters the tree. Named so the next stray triggers a hunt for its
+  producer rather than another silent delete; removing a symptom without naming the cause leaves
+  the cause free to run again.
