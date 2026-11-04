@@ -76,6 +76,29 @@ class TestRecord(unittest.TestCase):
     def test_unicode_roundtrip(self):
         self.assertEqual(record.decode(record.encode(("日本語",))), ("日本語",))
 
+    def test_native_decode_matches_the_python_decoder(self):
+        from minidb import _native
+        if _native is None:
+            self.skipTest("accelerator not built; the Python decoder is the reference")
+        cases = [(), (None,), (0, -1, 2 ** 63 - 1, -2 ** 63), (1.5, -0.0, 1e308, 5e-324),
+                 ("", "héllo →", "日本語", "a\x00b"), (b"", b"\x00\x01", bytes(range(256))),
+                 (None, 1, 2.5, "text", b"blob")]
+        for values in cases:
+            payload = record.encode(values)
+            self.assertEqual(_native.decode(payload), record.decode(payload), values)
+
+    def test_native_decode_refuses_what_the_python_decoder_must_explain(self):
+        from minidb import _native
+        if _native is None:
+            self.skipTest("accelerator not built; the Python decoder is the reference")
+        # None, not an exception: the caller then runs the reference decoder, which raises the
+        # typed StorageError the corpus pins. Unknown tag, truncation, short header, bad UTF-8.
+        for payload in (b"\x01\x00\xff", b"\x01\x00", b"\x01",
+                        b"\x01\x00\x03\x02\x00\x00\x00\xff\xfe"):
+            self.assertIsNone(_native.decode(payload), payload)
+            with self.assertRaises(Exception):
+                record.decode(payload)
+
 
 class TestBTree(TempDb):
     def setUp(self):

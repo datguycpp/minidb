@@ -2512,3 +2512,22 @@ Nothing above the first entry was edited in the move.
   [1.0, 3.0]) is kept as a run but marked **not gate evidence** — ratio 55.674, minidb 2800.70.
   The earlier pair recorded above (400.147 → 83.790) is the same tree but its loads were post-hoc;
   it stands as a run, not as window evidence.
+
+- **Goal 6, candidate (b) landed: record decode in C — the 57% block falls 5.0x; the walk+decode
+  block is not yet re-measured.** `_native.decode(payload)` builds the value tuple directly
+  (PyLong_FromLongLong, PyFloat_FromDouble, PyUnicode_DecodeUTF8 strict, PyBytes) and returns
+  **None** for anything it cannot reproduce with Python's semantics — unknown tag, truncation, short
+  header, invalid UTF-8 — so `DiskStorage._decode` falls back to `record.decode`, which raises the
+  typed `StorageError` every corpus case is pinned against. The wiring is proven rather than
+  assumed: with `record.decode` monkeypatched to raise, a scan of a two-row table still answers.
+  *Measured with the new committed instrument `tools/decode_block.py` (100k encoded rows, W9 shape,
+  N=7, load read before timing — **2.42** before, 2.55 after):* Python median **242.96 ms**, C
+  median **48.24 ms**, speedup **5.036x**; raw7 python `192.63 197.09 223.34 305.52 272.42 246.07
+  242.96`, C `45.43 48.40 40.58 40.75 55.89 48.24 62.17`. The tool times **decode only** — the page
+  walk is explicitly not in it — so this prices the 57% block, not gate 1; the walk+decode block and
+  Part A's re-profile are still owed before either gate reads any of this.
+  *Landing checks:* suite **572 tests OK** (2 new: decoder parity over NULL/int/float/text/blob edge
+  cases, and the None-then-fallback shape for four malformed payload classes), 0 unclosed-file
+  warnings, corpus 293/293, syntax 46/46, fuzz seed 1 at 300 queries 1 mismatch (the same case-119
+  rejection), `make verify` PASS 5/5 at loadavg **3.81** — a green run on a box outside the gate
+  window, which is fine for a landing and is why no number here is called toward a gate.

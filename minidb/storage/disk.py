@@ -9,6 +9,11 @@ parsing in exactly one place, the parser.
 import json
 import struct
 
+try:                       # the C accelerator is optional by design (M38); the Python path is
+    from .. import _native  # the reference, so a missing extension costs speed, never answers
+except ImportError:        # pragma: no cover - exercised only on a machine without the build
+    _native = None
+
 from . import record
 from .btree import BTree
 from .pager import Pager, StorageError
@@ -146,6 +151,10 @@ class DiskStorage:
 
     @staticmethod
     def _decode(payload):
+        if _native is not None:
+            values = _native.decode(payload)
+            if values is not None:          # None means "this payload needs the reference path"
+                return values
         try:
             return record.decode(payload)
         except (UnicodeDecodeError, ValueError, struct.error) as exc:

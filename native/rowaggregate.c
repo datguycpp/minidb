@@ -15,6 +15,7 @@
 
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <string.h>
 
 enum {
     F_COUNT_STAR = 0,
@@ -317,9 +318,115 @@ done:
     return result;
 }
 
+/* Record decode, in C. The payload format is `minidb/storage/record.py`'s: uint16 count, then per
+ * value a tag byte and its payload (little-endian int64/double, uint32-length text or blob). The
+ * contract mirrors the aggregate loop's -- anything this cannot reproduce with Python's own
+ * semantics returns None, and the caller runs the Python decoder, which is the path every error
+ * message and every corpus case is pinned against. Hosts are assumed little-endian, as the file
+ * format's struct("<...") already assumes.
+ */
+static PyObject *
+decode(PyObject *self, PyObject *args)
+{
+    Py_buffer view;
+    PyObject *result;
+    const unsigned char *data;
+    Py_ssize_t size, offset = 2;
+    unsigned int count, i;
+
+    (void)self;
+    if (!PyArg_ParseTuple(args, "y*", &view)) {
+        return NULL;
+    }
+    data = (const unsigned char *)view.buf;
+    size = view.len;
+    if (size < 2) {
+        PyBuffer_Release(&view);
+        return Py_NewRef(Py_None);          /* short header: the Python decoder owns that error */
+    }
+    count = (unsigned int)data[0] | ((unsigned int)data[1] << 8);
+    result = PyTuple_New((Py_ssize_t)count);
+    if (result == NULL) {
+        PyBuffer_Release(&view);
+        return NULL;
+    }
+    for (i = 0; i < count; i++) {
+        PyObject *value = NULL;
+        unsigned char tag;
+        if (offset >= size) {
+            goto unsupported;
+        }
+        tag = data[offset++];
+        if (tag == 0) {                                  /* NULL */
+            value = Py_NewRef(Py_None);
+        } else if (tag == 1) {                           /* INT */
+            unsigned long long bits = 0;
+            if (offset + 8 > size) {
+                goto unsupported;
+            }
+            for (int b = 7; b >= 0; b--) {
+                bits = (bits << 8) | data[offset + b];
+            }
+            offset += 8;
+            value = PyLong_FromLongLong((long long)bits);
+        } else if (tag == 2) {                           /* REAL */
+            unsigned long long bits = 0;
+            double number;
+            if (offset + 8 > size) {
+                goto unsupported;
+            }
+            for (int b = 7; b >= 0; b--) {
+                bits = (bits << 8) | data[offset + b];
+            }
+            offset += 8;
+            memcpy(&number, &bits, sizeof number);
+            value = PyFloat_FromDouble(number);
+        } else if (tag == 3 || tag == 4) {               /* TEXT / BLOB */
+            unsigned int length;
+            if (offset + 4 > size) {
+                goto unsupported;
+            }
+            length = (unsigned int)data[offset] | ((unsigned int)data[offset + 1] << 8)
+                   | ((unsigned int)data[offset + 2] << 16) | ((unsigned int)data[offset + 3] << 24);
+            offset += 4;
+            if (offset + (Py_ssize_t)length > size) {
+                goto unsupported;
+            }
+            if (tag == 3) {
+                value = PyUnicode_DecodeUTF8((const char *)data + offset, (Py_ssize_t)length,
+                                             "strict");
+                if (value == NULL) {
+                    PyErr_Clear();                       /* invalid UTF-8: Python raises it */
+                    goto unsupported;
+                }
+            } else {
+                value = PyBytes_FromStringAndSize((const char *)data + offset, (Py_ssize_t)length);
+            }
+            offset += length;
+        } else {
+            goto unsupported;
+        }
+        if (value == NULL) {
+            Py_DECREF(result);
+            PyBuffer_Release(&view);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(result, (Py_ssize_t)i, value);   /* steals the reference */
+    }
+    PyBuffer_Release(&view);
+    return result;
+
+unsupported:
+    Py_DECREF(result);
+    PyBuffer_Release(&view);
+    return Py_NewRef(Py_None);
+}
+
 static PyMethodDef methods[] = {
     {"group_aggregate", group_aggregate, METH_VARARGS,
      "group_aggregate(rows, key_index, specs) -> {key: (value, ...)} | None when unsupported"},
+    {"decode", decode, METH_VARARGS,
+     "decode(payload) -> tuple | None when the payload cannot be decoded here"},
     {NULL, NULL, 0, NULL}
 };
 
