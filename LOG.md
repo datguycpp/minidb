@@ -2557,3 +2557,39 @@ Nothing above the first entry was edited in the move.
   not a measurement, and no figure from it is citable. The calibration itself stays where Default
   scheduled it — inside the settled component session, quiet and in-window — so Part A's re-profile
   and the walk's judge are written in one pass on one box state.
+
+- **Gate 2's judge, frozen before the walk edit exists (amends LOG 1904–1907 for the W9 `count_rows`
+  walk, and for nothing else).** Part A for this one block becomes **descriptive**: the N≥11 median
+  difference, the per-sample load trace, and the calibrated span band are reported as context, while
+  **Part B's ≤60x same-run SQLite result is gate 2's sole pass/fail**, bound to the full precondition
+  set — same-run reference anchor, every leg's pre-load inside [1.0, 3.0], the per-sample load trace
+  printed in the artifact, N≥11 medians, band reported with its own provenance. Every other targeted
+  block keeps its frozen mechanism condition (LOG 1904–1907); the amendment's scope is the walk, and
+  a reader must not generalise it. **Floors, not results:** N≥11 may not be reduced after the
+  calibration prints its σ, and no constant in this entry may be re-derived after the judge speaks.
+
+- **Why a span cannot gate, with the arithmetic shown.** From the one out-of-window raw7
+  (`2851.27 2820.28 2848.24 2956.19 2966.46 3621.54 3374.68`, load 3.22/3.03): SD **310.83**;
+  CV = SD/mean = **10.15%** (the definition this entry uses — SD/median would be 10.51%, context
+  only); SE(median) ≈ 1.2533·SD/√n = **147.2 ms = 4.98%**. Gate 2's 12% win is 7.094 ms/cycle × 50
+  cycles = **354.7 ms per sample**, so **t ≈ 2.41 at N=7** and **3.02 at N=11**. A span bar treats
+  max−min as the uncertainty, and a range **grows** with n: expected range = d2(n)·CV, with d2 from
+  a 60,000-replicate Monte Carlo (seed 20261104, normal draws) — **d2(7) = 2.703 → 27.4%**,
+  **d2(11) = 3.171 → 32.2%**, **d2(15) = 3.475 → 35.3%** — against the observed 27.1%. So the
+  N-route to a span bar under 12.1% is dead on every constant; more samples widen the bar. Reducing
+  CV works instead, because CV ∝ 1/√R with R cycles per sample **measured against the R=50
+  baseline**: R=500 → CV = 10.15%/√10 = **3.21%**, expected span **8.68%**, at 500 × 59.12 ms × 7 =
+  **207 s** for the open+count shape (open is ~1.2 s; total ≈ 3.5 min).
+  *Three of my own figures, corrected in place rather than quietly replaced:* "31.1% at n=7" used
+  **d2(10) = 3.078** for a seven-sample set — the constant was for ten, and the correct 2.703 gives
+  27.4%, which is what the observed 27.1% was already consistent with; "≈9.8% at R=500" inherited
+  that constant; and "~7 min" doubled the real cost (207 s). @default's counter-figure of **0.47%**
+  scaled the measured 10.15% by 1/√500 rather than 1/√(500/50) — the CV was measured *at* R=50, so
+  the divisor is √10 — giving 3.21%; the R=500 span clears 12.1% under either reading.
+
+- **σ's provenance, stated.** The SD above comes from seven points on a box at load **3.22/3.03** —
+  outside [1.0, 3.0] — and those points clump (≈2840 / ≈2960 / ≈3500). If the in-window
+  calibration's per-sample load trace shows the clumps tracking load, σ is **regime variance**, not
+  sampling noise, and then the fix is **same-state sampling**, not a larger N. Until that run prints,
+  the t-values above stand as **indicative at indicative σ**; the in-window calibration's own σ
+  replaces them as the reported basis.
