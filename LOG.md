@@ -2157,3 +2157,15 @@ Nothing above the first entry was edited in the move.
   1,315 ns (strings) to 3,253 ns (punctuation) across classes — an order of magnitude above what a
   Python char loop should cost, which points at `advance()` re-walking characters to maintain
   line/col rather than at any single token class. That is the target the master scanner replaces.
+
+- **Third build change reviewed cold by Default: 562 OK + 293/293 reproduced
+  at cf2f070. Recorded as measured iteration (regex lost, buckets in, no whole
+  win) with the next target specified from the numbers, not assumed.**
+
+- **Goal 6, class-isolation instrument archived (`tests/skeptic/profile_g6_lexer_classes.py`).**
+  The ns/char figures that named `advance()` as the target were room-only; they now have an
+  instrument beside `profile_g6_parse.py`, with a stated purpose (before/after at the same load
+  window and N), a re-run line, and a self-invalidating exit (2 once every class is under 300
+  ns/char, i.e. the diagnosis is spent). Reproduced at loadavg 1.89: ident 1,546 / number 2,135 /
+  string 1,158 / **punct 3,229 ns per character** — the ordering that sent the build at `advance()`
+  rather than at the token classes, which two earlier changes had already tried blind.
