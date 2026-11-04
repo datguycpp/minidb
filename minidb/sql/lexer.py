@@ -264,3 +264,187 @@ def tokenize(sql):
         sc.advance(len(punct))
         tokens.append(Token("PUNCT", punct, start_i, start_line, start_col,
                             raw=sc.sql[start_i:sc.i]))
+
+
+# --- Retained reference implementation -------------------------------------------------
+# The char-at-a-time scanner, kept as the equivalence oracle for the fast path above.
+# `tests/test_lexer_equivalence.py` compares the two on identical inputs; the M38 rule is
+# that a fast path is only licensed by a slow path whose meaning is already established.
+# NOTE: this is the pre-fix scanner, so it still accepts `2e+` and `1e5e5` -- the two
+# divergences `0399c54` fixed. The equivalence test pins those separately rather than
+# forcing the reference to share the fix.
+class _ScannerRef:
+    def __init__(self, sql):
+        self.sql = sql
+        self.i = 0
+        self.line = 1
+        self.col = 1
+
+    def peek(self, offset=0):
+        j = self.i + offset
+        return self.sql[j] if j < len(self.sql) else ""
+
+    def advance(self, n=1):
+        for _ in range(n):
+            if self.i < len(self.sql):
+                if self.sql[self.i] == "\n":
+                    self.line += 1
+                    self.col = 1
+                else:
+                    self.col += 1
+                self.i += 1
+
+    def skip_space_and_comments(self):
+        while True:
+            ch = self.peek()
+            if ch in (" ", "\t", "\r", "\n", "\f", "\v"):
+                self.advance()
+            elif ch == "-" and self.peek(1) == "-":
+                while self.peek() and self.peek() != "\n":
+                    self.advance()
+            elif ch == "/" and self.peek(1) == "*":
+                start_line, start_col = self.line, self.col
+                start_i = self.i
+                self.advance(2)
+                while True:
+                    if not self.peek():
+                        # SQLite treats an unterminated block comment as comment-to-EOF and
+                        # carries on ("SELECT 1 /* never closed" returns 1). Match it.
+                        return
+                    if self.peek() == "*" and self.peek(1) == "/":
+                        self.advance(2)
+                        break
+                    self.advance()
+            else:
+                return
+
+
+def _tokenize_scanner(sql):
+    sc = _ScannerRef(sql)
+    tokens = []
+    while True:
+        sc.skip_space_and_comments()
+        if not sc.peek():
+            tokens.append(Token("EOF", "", sc.i, sc.line, sc.col))
+            return tokens
+
+        start_i, start_line, start_col = sc.i, sc.line, sc.col
+        ch = sc.peek()
+
+        # Quoted identifiers: "col", `col`, [col]
+        if ch in ('"', "`", "["):
+            close = "]" if ch == "[" else ch
+            quote = ch
+            sc.advance()
+            buf = []
+            while True:
+                c = sc.peek()
+                if not c:
+                    raise LexError("unterminated quoted identifier", start_i, start_line, start_col,
+                                   snippet=sc.sql[start_i:])
+                if c == close:
+                    # doubled quote escapes itself inside "..." and `...`
+                    if close != "]" and sc.peek(1) == close:
+                        buf.append(close)
+                        sc.advance(2)
+                        continue
+                    sc.advance()
+                    break
+                buf.append(c)
+                sc.advance()
+            tokens.append(Token("IDENT", "".join(buf), start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i], quote=quote))
+            continue
+
+        # Blob literal: X'0102' (the X may be either case, SQLite allows both)
+        if ch in ("x", "X") and sc.peek(1) == "'":
+            sc.advance(2)
+            digits = []
+            while True:
+                c = sc.peek()
+                if not c:
+                    raise LexError("unterminated blob literal", start_i, start_line, start_col,
+                                   snippet=sc.sql[start_i:])
+                if c == "'":
+                    sc.advance()
+                    break
+                digits.append(c)
+                sc.advance()
+            hex_text = "".join(digits)
+            if len(hex_text) % 2 or any(digit not in "0123456789abcdefABCDEF" for digit in hex_text):
+                raise LexError("malformed database schema", start_i, start_line, start_col,
+                               snippet=sc.sql[start_i:])
+            value = bytes.fromhex(hex_text)
+            tokens.append(Token("BLOB", value, start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i]))
+            continue
+
+        if ch == "'":
+            sc.advance()
+            buf = []
+            while True:
+                c = sc.peek()
+                if not c:
+                    raise LexError("unterminated string literal", start_i, start_line, start_col,
+                                   snippet=sc.sql[start_i:])
+                if c == "'":
+                    if sc.peek(1) == "'":
+                        buf.append("'")
+                        sc.advance(2)
+                        continue
+                    sc.advance()
+                    break
+                buf.append(c)
+                sc.advance()
+            tokens.append(Token("STRING", "".join(buf), start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i]))
+            continue
+
+        if ch.isdigit() or (ch == "." and sc.peek(1).isdigit()):
+            buf = []
+            seen_dot = False
+            seen_exp = False
+            while True:
+                c = sc.peek()
+                if c.isdigit():
+                    buf.append(c)
+                    sc.advance()
+                elif c == "." and not seen_dot and not seen_exp:
+                    seen_dot = True
+                    buf.append(c)
+                    sc.advance()
+                elif c in ("e", "E") and not seen_exp and buf:
+                    seen_exp = True
+                    buf.append(c)
+                    sc.advance()
+                    if sc.peek() in ("+", "-"):
+                        buf.append(sc.peek())
+                        sc.advance()
+                else:
+                    break
+            text = "".join(buf)
+            if text[-1] in "eE" or text in (".",):
+                raise LexError("malformed number", start_i, start_line, start_col, snippet=text)
+            tokens.append(Token("NUMBER", text, start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i]))
+            continue
+
+        if ch in IDENT_START:
+            buf = []
+            while sc.peek() in IDENT_BODY:
+                buf.append(sc.peek())
+                sc.advance()
+            word = "".join(buf)
+            kind = "KEYWORD" if word.upper() in KEYWORDS else "IDENT"
+            tokens.append(Token(kind, word, start_i, start_line, start_col,
+                                raw=sc.sql[start_i:sc.i]))
+            continue
+
+        for punct in PUNCTUATION:
+            if sc.sql.startswith(punct, sc.i):
+                sc.advance(len(punct))
+                tokens.append(Token("PUNCT", punct, start_i, start_line, start_col,
+                                    raw=sc.sql[start_i:sc.i]))
+                break
+        else:
+            raise LexError(f"unexpected character {ch!r}", start_i, start_line, start_col, snippet=ch)

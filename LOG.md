@@ -2360,3 +2360,14 @@ Nothing above the first entry was edited in the move.
   causing it, and room-only decisions revert within rounds. Third
   record-or-revert instance (number rule, canary constant, gate-order swap),
   precedents cited; the issuer owns getting it into the record.**
+
+- **Goal 6, `_tokenize_scanner` extracted: the reference path is now in the tree.**
+  The char-at-a-time scanner is retained as `_ScannerRef` + `_tokenize_scanner` beside the fast
+  `tokenize`, so the equivalence test compares two real implementations instead of a function with
+  itself — the scheduling vacuity the spec forbids. *Measured immediately:* all **22 corpus files
+  tokenize identically** on the seven-field tuple (0 differing), and the three documented
+  divergences behave as the record says — `1e` raises the same `unrecognized token: "1e"` on both
+  paths, while `2e+` and `1e5e5` raise on the fast path and lex on the reference, because the
+  reference is the **pre-fix** scanner and the fix at `0399c54` deliberately changed behaviour.
+  The header states that explicitly, so the equivalence test pins those two against the oracle
+  rather than forcing the reference to adopt the fix. 562 tests OK.
