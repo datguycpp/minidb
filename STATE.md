@@ -81,13 +81,13 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   floor ≥326.4 (bc9ecee), realistic ≈1076 ≈47%. Changes: a7f8d89 Token.upper −5.6% (562+293);
   701e227 neutral, false claim corrected (330bac1); cf2f070 buckets, 881 no whole win (562+293). Tally: 7 engine, derived via git log.
   Change 4 (1131b26, 562+293 verified): bulk runs, derived line/col; 3027-diff 0 (5 traps); 812@3.80 moved, not priced. Isolation (5592a4d): sweep clean.
-  Rules: numbers enter LOG only as run output; commit follows a verified write (read it back);
-  stage only your own change (shared-file diff check). Seam spec (7a8e750): lexer_equiv test,
+  Rules: run-output numbers; verified write (read back); stage only yours; corrections request
+  amendment explicitly ('amend entry X'). Seam spec (7a8e750): lexer_equiv test,
   seed 4242, repro, 7-field tuple, canaries, traps + oddities; canary (a) = part-sum equality, independent sides, non-zero (132d79a).
   Change 5 (88e6fcd, 562+293 verified): numbers one regex run, quirks kept; full-set 3035-diff 0 (edges split); fixture execution-verified (f16ae59); 793@3.32 unpriced.
   Change 6 (0399c54, 562+293 cold-executed): exponent needs digit, ident-tail raises SQLite spans; crash (2e+) + divergence (1e5e5) fixed, fixture regenerated; tranche in-tree (f265f48) with 9th entry + test rename, strays removed.
   Change 7 (c4b0044, 562+293 cold-executed): ':memory:' → in-memory path (no file); fix-not-declare, SQLite verified first.
-  Gate order CORRECTED (c4b0044, fail-fast): settled session (1+3) → battery (4) → W9 bench (2); load [1.0,3.0] before each heavy event.
+  Gate order: session (1+3) → battery (4) → W9 bench (2); load [1.0,3.0] before each. Recovered correction (archive 2692–2699; provenance 5183f33).
 
 ## Open items
 - Read-path order: SUBSUMED by goal 6's gates (gate 2 ≤60x forces candidate (a);

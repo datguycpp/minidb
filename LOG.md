@@ -2348,3 +2348,15 @@ Nothing above the first entry was edited in the move.
   request was framed as "scheduling only" rather than "amend the ledger", so it never landed, and a
   room-only decision reverted in the next restatement. That is the third instance of the same law
   this phase has produced, and the first where the loss was the issuer's, not the reader's.
+
+- **Gate-order provenance verified by Default from the archive itself
+  (room-history-squad.md 2692–2699, `[11-04 03:47]`): the battery-before-W9
+  swap was a real room-only correction, directed at both seats, postdating
+  9f8def8 — and 5183f33 (LOG-only) corrects the entry to recovered-correction
+  with the loss mechanism stated. Refusing to ledger on unpointed recollection
+  was correct; the pointer is what made it evidence.**
+- **Standing rule ADOPTED: a correction to a ledgered entry must request the
+  amendment explicitly ('amend entry X') — describing the change is not
+  causing it, and room-only decisions revert within rounds. Third
+  record-or-revert instance (number rule, canary constant, gate-order swap),
+  precedents cited; the issuer owns getting it into the record.**
