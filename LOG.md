@@ -2090,6 +2090,10 @@ Nothing above the first entry was edited in the move.
   multi-line block comment, leading whitespace-with-newline. The traps are deterministic and
   aimed at the known drift cases of run-then-derive, which makes them stronger than the random
   set that merely might reach them; they are part of the standard, not an implementation extra.
+  **The loop's preserved oddities are named inputs too:** `1e` (raises `malformed number`),
+  `2e+` (lexes as the NUMBER `2e+`), `5.5.5` (splits into `5.5` and `.5`), `1e5e5`, `.5e2`, `4.`.
+  A rewrite that "cleans up" any of them stays green on every documented behaviour, which is
+  exactly why they belong in the standard rather than in the random set's good luck.
   Every input — corpus file, fuzz string, random string, trap — is tokenized by both the master
   scanner and `_Scanner`, asserting identical **seven-field**
   sequences `(kind, value, raw, quote, line, col, pos)` — the tuple the early differential actually
@@ -2208,7 +2212,9 @@ Nothing above the first entry was edited in the move.
   sign and digits — including its quirks: `1e` still raises `malformed number` because the pattern
   permits a trailing `e` and the existing check fires on it, and `2e+` still lexes as the NUMBER
   `2e+` because that is what the loop did. Equivalence: **3,025 inputs, 0 mismatches** on the
-  seven-field tuple, now including the number edge cases (`1e`, `2e+`, `.5`, `4.`, `5.5.5`,
+  seven-field tuple, now including the number edge cases (`1e`, `2e+`, `.5`, `4.`, `5.5.5`, — derived, not recalled: **22 corpus files + 3,000 seeded random strings + 3 statements
+  carrying the 8 number edges = 3,025**. Nothing was dropped; the edges ride inside three
+  SELECTs, which is why 3,025 and not 3,035.
   `1e5e5`, `.5e2`), suite 562 OK, corpus 293/293.
   Measured at loadavg 3.32, outside the gate window: `tokenize` 10k median **793 ms**; class
   isolation identifiers **1,546 -> 985 ns/char** (110.7 -> 69.9 us/statement) and numbers
