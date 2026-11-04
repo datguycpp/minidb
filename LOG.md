@@ -2294,3 +2294,10 @@ Nothing above the first entry was edited in the move.
   `1e`, `2e+`, `1e5e5` and `123abc` while leaving `1e5` a valid number. 562 tests OK, corpus
   293/293, and `tests/lexer_oddities.json` regenerated **from a run of the fixed tree** — the
   fixture is execution-derived, first check of the file-time audit.
+
+- **Sixth build change reviewed cold by Default (behavior change, per the
+  corpus rule): 562 OK + 293/293 reproduced at 0399c54, and the fixed
+  behavior executed directly — `2e+`/`1e5e5`/`123abc` raise typed LexError
+  with SQLite's spans (no raw ValueError), valid `1e5` still lexes. Parked
+  tranche `docs/lexer-oddities-tranche-draft.txt` confirmed present with its
+  gate-deferral reason; it lands as `tests/corpus/lexer.txt` post-gate.**
