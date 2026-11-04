@@ -2090,7 +2090,8 @@ Nothing above the first entry was edited in the move.
   multi-line block comment, leading whitespace-with-newline. The traps are deterministic and
   aimed at the known drift cases of run-then-derive, which makes them stronger than the random
   set that merely might reach them; they are part of the standard, not an implementation extra.
-  tokenized by both the master scanner and `_Scanner`, asserting identical **seven-field**
+  Every input — corpus file, fuzz string, random string, trap — is tokenized by both the master
+  scanner and `_Scanner`, asserting identical **seven-field**
   sequences `(kind, value, raw, quote, line, col, pos)` — the tuple the early differential actually
   used, so the permanent test audits against this spec rather than against a narrower one. The random component is **seeded `random.Random(4242)`**, so the input set is
   deterministic and a seam bug is regenerable from the record rather than different every run; the
