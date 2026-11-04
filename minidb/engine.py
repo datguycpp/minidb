@@ -1002,6 +1002,11 @@ class Database:
     """
 
     def __init__(self, path=None, readonly=False, repl_log=False):
+        # SQLite spells its private in-memory database ':memory:' (executed against the pinned CLI:
+        # `sqlite3 ':memory:'` creates no file). Treating it as a filename diverged silently and
+        # only surfaced as a lock message, so the spelling is honoured here.
+        if path == ":memory:":
+            path = None
         self.path = path
         if path and not readonly:
             # A VACUUM killed before its rename leaves `<db>.vacuum` and its WAL behind. Opening

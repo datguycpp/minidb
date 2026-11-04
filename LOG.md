@@ -2312,3 +2312,18 @@ Nothing above the first entry was edited in the move.
   scratch probe that forgets it litters the tree. Named so the next stray triggers a hunt for its
   producer rather than another silent delete; removing a symptom without naming the cause leaves
   the cause free to run again.
+
+- **`':memory:'` — fixed, not declared (SQLite verified first).** Executed against the pinned CLI:
+  `sqlite3 ':memory:'` answers `1` and creates no file, so SQLite's spelling for a private in-memory
+  database is a **behaviour MiniDB diverged from**, not a probe mistake. `Database(':memory:')` now
+  normalises to the in-memory path (`path = None`); a check run shows rows returned, `path` None,
+  and no file created. 562 tests OK, corpus 293/293. The earlier discipline line stays true but was
+  the weaker disposition: a rule telling callers "don't do that" protects the tree without making
+  the engine SQLite-conformant, and this divergence was found only because a lock message happened
+  to surface it.
+- **Gate-event order, re-sequenced now for fail-fast reasons.** **Settled component session (gates
+  1 and 3) -> round-3 battery (gate 4) -> W9 benchmark (gate 2)**, with the box inside [1.0, 3.0]
+  before each heavy event. The battery is minutes and gates whether the code is final; the benchmark
+  is hours and measures code a battery failure would change, so a battery failure after W9 costs
+  hours while the same failure before costs minutes. Recorded as a re-sequencing on the merits, since
+  the record's previous order was session -> W9 -> battery and no earlier correction exists in it.
