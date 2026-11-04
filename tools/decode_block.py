@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Gate 1's decode block priced on its own: 100k encoded rows, N=7, both decoders in one frame.
+"""Gate 1's decode block priced on its own: 100k encoded rows, N timed samples (default 7),
+both decoders in one frame.
 
 The frozen profile splits gate 1's subject as 35% page walk and 57% record decode. This tool times
 the decode half alone -- the same payloads through `record.decode` (the Python reference every

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""W9's cycle split into open cost and the COUNT(*) walk, at 100k rows, N=7, one file.
+"""W9's cycle split into open cost and the COUNT(*) walk, at 100k rows, N timed samples
+(default 11 — the frozen floor for a gate calibration), one file.
 
 Gate 2's remaining gap lives in the two parts of the cycle candidate (a) did not remove: opening
 the file, and the page walk `count_rows` still performs. This tool measures both sides of that

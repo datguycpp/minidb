@@ -2671,3 +2671,13 @@ Nothing above the first entry was edited in the move.
   engines, harness header required), not a value the checker can re-derive — so it sits with trust in
   the harness, not among the four checked items.
   Suite **583 OK** at this tree; tools and docstrings only, no engine change.
+
+- **Last two docstrings of the count-label class.** `w9_split.py:2` said "N=7" against a `--n` that
+  now defaults to **11**; `decode_block.py:2` said "N=7" against a `--n` that defaults to 7 — truthful
+  at default, wrong the moment the flag moves, which is exactly the class this surface closed. Both
+  now name the flag and its default instead of a fixed count. `decode_block`'s **default stays 7**:
+  it prices gate 1's component, and gate 1 is frozen at N=7 — the two-regime runbook note covers it,
+  so this is wording, not a default move. `leg_report.py` stays untouched by the same boundary rule
+  Security ran and confirmed: no `--n` flag, so its hardcoded N=7 header and `raw7=` labels are true.
+  *Sweep result:* the only remaining `raw7` strings are the parser's legacy comment and the gate-floor
+  comment — both describing history rather than emitting output. Suite **583 OK**; tools only.
