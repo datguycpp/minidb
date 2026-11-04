@@ -77,8 +77,7 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   Goal 6 PRE-REGISTERED (57aec57, LOG only, no engine code): mechanism >
   calibrated band, W9 ≤60x reference, parse loop ≥50%, parity = 293/293 + same
   fuzz counts + verify 5/5 + round-3 battery. Build pending.
-  Loud baseline (d50a2f8, clean): parse 8430.8 / block 784.0 — load contrast only;
-  gate-3 shape amended pre-result (10k all-distinct, LRU citation).
+  Loud baseline (d50a2f8, clean): parse 8430.8 / block 784.0, load contrast; gate-3 shape amended pre-result.
   Quiet floor (898e730, clean, load 2.00): parse-only 1626.3 (41.6%), loop 3905.4 → ≤1952.7,
   block 329.1 → ≤259.0; matched-pair rule (|Δload|≤1.0 else INCONCLUSIVE); gate 3 = chain.
   Scope (0c7575f): C behind APIs. Fuzz (a74294e): seeds 1/7, 0/0. Profile (7e49ac5): lexer 56%,
@@ -87,6 +86,7 @@ handoff: a fresh bot continues from here alone. Full history lives in LOG.md
   2 files only, suite/corpus re-verified true, fabrication contained to one sentence.
   Rule ADOPTED: a number enters LOG only as output of a run that produced it (lossy + inventive).
   Seam spec (7a8e750): test_lexer_equivalence.py, seed 4242, repro-on-failure; 7-field tuple (55ef052).
+  Canaries (4d66db1, LOG-only): asserted input count + canary pair; R5 analogy corrected room-only.
   Gate order (1b502d5): settled session (1+3, load [1.0,3.0]) → W9 bench (2) → parity battery (4).
 
 ## Open items
