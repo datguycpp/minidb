@@ -182,6 +182,17 @@ def band_percent(values):
     return 0.0 if median == 0 else (max(values) - min(values)) / median * 100.0
 
 
+def load_span(loads):
+    """(max - min) of one leg's per-sample load trace, i.e. how far the box moved during the run.
+
+    Emitted beside the trace so the prospective drift rule has an instrument field to read: a span
+    above the frozen 1.0 means the box moved during measurement, which is a different statement
+    from a noisy reference leg under a flat trace.
+    """
+    values = [x for x in loads if x is not None]
+    return (max(values) - min(values)) if values else 0.0
+
+
 def w9_open_setup(s, m):
     """Build the two 100k-row files W9 opens, outside every timed region.
 
@@ -307,12 +318,12 @@ def main():
                  "n/a" if load_after is None else "%.2f" % load_after))
         print("     sqlite_ms median=%.2f  raw=[ %s ]  band=%.1f%%"
               % (statistics.median(t_sq), " ".join("%.2f" % x for x in t_sq), band_percent(t_sq)))
-        print("     sqlite_loads=[ %s ]"
-              % " ".join("n/a" if x is None else "%.2f" % x for x in loads_sq))
+        print("     sqlite_loads=[ %s ]  load_span=%.2f"
+              % (" ".join("n/a" if x is None else "%.2f" % x for x in loads_sq), load_span(loads_sq)))
         print("     minidb_ms median=%.2f  raw=[ %s ]  band=%.1f%%"
               % (statistics.median(t_md), " ".join("%.2f" % x for x in t_md), band_percent(t_md)))
-        print("     minidb_loads=[ %s ]"
-              % " ".join("n/a" if x is None else "%.2f" % x for x in loads_md))
+        print("     minidb_loads=[ %s ]  load_span=%.2f"
+              % (" ".join("n/a" if x is None else "%.2f" % x for x in loads_md), load_span(loads_md)))
         print("     ratio=%.3f  output: OK  ratio_min=%.3f" % (ratio, ratio_min), flush=True)
         ratios.append(ratio)
 

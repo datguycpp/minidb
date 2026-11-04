@@ -41,6 +41,7 @@ HEADER_N = re.compile(r"\bN=(\d+)\b")
 DEMO = re.compile(r"\bdemo=true\b")
 SQLITE_LOADS = re.compile(r"^\s+sqlite_loads=\[\s*([\d.\s]*)\]")
 MINIDB_LOADS = re.compile(r"^\s+minidb_loads=\[\s*([\d.\s]*)\]")
+LOAD_SPAN = re.compile(r"\bload_span=([\d.]+)")
 GATE_N = 11                # the freeze's floor: an N=7 artifact cannot certify a gate-2 call
 
 
@@ -128,6 +129,9 @@ def parse(path, require_header=True, allow_demo=False):
                         if current is None:
                             raise ValueError(f"{path}:{lineno}: {key} before any workload header")
                         current[key] = [float(x) for x in match.group(1).split()]
+                        span = LOAD_SPAN.search(line)
+                        if span:
+                            current[key.replace("loads", "span")] = float(span.group(1))
                         break
     return runs
 

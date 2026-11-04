@@ -2826,3 +2826,26 @@ Nothing above the first entry was edited in the move.
   the two candidates (their subjects are the reference decode path and the 10k `db.run` loop); gate
   2 moved a long way (400 → 67 on this denominator series) and still misses the frozen 60. No
   threshold moved, none widened, and the goal-6 targets stand unmet on the record.
+
+- **Prospective amendment, frozen before any retake: `INCONCLUSIVE` keys on the load trace, not on
+  band width — and it does not reclassify the gate-2 MISS.** Provenance stated openly, as required:
+  this rule is written **after** observing a run the current trigger cannot class — gate 2 at
+  `ratio_min` **67.257** with a SQLite band of **42.3%** under per-sample loads flat at **2.40–2.51**
+  — because the existing trigger fires only on an **unreported** band. It applies to runs after this
+  entry; the settled session's verdicts stand exactly as recorded.
+  *Rule, every constant shown:* a gate-2 artifact is **INCONCLUSIVE** if either leg's trace shows
+  (a) any sample outside the frozen **[1.0, 3.0]** window, or (b) `load_span` — max − min of that
+  leg's per-sample trace — **greater than 1.0**, the same |Δloadavg| ≤ 1.0 constant the calling
+  condition already applies *between* baseline and capture, now applied *within* a run. Band width
+  plays no part: d₂ says a span grows with N (27.4 → 32.2 → 35.3% at n=7/11/15), so a band threshold
+  would fire *more* readily as evidence improves, and this run is the counterexample — a 42.3%
+  reference band under a flat trace is intrinsic noise in a sub-second leg, not box drift.
+  *Checked against the record, as a test of the rule rather than a re-decision:* gate 2's traces span
+  **0.11** (2.40–2.51) and the calibration's **0.30** (2.60–2.90); neither trips the rule, so nothing
+  in the session is reclassified. What it would catch is a run whose trace moved by more than the
+  window's own calling tolerance.
+  *Instrument side:* `benchmark.py` now emits `load_span=` beside each `*_loads=` line and
+  `bench_pair` parses it into `span_sq` / `span_md`, so the trigger reads an emitted field rather
+  than hand arithmetic. `w9_split` now prints `file_sha256=` beside `file_bytes`, closing the
+  calibration-input identity loop Research flagged (optional, done because the instrument was open).
+  Suite **589 OK** at this commit; tools and LOG only, no engine change.

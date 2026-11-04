@@ -21,6 +21,7 @@ band, (max - min) / median, because that band is what a later win has to clear.
 """
 
 import argparse
+import hashlib
 import os
 import statistics
 import sys
@@ -94,6 +95,15 @@ def band_percent(values):
     return 0.0 if median == 0 else (max(values) - min(values)) / median * 100.0
 
 
+def file_sha256(path):
+    """Identity of the file this run built, so the calibration's input is provable, not assumed."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def settle(cap=180.0):
     """Wait for the build's own load to decay before the timed region.
 
@@ -131,7 +141,8 @@ def main():
           % (waited, "n/a" if load_before is None else "%.2f" % load_before))
     if load_before is None or not (1.0 <= load_before <= 3.0):
         print("WINDOW NOT MET: this run cannot calibrate the gate band; label it non-gate evidence.")
-    print("W9 SPLIT  rows=%d  repeats=%d  N=%d  file_bytes=%d" % (args.rows, REPEATS, args.n, size))
+    print("W9 SPLIT  rows=%d  repeats=%d  N=%d  file_bytes=%d  file_sha256=%s"
+          % (args.rows, REPEATS, args.n, size, file_sha256(path)))
     print("note: component measurement, not gate 2 -- no reference engine, no ratio; counts are a "
           "fresh open each cycle, so neither shape is measured warm.")
 

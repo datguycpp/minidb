@@ -76,14 +76,16 @@ def write_run(path, minidb_shift=1.0, sqlite_shift=1.0, output="OK", drop=(), ra
                   f"     sqlite_ms median={statistics.median(samples_sq):.2f}  {raw_label}=[ "
                   f"{' '.join('%.2f' % x for x in samples_sq)} ]"]
         if "loads" not in omit:
-            lines.append(f"     sqlite_loads=[ {' '.join('%.2f' % loadavg for _ in samples_sq)} ]")
+            lines.append(f"     sqlite_loads=[ {' '.join('%.2f' % loadavg for _ in samples_sq)} ]"
+                         f"  load_span=0.00")
         lines.append(f"     minidb_ms median={statistics.median(samples_md):.2f}  {raw_label}=[ "
                      f"{' '.join('%.2f' % x for x in samples_md)} ]  band={band_md:.1f}%"
                      if "band" not in omit else
                      f"     minidb_ms median={statistics.median(samples_md):.2f}  {raw_label}=[ "
                      f"{' '.join('%.2f' % x for x in samples_md)} ]")
         if "loads" not in omit:
-            lines.append(f"     minidb_loads=[ {' '.join('%.2f' % loadavg for _ in samples_md)} ]")
+            lines.append(f"     minidb_loads=[ {' '.join('%.2f' % loadavg for _ in samples_md)} ]"
+                         f"  load_span=0.00")
         tail = f"     ratio={shown_ratio:.3f}  output: {output}"
         if "ratio_min" not in omit:
             tail += f"  ratio_min={shown_min:.3f}"
@@ -213,6 +215,11 @@ class GateCertificationTest(unittest.TestCase):
         runs = bench_pair.parse(write_run(self.path("g.txt"), n=11))
         self.assertEqual(len(runs["W1"]["raw_sq"]), 11)
         self.assertEqual(len(runs["W1"]["raw_md"]), 11)
+
+    def test_the_load_span_field_parses(self):
+        runs = bench_pair.parse(write_run(self.path("g.txt"), n=11))
+        self.assertEqual(runs["W1"]["span_sq"], 0.0)
+        self.assertEqual(runs["W1"]["span_md"], 0.0)
 
     def test_the_checker_does_not_apply_the_sixty_x_threshold(self):
         # Far above 60x and still certified: the checker asserts fitness, not the gate call.
