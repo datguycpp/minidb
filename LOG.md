@@ -2192,3 +2192,12 @@ Nothing above the first entry was edited in the move.
   at 1131b26. The 812-at-3.80 figure is labelled moved-not-priced in entry and
   message alike — no percentage claimed, settled comparison deferred to the
   in-window session.**
+
+- **Mislabelled-commit incident recorded by Default (7e511fa → 98ffb3f): a
+  failed patch script left the file untouched, but the `&&` chain committed
+  Default's uncommitted LOG line under Engineer's traps message. Content
+  intact, message wrong; stands visible with the correction in 98ffb3f, no
+  rewrite. Two process rules adopted: (1) a commit follows a verified write —
+  read the file back, since exit 0 is itself unverified; (2) the staged diff
+  must show only your own change — `git diff --cached` on a shared file
+  before committing, another seat's line present means stop.**
