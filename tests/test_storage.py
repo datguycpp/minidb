@@ -404,3 +404,30 @@ class SourceCacheTest(unittest.TestCase):
             "SELECT edge.dst, walk.depth + 1 FROM edge JOIN walk ON edge.src = walk.id) "
             "SELECT id, depth FROM walk ORDER BY id, depth")[1]
         self.assertEqual(rows, [(1, 0), (2, 1), (3, 1), (4, 2)])
+
+    def test_a_trigger_write_is_visible_to_a_read_inside_the_same_body(self):
+        # The cached source path must not serve pre-trigger rows: the body writes b, then counts b.
+        self.db.run("CREATE TABLE a (id INTEGER PRIMARY KEY, v TEXT)")
+        self.db.run("CREATE TABLE b (id INTEGER PRIMARY KEY, v TEXT)")
+        self.db.run("CREATE TABLE log (n INTEGER)")
+        self.db.run("CREATE TRIGGER trg AFTER INSERT ON a BEGIN "
+                    "INSERT INTO b VALUES (new.id, new.v); "
+                    "INSERT INTO log VALUES ((SELECT count(*) FROM b WHERE id > 0)); END")
+        self.assertEqual(self.db.run("SELECT count(*) FROM b WHERE id > 0")[1], [(0,)])
+        self.db.run("INSERT INTO a VALUES (1, 'x')")
+        self.assertEqual(self.db.run("SELECT n FROM log")[1], [(1,)])
+
+    def test_a_trigger_write_invalidates_the_plan_cache_on_the_private_path(self):
+        # `_execute` is the trigger body's entry point; run it directly so only the in-body
+        # invalidation can clear the cache, matching what the public primitive does.
+        from minidb.sql.parser import parse
+        self.db.run("CREATE TABLE a (id INTEGER PRIMARY KEY, v TEXT)")
+        self.db.run("CREATE TABLE b (id INTEGER PRIMARY KEY, v TEXT)")
+        self.db.run("CREATE TRIGGER trg AFTER INSERT ON a BEGIN "
+                    "INSERT INTO b VALUES (new.id, new.v); END")
+        statement = parse("INSERT INTO a VALUES (7, 'x')")
+        self.db._plan_cache["sentinel"] = "x"
+        epoch = self.db.data_epoch
+        self.db._execute(statement)
+        self.assertNotIn("sentinel", self.db._plan_cache)
+        self.assertGreater(self.db.data_epoch, epoch)

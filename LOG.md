@@ -3204,3 +3204,19 @@ Nothing above the first entry was edited in the move.
   *Gate 3 still misses at this tree:* a gate capture would read 3061.2 against 1934.4 — it needs
   **−36.8%** more, and no gate call has been taken on this tree.
   Conformance **293/293**; suite **622 OK**.
+
+- **Trigger-path invalidation closed, and the hole was SQL-observable rather than theoretical.**
+  `_invalidate_reads()` is now one primitive — `data_epoch += 1` + `_plan_cache.clear()` — called by
+  the public `execute()` and by the trigger body's statement loop after **each** write, so a trigger
+  that writes and then reads in the same body sees its own write. The pair moves together because
+  the public primitive moves them together; a fix that bumped only the epoch would leave the trigger
+  path diverging on the plan cache.
+  *Reproduced before the fix, in SQL:* with `b`'s source list cached, the trigger body
+  `INSERT INTO b VALUES (new.id, new.v); INSERT INTO log VALUES ((SELECT count(*) FROM b WHERE
+  id > 0))` logged **0** on the pre-fix tree and **1** after. The `WHERE` is load-bearing: a bare
+  `SELECT count(*) FROM b` takes the native aggregate fast path and never consults `_sources`, which
+  is why a no-WHERE version of this test passes either way and would have proved nothing.
+  *Pinned by two tests:* the stale-read case above, and a plan-cache case that calls `_execute`
+  directly — so only the in-body invalidation can clear a sentinel entry, and a half-fix cannot pass.
+  Both were demonstrated failing on the pre-fix tree before this landed.
+  Conformance **293/293**; suite **624 OK**.

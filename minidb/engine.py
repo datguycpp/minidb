@@ -1155,6 +1155,16 @@ class Database:
         return self.storage.iter_rows(table.entry) if table.on_disk else table.rows
 
     # -- entry point ---------------------------------------------------------
+    def _invalidate_reads(self):
+        """A write makes two things stale: the source cache's epoch and the plan decisions.
+
+        Kept as one primitive so every write path — the public `execute()` and a trigger body's
+        statements, which run through `_execute` directly — invalidates the same pair. A path that
+        bumps only one of them diverges from the public primitive and serves a stale answer.
+        """
+        self.data_epoch += 1
+        self._plan_cache.clear()
+
     def execute(self, statement, autocommit=False):
         """Run one statement. `autocommit` is explicit because run() and execute() differ:
 
@@ -1164,8 +1174,7 @@ class Database:
         result = self._execute(statement)
         if not isinstance(statement, (ast.Select, ast.Compound, ast.With, ast.Pragma,
                                       ast.Analyze, ast.Vacuum)):
-            self.data_epoch += 1
-            self._plan_cache.clear()
+            self._invalidate_reads()
         if (autocommit and self.storage is not None and self.tx_snapshot is None
                 and not isinstance(statement, ast.Begin)):
             self.storage.commit()
@@ -2049,6 +2058,12 @@ class Database:
             try:
                 for statement in trigger.statements:
                     self._execute(statement)
+                    # Per statement, inside the body: a trigger that writes and then reads in the
+                    # same body must see its own write. Invalidating only when the outer statement
+                    # returns leaves that read on a pre-trigger epoch.
+                    if not isinstance(statement, (ast.Select, ast.Compound, ast.With, ast.Pragma,
+                                                  ast.Analyze, ast.Vacuum)):
+                        self._invalidate_reads()
             finally:
                 self._in_trigger = False
                 self.trigger_env = previous
