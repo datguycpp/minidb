@@ -81,6 +81,29 @@ def select_series(argv):
     return wanted
 
 
+def select_comparator(argv):
+    """The gate's own load comparator, named in the artifact rather than left to memory.
+
+    Each gate is called against its own baseline: gate 1 against the quiet capture at 2.00, gate 3
+    against the re-baseline at 2.33. The same reading can be admissible for one and not the other,
+    so the artifact carries which comparator it matched, and a mismatch refuses the capture.
+    """
+    spec = None
+    for index, arg in enumerate(argv):
+        if arg == "--comparator" and index + 1 < len(argv):
+            spec = argv[index + 1]
+        elif arg.startswith("--comparator="):
+            spec = arg.split("=", 1)[1]
+    if spec is None:
+        return None
+    try:
+        name, revision, baseline = spec.rsplit(":", 2)
+        return name, revision, float(baseline)
+    except ValueError:
+        raise SystemExit("baseline: --comparator takes NAME:REVISION:LOADAVG")
+
+
+COMPARATOR = select_comparator(sys.argv[1:])
 WANTED = select_series(sys.argv[1:])
 
 
@@ -154,6 +177,17 @@ EXPECTED = {
     "w9": (8085504, "f65d581dbef12f634ded07c1e5933fa6558e641dab435718ad29dfbc65d0db82"),
 }
 print("loadavg:", loadavg(), flush=True)
+if COMPARATOR is not None:
+    name, revision, baseline = COMPARATOR
+    reading = float(loadavg())
+    delta = abs(reading - baseline)
+    matched = delta <= 1.0
+    print("comparator=%s:%s:%.2f baseline_load=%.2f reading=%.2f delta=%.2f match=%s"
+          % (name, revision, baseline, baseline, reading, delta, "yes" if matched else "no"),
+          flush=True)
+    if not matched:
+        raise SystemExit("baseline: reading %.2f is outside |delta| <= 1.0 of the %s:%s comparator "
+                         "at %.2f — capture refused" % (reading, name, revision, baseline))
 if TINY is not None:
     check_identity("tiny", TINY, EXPECTED["tiny"])
 if W9 is not None:

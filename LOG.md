@@ -3220,3 +3220,17 @@ Nothing above the first entry was edited in the move.
   directly — so only the in-body invalidation can clear a sentinel entry, and a half-fix cannot pass.
   Both were demonstrated failing on the pre-fix tree before this landed.
   Conformance **293/293**; suite **624 OK**.
+
+- **Gate 3's capture at this tree: MISS — LOOP median 3080.0 ms against 1934.4 — with the comparator
+  named in the artifact.** The instrument now takes `--comparator NAME:REVISION:LOADAVG`, prints
+  `comparator=gate3:d89f689:2.33 baseline_load=2.33 reading=… delta=… match=yes|no`, and **refuses
+  the capture** when the match fails — the two-baseline slip that had gate 1's 2.00 applied to a gate
+  3 reading is now structurally impossible in the artifact rather than corrected in prose.
+  *The refusal fired first and is recorded:* at 3.46 the capture was rejected, `delta=1.13 match=no`.
+  *The admissible run:* reading **2.58**, `delta=0.25 match=yes`, N=7, raw `2958.0 2966.6 3078.8
+  3080.0 3111.0 3115.5 3383.6`, spread 13.8% — **median 3080.0 against the 1934.4 ceiling → MISS**,
+  needing −37.2%.
+  *Movement, stated against the right baseline each time:* −20.4% against the 3868.7 re-baseline and
+  −16.8% against the previous capture's 3703.9. The cache accounts for the difference; parse and
+  `rest` account for what remains.
+  Suite **624 OK**.
