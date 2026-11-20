@@ -57,6 +57,33 @@ def fixture(env, name, legacy):
                      % (name, env))
 
 
+def select_series(argv):
+    """Which series to run; all by default.
+
+    A gate-1 capture needs only `BLOCK`, whose input is the reproducible W9 file. The tiny input
+    feeds `PARSEONLY` and `LOOP` and has no committed builder, so a machine without it can still
+    take gate 1's number without measuring something else under the missing fixture's name.
+    """
+    wanted = {"PARSEONLY", "LOOP", "BLOCK"}
+    for index, arg in enumerate(argv):
+        if arg == "--series" and index + 1 < len(argv):
+            chosen = {name.strip().upper() for name in argv[index + 1].split(",") if name.strip()}
+            unknown = chosen - wanted
+            if unknown or not chosen:
+                raise SystemExit("baseline: --series takes a subset of PARSEONLY,LOOP,BLOCK")
+            return chosen
+        if arg.startswith("--series="):
+            chosen = {name.strip().upper() for name in arg.split("=", 1)[1].split(",") if name.strip()}
+            unknown = chosen - wanted
+            if unknown or not chosen:
+                raise SystemExit("baseline: --series takes a subset of PARSEONLY,LOOP,BLOCK")
+            return chosen
+    return wanted
+
+
+WANTED = select_series(sys.argv[1:])
+
+
 def identity(path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -112,8 +139,10 @@ def show(tag, v):
           flush=True)
 
 
-TINY = fixture("G6_TINY_DB", "g6-tiny.db", LEGACY_TINY)
-W9 = fixture("G6_W9_DB", "w9-fixture.db", LEGACY_W9)
+# Fixtures are resolved only for the series actually requested: a missing tiny input must block
+# the series that measure it, not a BLOCK capture whose input is the reproducible W9 file.
+TINY = fixture("G6_TINY_DB", "g6-tiny.db", LEGACY_TINY) if WANTED & {"PARSEONLY", "LOOP"} else None
+W9 = fixture("G6_W9_DB", "w9-fixture.db", LEGACY_W9) if "BLOCK" in WANTED else None
 # The frozen inputs' identities. Both were confirmed by independent hashing, and the W9 one is
 # reproducible: two fresh builds by the committed harness shape (benchmark.py's create + one
 # transaction + build_rows(100000, seed=7)) hash to it byte-for-byte, so a cold clone can verify
@@ -124,8 +153,10 @@ EXPECTED = {
     "w9": (8085504, "f65d581dbef12f634ded07c1e5933fa6558e641dab435718ad29dfbc65d0db82"),
 }
 print("loadavg:", loadavg(), flush=True)
-check_identity("tiny", TINY, EXPECTED["tiny"])
-check_identity("w9", W9, EXPECTED["w9"])
+if TINY is not None:
+    check_identity("tiny", TINY, EXPECTED["tiny"])
+if W9 is not None:
+    check_identity("w9", W9, EXPECTED["w9"])
 
 
 def parse_only():
@@ -141,12 +172,15 @@ def loop():
     db.close()
 
 
-p = capture("PARSEONLY", parse_only)
-l = capture("LOOP", loop)
-show("PARSEONLY", p)
-show("LOOP", l)
+if "PARSEONLY" in WANTED:
+    p = capture("PARSEONLY", parse_only)
+    show("PARSEONLY", p)
+if "LOOP" in WANTED:
+    l = capture("LOOP", loop)
+    show("LOOP", l)
 
-_d = Database(W9); root = _d.tables["t"].entry["root"]; _d.close()
+if "BLOCK" in WANTED:
+    _d = Database(W9); root = _d.tables["t"].entry["root"]; _d.close()
 
 
 def block():
@@ -156,7 +190,8 @@ def block():
     pager.close(); return rows
 
 
-b = capture("BLOCK", block)
-print(f"BLOCK rows={block()} n={len(b)} ms: {[round(x,1) for x in b]} "
-      f"median={b[len(b)//2]:.1f} min={b[0]:.1f} max={b[-1]:.1f} "
-      f"spread={(b[-1]-b[0])/b[len(b)//2]*100:.1f}%", flush=True)
+if "BLOCK" in WANTED:
+    b = capture("BLOCK", block)
+    print(f"BLOCK rows={block()} n={len(b)} ms: {[round(x,1) for x in b]} "
+          f"median={b[len(b)//2]:.1f} min={b[0]:.1f} max={b[-1]:.1f} "
+          f"spread={(b[-1]-b[0])/b[len(b)//2]*100:.1f}%", flush=True)

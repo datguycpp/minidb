@@ -3043,3 +3043,27 @@ Nothing above the first entry was edited in the move.
   *Pinned by test:* `test_the_published_interval_reproduces_from_the_published_raws` fixes seed,
   resample count and percentile convention together against the recorded numbers, and a second test
   pins determinism.
+
+- **Gate 1, post-scan capture: MISS — BLOCK median **336.6 ms** against the frozen **259.0**.
+  Taken at load **2.65** (2.60 after the series), **|Δ| = 0.65** against the frozen quiet baseline's
+  **2.00**, inside the |Δloadavg| ≤ 1.0 calling condition — comparator confirmed as the frozen
+  baseline, not the settled session's 1.89 capture, which at this reading would have been |Δ| 1.10
+  and INCONCLUSIVE. Raw, N=7: `294.2 306.7 330.0 336.6 339.1 345.7 354.5`, spread 17.9%, min 294.2,
+  max 354.5. The frozen ceiling decides it: **336.6 > 259.0 → MISS**, with no cross-load comparison
+  used and none needed.
+  *Consistent with the pre-registration:* the scan batching entry above predicted ≤22 ms against the
+  ~62 the subject needs, and the expected miss is recorded before the capture rather than explained
+  after it. The controlled A/B (138.6 → 116.5 ms on the walk) remains the evidence that the change
+  works; it is simply not enough against this ceiling.
+  *Input defect found while taking the capture, and it blocks the other subject:* the **tiny fixture
+  (`g6-tiny.db`, 12,288 B, `75848fa8…`) is not on this machine** — it lived at the legacy `/tmp`
+  path, is absent from the repo and from git history, and no committed builder produces it (the
+  W9 input is reproducible; this one never was). Consequences: **gate 3 cannot be re-measured here**
+  — `PARSEONLY` and `LOOP` both need that input — so its recorded MISS stands as a dated measurement,
+  and the capture script now takes `--series` so a missing tiny input blocks only the series that
+  measure it. A gate-3 retake needs the original file (or a decision to rebuild the fixture and
+  re-baseline), and that is now the open blocker on the last unmet subject.
+  *Instrument:* `baseline_g6_quiet.py --series PARSEONLY,LOOP,BLOCK` (default all); fixtures resolve
+  only for the requested series, `series()`'s inner loop untouched, identities still asserted for
+  whatever is measured. Verified by the run above: with `--series BLOCK` it resolved the W9 input
+  only, asserted its hash, and printed `rows=100000`.
