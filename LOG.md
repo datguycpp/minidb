@@ -3328,3 +3328,25 @@ Nothing above the first entry was edited in the move.
   Both miss; the gap between them is the paired-vs-serial sampling difference (the paired rig
   alternates PARSEONLY and LOOP in one session). Neither number replaces the other; the gate number
   is the N=7 one.
+
+- **A second gate capture on a genuinely quiet box tightens the number: 2549.2 ms, MISS −24.1% — and
+  the instrument now refuses to let anyone hand-compute an interval for it.**
+  ```
+  comparator=gate3:d89f689+:2.33 verified=yes baseline_load=2.33 reading=2.44 delta=0.11 match=yes
+  loads before/after: 2.44 / 2.56
+  LOOP n=7 ms: 2439.5 2491.6 2547.6 2549.2 2582.3 2631.6 2652.9  median=2549.2  spread=8.4%
+  interval: none at n=7 — gate captures report median and spread only; paired CIs belong to gate3_split
+  ```
+  *Verdict:* **MISS**, needing **−24.1%**; against the 3080.0 capture, −17.2%; against the 3868.7
+  re-baseline, −34.1%. The spread is **8.4%**, against the previous capture's 34.5% — the wider run was
+  the noisy one, exactly as predicted, and this is now the tree's gate number.
+  *The interval question, settled by measurement rather than by preference:* on the 2823.5 raw7, SD is
+  **325.1** and SE(median) **154.0**, so `t(6)` gives **[2446.7, 3200.3]**, `z` gives [2521.7, 3125.3],
+  and a seeded n=7 bootstrap gives **[2706.0, 3070.2]** — because with seven points the bootstrap median
+  takes exactly **seven distinct values**, so the percentile interval is an order-statistic interval
+  dressed as a 95% one. Three defensible methods, three different answers: the number cannot carry an
+  interval it did not freeze. The MISS is method-proof regardless — even the widest lower bound clears
+  1934.4 by 512.3 ms — but the caveat is now *spread + "N=7, method-sensitive"*, and `show()` prints
+  `interval: none` beside every gate median so the next reader cannot reconstruct a per-round interval.
+  Paired intervals stay `gate3_split`'s property, under one seeded method, because that rig runs both
+  legs in one session.

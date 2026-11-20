@@ -174,6 +174,14 @@ def show(tag, v):
     print(f"{tag} n={len(v)} ms: {[round(x,1) for x in v]} median={v[middle]:.1f} "
           f"min={v[0]:.1f} max={v[-1]:.1f} spread={(v[-1]-v[0])/v[middle]*100:.1f}%",
           flush=True)
+    # This instrument owns no interval, and says so where the number is printed. At n=7 a median
+    # bootstrap has seven possible values, so t, z and percentile intervals disagree by construction
+    # (2446.7-3200.3 / 2521.7-3125.3 / 2706.0-3070.2 on one published raw7) — whichever method a
+    # reader picks, they would be quoting a number this run never froze. Paired intervals live in
+    # gate3_split, which runs both legs in one session under a seeded bootstrap.
+    if tag == "LOOP":
+        print(f"interval: none at n={len(v)} — gate captures report median and spread only; "
+              f"paired CIs belong to gate3_split", flush=True)
 
 
 # Fixtures are resolved only for the series actually requested: a missing tiny input must block
