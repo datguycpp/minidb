@@ -3448,3 +3448,16 @@ Nothing above the first entry was edited in the move.
   smaller than the first run suggested: 1721.2 vs 1698.6 across states (**~23 ms**), not the ~90 ms the
   short-counted run implied. Both corrections run the same way — the missing legs made the gap look
   smaller and GC look larger.
+
+- **`parse_gap` decomposes once more: the LRU wrapper itself is 69.1 ms of the 177.6.** Measured
+  directly, same 10k texts, cache cleared before each series: `parse()` **883.5 ms**, `_parse_cached`
+  **952.6 ms** — the wrapper (hashing, dict probe, eviction on a full 1,024-entry cache with 10k
+  distinct keys) costs **69.1 ms, 7.8%**.
+  *What that means for the next lever:* of the in-loop gap, **69.1 ms is the cache wrapper** and
+  **~108 ms is everything else** (interpreter/allocator state under interleaved execution, which the
+  GC discriminator showed is not collection). The wrapper is the cheaper and safer half to attack —
+  a cache that cannot hit is pure overhead on this workload — but it is a *policy* change, not a
+  parser change, and it needs its own before/after under the same instrument rather than being
+  folded into the parse target.
+  No code change in this entry: the measurement is the deliverable, and the four labelled numbers
+  (989.7 / 1220.0 / 177.6 / ~23) remain the sizing basis.
