@@ -166,14 +166,20 @@ class RegexPathTest(unittest.TestCase):
     def test_the_regex_path_produces_the_public_tokenizer_stream(self):
         from minidb.sql.lexer import _tokenize_regex
         corpus_sql, randoms, traps, oddities, _ = build_inputs()
-        corpus_sql, randoms, traps, oddities, _ = build_inputs()
         checked = 0
         for sql in corpus_sql + randoms + traps + oddities:
-            fast = _tokenize_regex(sql)
-            if fast is None:
+            tokens = _tokenize_regex(sql)
+            if tokens is None:
                 continue
-            self.assertEqual(stream(_tokenize_regex, sql), stream(tokenize, sql),
-                             "regex path diverged on %r" % (sql,))
+            # Pinned to the retained reference, not to the tokenizer this path replaces: equality
+            # through a shared input set and a shared implementation is transitive, and a future
+            # edit that gave this test its own inputs would drop the reference check silently.
+            # No sanctioned-exception handling is needed — the fallback refuses those shapes, so
+            # every input that reaches here is exact.
+            self.assertEqual([(t.kind, t.value, t.raw, t.quote, t.line, t.col, t.pos)
+                              for t in tokens],
+                             stream(_tokenize_scanner, sql),
+                             "regex path diverged from the reference on %r" % (sql,))
             checked += 1
         self.assertGreater(checked, 100, "the regex path was barely exercised")
 

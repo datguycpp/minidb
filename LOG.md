@@ -3282,3 +3282,29 @@ Nothing above the first entry was edited in the move.
   recover — and `Token` construction is 253 ms of the remaining 697, which is the next lever, not a
   lexer one.
   Conformance **293/293**, `make verify` 5/5, suite **631 OK**.
+
+- **Token construction was the bigger lever: a slotted class takes parse to 952.2 ms, and the loop
+  moves with it.** `Token` was a frozen dataclass; construction measured **253.5 ms per 120k tokens
+  (2.11 µs each)** against a 697 ms tokenize. Replaced with a plain `__slots__` class — direct
+  attribute sets, `_upper` computed in `__init__`, equality and hash spelled out because the
+  reference streams are compared by fields. Construction **253.5 → 117.3 ms (−53.7%)**.
+  *Standalone on the 10k texts:* tokenize **992.3 → 433.4 ms (−56.3%)** and parse **1437.7 →
+  1012.5 ms (−29.6%)**, cumulative from the start of this campaign.
+  *Split (N=11, loads 2.49–2.82, in window, bands 11.7–16.0%):* parse **952.2** (95.2 µs/statement),
+  loop **2688.5** (268.8), residue **1738.3** CI [1656.7, 1863.2], prep 627.8, scan 182.0,
+  rest **923.0**.
+  *Against the recorded gate-3 capture:* 3080.0 → **2688.5**, −12.7%; against the pre-lexer split,
+  parse −31.7%. Gate 3 would still miss, needing **−28.1%**.
+  *Equivalent, in the second way that matters:* the equivalence test now pins the regex path to
+  **`_tokenize_scanner`** directly rather than to the `tokenize` it replaces — equality through a
+  shared input set is transitive, and a future edit giving that test its own inputs would have
+  dropped the reference check silently. No sanctioned-exception handling is needed, since the
+  fallback refuses those shapes before the assertion. The duplicated `build_inputs()` call and the
+  double tokenization in that test are gone with it.
+  *Reachability has now flipped twice, and that is the finding:* residue CI high **1863.2 < 1934.4**
+  reads "parser work alone could pass" again, while the previous run's CI [1719.1, 2060.1] spanned
+  the ceiling. CIs that straddle the bar on successive admissible runs mean the diagnostic is
+  **under-powered at N=11** near the boundary — neither verdict should be quoted as settled. The
+  claim that survives both runs is the one that matters for planning: the residue sits close to the
+  ceiling, so parse and `rest` are both needed.
+  Conformance **293/293**, `make verify` 5/5, suite **631 OK**.

@@ -5,7 +5,6 @@ character instead of a line number nobody can trust.
 """
 
 import re
-from dataclasses import dataclass, field
 
 KEYWORDS = frozenset("""
 ADD ALL ALTER AND AS ASC BEGIN BETWEEN BY CASE CAST CHECK COLLATE COMMIT CONSTRAINT CREATE
@@ -56,28 +55,39 @@ class LexError(Exception):
         super().__init__(f'unrecognized token: "{snippet}"' if snippet else message)
 
 
-@dataclass(frozen=True)
 class Token:
-    kind: str          # KEYWORD | IDENT | NUMBER | STRING | PUNCT | EOF
-    value: str         # interpreted text (string contents, unquoted identifier)
-    pos: int
-    line: int
-    col: int
-    raw: str = ""      # exact source text, for error messages SQLite-style
-    quote: str = ""    # '"', "`", "[" when the identifier was quoted
-    _upper: str = field(default="", init=False, repr=False, compare=False)
+    """A token. A plain slotted class, not a frozen dataclass: construction was 253 ms of the 697 ms
+    a 10k-statement tokenize still costs, and the dataclass machinery (frozen __init__, per-field
+    object.__setattr__, generated __eq__/__repr__) is the majority of it. Slots keep the memory
+    shape and attribute speed; equality is spelled out because the reference streams are compared."""
 
-    def __post_init__(self):
+    __slots__ = ("kind", "value", "pos", "line", "col", "raw", "quote", "_upper")
+
+    def __init__(self, kind, value, pos, line, col, raw="", quote=""):
+        self.kind = kind
+        self.value = value
+        self.pos = pos
+        self.line = line
+        self.col = col
+        self.raw = raw
+        self.quote = quote
         # The parser asks `tok.upper` on nearly every comparison -- 52 times per statement on a
-        # plain SELECT — so computing it per access allocated 104,000 strings for 2,000 statements
-        # (14% of the parse slice in the goal-6 profile). Uppercased once, at construction.
-        # Every kind: the parser also asks `.upper` of identifiers (function names, type names).
-        object.__setattr__(self, "_upper",
-                           self.value.upper() if isinstance(self.value, str) else self.value)
+        # plain SELECT — so it is computed once, here, for every kind (function and type names are
+        # queried too).
+        self._upper = value.upper() if isinstance(value, str) else value
 
     @property
     def upper(self):
         return self._upper
+
+    def __eq__(self, other):
+        if not isinstance(other, Token):
+            return NotImplemented
+        return (self.kind, self.value, self.pos, self.line, self.col, self.raw, self.quote) == (
+            other.kind, other.value, other.pos, other.line, other.col, other.raw, other.quote)
+
+    def __hash__(self):
+        return hash((self.kind, self.value, self.pos, self.line, self.col, self.raw, self.quote))
 
     def __repr__(self):
         return f"Token({self.kind}, {self.value!r}, {self.line}:{self.col})"
