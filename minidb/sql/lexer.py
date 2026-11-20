@@ -147,7 +147,78 @@ class _Scanner:
                 return
 
 
+# One C-level scan per token, with every construct this path cannot classify deterministically
+# falling back to the character walk below -- the `_native` discipline applied to the lexer:
+# a fast shape is only taken where equivalence is provable, and the walk remains the meaning.
+_MASTER_RE = re.compile(
+    r"(?P<ws>[ \t\r\n\f\v]+)"
+    r"|(?P<num>(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
+    r"|(?P<ident>[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"|(?P<punct><=|>=|<>|!=|==|\|\||->>|->|[(),;.+\-*/%<>=])"
+)
+# Characters whose handling depends on context the regex does not model: quotes (contents are
+# interpreted), `[` (quoted identifier), and the comment openers (which share a first character
+# with punctuation).
+_FALLBACK_CHARS = frozenset("'\"`[")
+
+
+def _tokenize_regex(sql):
+    """Regex fast path: identical output to the character walk, or `None` to request it.
+
+    Returns `None` rather than raising for anything it cannot prove it would reproduce exactly --
+    quoted text, comments, blobs, a number glued to identifier characters (whose error message
+    names the whole run). The caller then takes the walk, so a shape this path gets wrong is a
+    slower parse, never a different one.
+    """
+    tokens = []
+    append = tokens.append
+    i = 0
+    n = len(sql)
+    line = 1
+    col = 1
+    while i < n:
+        ch = sql[i]
+        if ch in _FALLBACK_CHARS:
+            return None
+        if ch == "-" and sql.startswith("--", i):
+            return None
+        if ch == "/" and sql.startswith("/*", i):
+            return None
+        match = _MASTER_RE.match(sql, i)
+        if match is None:
+            return None
+        text = match.group()
+        kind = match.lastgroup
+        end = match.end()
+        if kind == "ws":
+            newlines = text.count("\n")
+            if newlines:
+                line += newlines
+                col = len(text) - text.rfind("\n")
+            else:
+                col += len(text)
+            i = end
+            continue
+        if kind == "num" and end < n and sql[end] in IDENT_START:
+            return None
+        append(Token("NUMBER" if kind == "num" else
+                     "PUNCT" if kind == "punct" else
+                     ("KEYWORD" if text.upper() in KEYWORDS else "IDENT"),
+                     text, i, line, col, raw=text))
+        col += len(text)
+        i = end
+    append(Token("EOF", "", i, line, col))
+    return tokens
+
+
 def tokenize(sql):
+    fast = _tokenize_regex(sql)
+    if fast is not None:
+        return fast
+    return _tokenize_chars(sql)
+
+
+def _tokenize_chars(sql):
     sc = _Scanner(sql)
     tokens = []
     while True:

@@ -3256,3 +3256,29 @@ Nothing above the first entry was edited in the move.
   `f8ca734`) and **3294.0** (load 2.65, spread 30.3%, confirmation run). Both MISS 1934.4; the spread
   difference, not the load difference, marks the second as the noisier window.
   Conformance **293/293**; suite **629 OK**.
+
+- **Master-regex lexer landed as a fast path with a walk fallback: tokenize −30%, parse −14%, and my
+  own sizing estimate was wrong by roughly four times.** `_tokenize_regex` scans whitespace,
+  identifiers, numbers and punctuation in one alternation and **returns `None`** — taking the
+  character walk instead — for anything it cannot prove it reproduces: quotes (string contents are
+  interpreted), `` ` ``/`[` (quoted identifiers), `--`/`/*` (comment openers that share a first
+  character with punctuation), and a number glued to identifier characters (whose error message
+  names the whole run). The `_native` discipline verbatim: a shape it gets wrong is a slower parse,
+  never a different one.
+  *Equivalence, as three streams:* `tests/test_lexer_equivalence.py` gains `RegexPathTest` — wherever
+  the regex path returns a stream it must equal the public tokenizer's, so a divergence cannot hide
+  behind the fallback that would otherwise take the disagreeing case. The gate's own shape is pinned
+  to take the fast path with 12 tokens including EOF.
+  *Measured:* `tokenize` **992.3 → 697.2 ms** (−29.7%) and `parse` **1437.7 → 1262.0 ms** (−12.2%) on
+  the 10k texts, standalone. In the split, **parse 1394.1 → 1196.5** (−14.2%), matching the
+  microbenchmark.
+  *The loop did not move measurably:* **2971.7 vs 3061.2**, band 32.6% — inside the noise of this
+  window, so no loop claim is made from it.
+  *Reachability flips back to undecided:* residue **1775.2**, CI **[1719.1, 2060.1]**, which now
+  **spans 1934.4** → **NOT ESTABLISHED**. The earlier "parser work alone could pass" came from one
+  run whose residue CI sat wholly below the ceiling; that claim is now qualified, not repeated.
+  *Estimate correction, on the record:* I sized the lexer at 40–55% off parse from a profile share;
+  the measured cut is **12–14%**. The profile said where the time goes, not what a rewrite could
+  recover — and `Token` construction is 253 ms of the remaining 697, which is the next lever, not a
+  lexer one.
+  Conformance **293/293**, `make verify` 5/5, suite **631 OK**.

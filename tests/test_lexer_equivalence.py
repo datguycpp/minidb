@@ -152,3 +152,35 @@ class TestLexerEquivalence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RegexPathTest(unittest.TestCase):
+    """The regex fast path is a third stream, compared where it is used rather than assumed.
+
+    The public tokenizer falls back to the character walk on anything the regex cannot prove it
+    reproduces, so a divergence inside the regex path could otherwise hide behind the fallback:
+    every case would still agree, because the case that disagreed took the walk. These tests force
+    the regex path itself to produce the public tokenizer's exact stream wherever it returns one.
+    """
+
+    def test_the_regex_path_produces_the_public_tokenizer_stream(self):
+        from minidb.sql.lexer import _tokenize_regex
+        corpus_sql, randoms, traps, oddities, _ = build_inputs()
+        corpus_sql, randoms, traps, oddities, _ = build_inputs()
+        checked = 0
+        for sql in corpus_sql + randoms + traps + oddities:
+            fast = _tokenize_regex(sql)
+            if fast is None:
+                continue
+            self.assertEqual(stream(_tokenize_regex, sql), stream(tokenize, sql),
+                             "regex path diverged on %r" % (sql,))
+            checked += 1
+        self.assertGreater(checked, 100, "the regex path was barely exercised")
+
+    def test_the_gate_workload_takes_the_regex_path(self):
+        from minidb.sql.lexer import _tokenize_regex
+        for literal in (0, 1, 7, 9999):
+            tokens = _tokenize_regex("SELECT count(*) FROM t WHERE id > %d" % literal)
+            self.assertIsNotNone(tokens)
+            self.assertEqual(len(tokens), 12)
+            self.assertEqual(tokens[-1].kind, "EOF")
