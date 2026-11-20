@@ -87,6 +87,7 @@ def time_pass(fn, clear, payload, repeats):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     size, n, repeats, claim = "1024", DEFAULT_N, 5, "coarse"
+    settle, settle_cap = 2.60, 120
     for index, arg in enumerate(argv):
         if arg == "--size" and index + 1 < len(argv):
             size = argv[index + 1]
@@ -96,6 +97,10 @@ def main(argv=None):
             repeats = int(argv[index + 1])
         elif arg == "--claim" and index + 1 < len(argv):
             claim = argv[index + 1]
+        elif arg == "--settle" and index + 1 < len(argv):
+            settle = float(argv[index + 1])
+        elif arg == "--settle-cap" and index + 1 < len(argv):
+            settle_cap = int(argv[index + 1])
     if size not in SIZES and size != "none":
         raise SystemExit("cache_retention: --size takes one of %s or none" % ", ".join(sorted(SIZES)))
     if claim not in ("coarse", "decision"):
@@ -111,8 +116,18 @@ def main(argv=None):
     loads = []
     deltas = {"distinct": [], "repeat": []}
     samples = {"distinct": {"none": [], name: []}, "repeat": {"none": [], name: []}}
+    def current_load():
+        return float(open("/proc/loadavg").read().split()[0])
+
     for round_index in range(n):
-        loads.append(float(open("/proc/loadavg").read().split()[0]))
+        # The box drifts inside a 90-second session and the window is the precondition, so each
+        # round waits for the 1-minute figure to come back under the settle level rather than
+        # starting high and calling the result inadmissible afterwards.
+        waited = 0
+        while settle and current_load() > settle and waited < settle_cap:
+            time.sleep(5)
+            waited += 5
+        loads.append(current_load())
         for shape, payload in (("distinct", distinct_payload), ("repeat", repeat_payload)):
             order = [("none", none_fn, none_clear), (name, fn, clear)]
             if round_index % 2:

@@ -3570,3 +3570,26 @@ Nothing above the first entry was edited in the move.
   *Status:* the repeat objective is settled in direction (≈1 second of benefit at either size); the
   distinct constraint is **unmeasured** until an in-window session at each size. No eligibility claim
   is made from these two runs.
+
+- **First admissible sweep session: 128 in-window, repeat benefit confirmed, and the frozen constraint
+  turns out to sit *inside* the measurement's resolution.** The tool now waits between rounds for the
+  1-minute load to return under `--settle` (default 2.60, capped) instead of starting high and calling
+  the session inadmissible afterwards — the previous four sweep sessions had all left the window
+  mid-run.
+  ```
+  size 128, loads 2.36-2.60 (all in window), N=11, R=5
+  distinct  none 982.8 | 128 994.7 | delta  +20.5  CI [ -13.8, +74.6]
+  repeat    none 972.1 | 128   3.4 | delta -968.8  CI [-991.4, -927.2]
+  ELIGIBILITY: INELIGIBLE (20.5 > 20.0)
+  ```
+  *What is settled:* the repeat benefit at 128 is real and enormous — **−968.8 ms, CI far from zero**,
+  on a working set grounded in the corpus — and it matches @qa's corrected key (S=K gives full benefit
+  after one warm-up pass; verified independently here: `lru_cache(127)` over a 128-cycle reads 0 hits,
+  `lru_cache(128)` reads 1152 hits / 128 misses).
+  *What the session actually reveals about the rule:* the distinct constraint is **+20.5 ms against a
+  20.0 ms limit, with a CI of [−13.8, +74.6]** — the threshold sits *inside* the interval's width, so at
+  R=5 the rule cannot distinguish "within constraint" from "55 ms over". The verdict INELIGIBLE is
+  therefore arithmetically correct and evidentially empty: it is a coin-flip decided by a 0.5 ms margin
+  inside a ±45 ms measurement. The frozen rule is not amended here; the finding is that **the
+  constraint needs the same R=20 power the benefit was going to get**, and no eligibility claim is
+  quoted from this session.
