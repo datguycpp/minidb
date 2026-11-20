@@ -31,7 +31,9 @@ TEXT_COUNT = 10000
 DEFAULT_N = 11
 BOOTSTRAP_SEED = 20261104
 BOOTSTRAP_RESAMPLES = 20000
-SIZES = {"1": 1, "16": 16, "64": 64, "256": 256, "1024": None, "unbounded": 0}
+SIZES = {"1": 1, "16": 16, "64": 64, "128": 128, "256": 256, "1024": None, "unbounded": 0}
+# Frozen constraint: distinct is the open gate, so a size may not regress it by more than this.
+DISTINCT_COST_LIMIT = 20.0
 
 
 REPEAT_SET = 128   # the corpus's own recurring set: 1,759 statements, 1,171 distinct, 128 of them
@@ -123,6 +125,9 @@ def main(argv=None):
           "resamples=%d"
           % (size, TEXT_COUNT, REPEAT_SET, n, repeats, claim, BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES))
     print("loads=[ %s ]" % " ".join("%.2f" % x for x in loads))
+    if any(not (1.0 <= x <= 3.0) for x in loads):
+        print("  SESSION NOT ADMISSIBLE — a load reading left [1.0, 3.0]; the columns below are "
+              "direction-only and cannot be certified")
     for shape in ("distinct", "repeat"):
         low, high = bootstrap_ci(deltas[shape])
         print("  %-8s none median=%.1f | %s median=%.1f | paired delta %+.1f  CI=[%+.1f, %+.1f]  "
@@ -131,6 +136,17 @@ def main(argv=None):
                  name, statistics.median(samples[shape][name]),
                  statistics.median(deltas[shape]), low, high,
                  statistics.median(deltas[shape]) * 1000.0 / TEXT_COUNT))
+
+    # The frozen selection rule's constraint, checked where the number is printed: distinct is what
+    # gate 3 is judged on, so a size whose distinct cost exceeds the constraint is ineligible no
+    # matter how good its repeat column looks. Threshold frozen before the sweep: 20 ms.
+    distinct_cost = statistics.median(deltas["distinct"])
+    if distinct_cost > DISTINCT_COST_LIMIT:
+        print("  ELIGIBILITY: INELIGIBLE — distinct cost %+.1f ms exceeds the frozen constraint of "
+              "%.1f ms" % (distinct_cost, DISTINCT_COST_LIMIT))
+    else:
+        print("  ELIGIBILITY: ELIGIBLE — distinct cost %+.1f ms within the frozen constraint of "
+              "%.1f ms" % (distinct_cost, DISTINCT_COST_LIMIT))
 
     separated = any(bootstrap_ci(deltas[shape])[0] > 0.0 or bootstrap_ci(deltas[shape])[1] < 0.0
                     for shape in ("distinct", "repeat"))

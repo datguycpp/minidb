@@ -3552,3 +3552,21 @@ Nothing above the first entry was edited in the move.
   *Both columns are reported per session, as @qa required:* each shape is paired against its own
   `none` reference in the same session, and no scalar combines them — the selection rule stays a
   decision the record makes, not arithmetic the tool performs.
+
+- **The sweep's first two informative sessions: 128 and 256, both direction-only, one out of window.**
+  ```
+  size 128  repeated delta -1020.0 CI [-1047.7, -935.0]   distinct +52.2 CI [+34.0, +110.9]  INELIGIBLE
+  size 256  repeated delta  -916.5 CI [ -947.1, -903.3]   distinct  +7.5 CI [-31.2,  +25.7]  ELIGIBLE
+  ```
+  *The repeat column is enormous and unambiguous:* a 128-entry cache cuts the corpus-shaped workload
+  from ~1,020 ms to **3.7 ms** (the parse cache repays almost the entire parse), and a 256-entry cache
+  cuts it to 3.4 ms. That is the point-lookup benefit the cache exists for, now measured on a working
+  set grounded in the real corpus.
+  *The constraint column is not yet trustworthy, and the sessions say why:* the 128 session ran with
+  loads up to **3.09** and the 256 session up to **3.27** — both left the frozen window, so the tool now
+  prints `SESSION NOT ADMISSIBLE` when any reading does (added this commit). The non-monotonic
+  eligibility (128 ineligible at +52.2, 256 eligible at +7.5) is more likely that load than a
+  mechanism; a larger cache cannot plausibly *reduce* retention cost unless the working set fits.
+  *Status:* the repeat objective is settled in direction (≈1 second of benefit at either size); the
+  distinct constraint is **unmeasured** until an in-window session at each size. No eligibility claim
+  is made from these two runs.
