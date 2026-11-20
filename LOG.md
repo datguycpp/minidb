@@ -3350,3 +3350,21 @@ Nothing above the first entry was edited in the move.
   `interval: none` beside every gate median so the next reader cannot reconstruct a per-round interval.
   Paired intervals stay `gate3_split`'s property, under one seeded method, because that rig runs both
   legs in one session.
+
+- **`rest` is split, and it was hiding two different things: the row filter, and per-statement
+  dispatch.** The old 867.0 ms block was never one thing. Two timers separate it: `filter`
+  (applying the annotated predicate to rows, which had been counted **inside prep** — prep was
+  overstating preparation by the row work) and `complex` (the whole aggregate path, so the
+  projection/aggregate/finalise remainder and the dispatch remainder can be got by subtraction).
+  *N=11, loads 2.52–2.85, span 0.41, in window:* parse **957.0**; loop **2653.7**; residue
+  **1720.9** CI [1663.5, 1744.6]; prep **602.8**; scan **177.5**; **filter 250.8** (25.1 µs/statement);
+  **exec_rest 184.0** (18.4 µs); **outside 483.2** (48.3 µs).
+  *The finding, and it redirects the plan:* the largest single remaining block is **outside the
+  aggregate path** — parse-cache lookup, statement dispatch and transaction handling, **483.2 ms**,
+  a component no instrument on this board had measured. The aggregation itself (`exec_rest`) is
+  **184.0 ms** — smaller than the filter that feeds it. The next lever is therefore the per-statement
+  dispatch path, not the aggregate executor, and sizing it needs its own split inside `run()`.
+  *Reachability:* CI high **1744.6 < 1934.4** reads "parser work alone could pass" for the third time,
+  and under the standing caveat that is **provisional** — three flips on successive admissible runs
+  mean the diagnostic is boundary-sensitive at N=11, not that the answer has changed.
+  Suite **631 OK**.

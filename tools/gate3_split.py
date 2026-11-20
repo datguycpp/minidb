@@ -121,12 +121,13 @@ def main(argv=None):
         print("gate3_split: N=%d is below the floor of 11 — measure only, never cite" % args.n,
               file=sys.stderr)
 
-    parse_ms, loop_ms, prep_ms, scan_ms, rest_ms, loads = [], [], [], [], [], []
+    (parse_ms, loop_ms, prep_ms, scan_ms, rest_ms, filter_ms, complex_ms,
+     outside_ms, loads) = [], [], [], [], [], [], [], [], []
     aggregate_path = 0
     hits_total = misses_total = 0
     for i in range(args.n):
         loads.append(loadavg())
-        probe = {"prep_ns": 0, "scan_ns": 0, "aggregate": 0,
+        probe = {"prep_ns": 0, "scan_ns": 0, "filter_ns": 0, "complex_ns": 0, "aggregate": 0,
                  "simple_ns": 0, "simple_hits": 0, "simple_misses": 0}
         parse_first = i % 2 == 0
         if parse_first:
@@ -137,11 +138,18 @@ def main(argv=None):
             parse_ms.append(timed(parse_only))
         prep = probe["prep_ns"] / 1e6
         scan = probe["scan_ns"] / 1e6
+        filt = probe["filter_ns"] / 1e6
+        whole = probe["complex_ns"] / 1e6
         prep_ms.append(prep)
         scan_ms.append(scan)
-        # Everything the probe did not attribute: the aggregate, projection and fetch after the
-        # filter, plus dispatch and connection overhead.
-        rest_ms.append(loop_ms[-1] - parse_ms[-1] - prep - scan)
+        filter_ms.append(filt)
+        complex_ms.append(whole)
+        # Inside the aggregate path: what is left after prep, scan and the predicate application --
+        # projection, aggregation, finalise and the path's own validation.
+        rest_ms.append(whole - prep - scan - filt)
+        # Outside it: everything else between the timed loop and the aggregate path -- parse-cache
+        # lookup, statement dispatch, transaction and connection overhead.
+        outside_ms.append(loop_ms[-1] - parse_ms[-1] - whole)
         aggregate_path += probe["aggregate"]
         hits_total += probe["simple_hits"]
         misses_total += probe["simple_misses"]
@@ -152,11 +160,15 @@ def main(argv=None):
     median_prep = statistics.median(prep_ms)
     median_scan = statistics.median(scan_ms)
     median_rest = statistics.median(rest_ms)
+    median_filter = statistics.median(filter_ms)
+    median_outside = statistics.median(outside_ms)
     median_residue = statistics.median(residue)
     low, high = bootstrap_ci(residue)
     prep_low, prep_high = bootstrap_ci(prep_ms)
     scan_low, scan_high = bootstrap_ci(scan_ms)
     rest_low, rest_high = bootstrap_ci(rest_ms)
+    filter_low, filter_high = bootstrap_ci(filter_ms)
+    outside_low, outside_high = bootstrap_ci(outside_ms)
     span = max(loads) - min(loads)
 
     print("gate3_split  statements=%d  N=%d  ceiling=%.1f  fixture_sha256=%s"
@@ -180,9 +192,17 @@ def main(argv=None):
     print("     scan      median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us"
           % (median_scan, " ".join("%.1f" % x for x in scan_ms), scan_low, scan_high,
              median_scan * 1000.0 / TEXT_COUNT))
-    print("     rest      median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us"
+    print("     filter    median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us"
+          % (median_filter, " ".join("%.1f" % x for x in filter_ms), filter_low, filter_high,
+             median_filter * 1000.0 / TEXT_COUNT))
+    print("     exec_rest median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us  "
+          "(inside the aggregate path: projection, aggregation, finalise, validation)"
           % (median_rest, " ".join("%.1f" % x for x in rest_ms), rest_low, rest_high,
              median_rest * 1000.0 / TEXT_COUNT))
+    print("     outside   median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us  "
+          "(loop minus parse minus the whole aggregate path: dispatch, cache, transaction)"
+          % (median_outside, " ".join("%.1f" % x for x in outside_ms), outside_low, outside_high,
+             median_outside * 1000.0 / TEXT_COUNT))
     print("     plan_path served=aggregate for %d of %d statements (simple-path decisions: %d, "
           "cache_hits=%d cache_misses=%d)"
           % (aggregate_path, TEXT_COUNT * args.n, hits_total + misses_total,

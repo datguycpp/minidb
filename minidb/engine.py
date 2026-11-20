@@ -2930,7 +2930,17 @@ class Database:
 
     def _select(self, node: ast.Select):
         if self._is_complex(node):
-            return self._select_complex(node)
+            probe = self.plan_probe
+            if probe is None:
+                return self._select_complex(node)
+            start = time.perf_counter_ns()
+            try:
+                return self._select_complex(node)
+            finally:
+                # Whole aggregate-path cost. What remains after prep, scan and filter is the
+                # projection/aggregate/finalise work plus any validation inside the path; the
+                # instrument reports that remainder rather than naming components it does not time.
+                probe["complex_ns"] += time.perf_counter_ns() - start
         return self._select_simple(node)
 
     def _window_values(self, window, prepared, table):
@@ -3356,10 +3366,13 @@ class Database:
             envs = [env for env in envs if truthy(self._eval(predicate, None, env))]
         else:
             t_annotate = time.perf_counter_ns() if probe is not None else 0
+        t_filter = time.perf_counter_ns() if probe is not None else 0
         if probe is not None:
-            # Per-query preparation: resolving sources and annotating the predicate. Reported apart
-            # from the scan so a decomposition can tell setup cost from row work.
+            # Preparation is resolving sources and annotating the predicate; applying that predicate
+            # to rows is row work and is timed apart, because the two were previously reported as one
+            # number and the row work hides inside it on any fixture with more than a few rows.
             probe["prep_ns"] += (t_sources - t0) + (t_annotate - t_scan)
+            probe["filter_ns"] += t_filter - t_annotate
             probe["scan_ns"] += t_scan - t_sources
             probe["aggregate"] += 1
 
