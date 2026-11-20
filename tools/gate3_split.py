@@ -103,6 +103,25 @@ def timed(fn):
     return (time.perf_counter() - started) * 1000.0
 
 
+def _count_cache_leg(leg, before, after, cache_legs, cleared):
+    """Count one leg's parse-cache activity, leg-aware.
+
+    A parse leg clears the cache at its start, so its post-leg totals ARE the leg; a delta would
+    read zero for the second of two back-to-back parse legs, which the alternating order produces
+    every other round -- that is how five paired rounds vanished once. The loop leg is read as a
+    delta, which is only valid while it never clears: a shrinking total is recorded in `cleared` so
+    the caller can refuse a verdict instead of silently counting a leg as zero.
+    """
+    if leg == "parse":
+        cache_legs[leg][0] += after.hits
+        cache_legs[leg][1] += after.misses
+        return
+    if after.hits + after.misses < before.hits + before.misses:
+        cleared.append(leg)
+    cache_legs[leg][0] += after.hits - before.hits
+    cache_legs[leg][1] += after.misses - before.misses
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0] or "")
     parser.add_argument("--n", type=int, default=11)
@@ -133,6 +152,7 @@ def main(argv=None):
     gc_gap = {"on": [], "off": []}
     gc_parse_gap = {"on": [], "off": []}
     cache_legs = {"loop": [0, 0], "parse": [0, 0]}
+    counter_cleared = []
     import gc as _gc
     for i in range(args.n):
         if args.gc == "alternate":
@@ -149,18 +169,8 @@ def main(argv=None):
         parse_first = i % 2 == 0
 
         def _count_cache(leg, before):
-            after = engine._parse_cached.cache_info()
-            # The parse leg clears the cache at its start, so its totals ARE the leg -- and reading
-            # them as a delta is wrong in a way that hides: two parse legs in a row (which the
-            # alternating order produces every other round) leave before == after == 10k, the delta
-            # reads zero, and the leg disappears from the count. Count the totals for the cleared
-            # leg and deltas for the loop leg, which never clears.
-            if leg == "parse":
-                cache_legs[leg][0] += after.hits
-                cache_legs[leg][1] += after.misses
-            else:
-                cache_legs[leg][0] += after.hits - before.hits
-                cache_legs[leg][1] += after.misses - before.misses
+            _count_cache_leg(leg, before, engine._parse_cached.cache_info(), cache_legs,
+                             counter_cleared)
 
         if parse_first:
             before = engine._parse_cached.cache_info()
@@ -283,6 +293,12 @@ def main(argv=None):
     # per-round median and its seeded-bootstrap 95% interval decide. CI includes zero -> the gap is
     # allocation pressure (collapsed); CI low bound above zero -> real under-load parser cost; any
     # other interval (e.g. wholly negative) -> undetermined, no claim either way.
+    if counter_cleared:
+        print("     COUNTER INVARIANT VIOLATED: the %s leg cleared the cache mid-leg; its delta is "
+              "not a leg count, so no verdict is issued" % ", ".join(sorted(set(counter_cleared))),
+              flush=True)
+        _gc.enable()
+        raise SystemExit(3)
     # Leg balance is its own check, in the same class as the round balance: a verdict computed over
     # fewer paired rounds than N is a thinner claim than the one being advertised.
     loop_legs = cache_legs["loop"][1] // TEXT_COUNT if TEXT_COUNT else 0

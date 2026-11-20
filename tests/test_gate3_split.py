@@ -70,3 +70,38 @@ class ProbeTest(unittest.TestCase):
                 self.assertEqual(probe["aggregate"], 1)
             finally:
                 db.close()
+
+
+class CacheCounterTest(unittest.TestCase):
+    def test_a_cleared_parse_leg_counts_its_totals_not_its_delta(self):
+        import sys
+        import os
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                        "tools"))
+        import gate3_split as rig
+        from collections import namedtuple
+        Info = namedtuple("Info", "hits misses maxsize currsize")
+        legs = {"loop": [0, 0], "parse": [0, 0]}
+        cleared = []
+        # Two back-to-back parse legs: before == after == 10k on the second, and a delta would read
+        # zero. The totals rule keeps the leg.
+        rig._count_cache_leg("parse", Info(0, 10000, 1024, 1024), Info(0, 10000, 1024, 1024),
+                             legs, cleared)
+        rig._count_cache_leg("parse", Info(0, 20000, 1024, 1024), Info(0, 10000, 1024, 1024),
+                             legs, cleared)
+        self.assertEqual(legs["parse"], [0, 20000])
+        self.assertEqual(cleared, [])
+
+    def test_a_loop_leg_that_clears_is_recorded_as_a_violation(self):
+        import sys
+        import os
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                        "tools"))
+        import gate3_split as rig
+        from collections import namedtuple
+        Info = namedtuple("Info", "hits misses maxsize currsize")
+        legs = {"loop": [0, 0], "parse": [0, 0]}
+        cleared = []
+        rig._count_cache_leg("loop", Info(0, 20000, 1024, 1024), Info(0, 10000, 1024, 1024),
+                             legs, cleared)
+        self.assertEqual(cleared, ["loop"])
