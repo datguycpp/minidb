@@ -122,12 +122,14 @@ def main(argv=None):
               file=sys.stderr)
 
     (parse_ms, loop_ms, prep_ms, scan_ms, rest_ms, filter_ms, complex_ms,
-     outside_ms, loads) = [], [], [], [], [], [], [], [], []
+     outside_ms, loop_parse_ms, exec_wrap_ms, exec_rest2_ms, loads) = (
+        [], [], [], [], [], [], [], [], [], [], [], [])
     aggregate_path = 0
     hits_total = misses_total = 0
     for i in range(args.n):
         loads.append(loadavg())
         probe = {"prep_ns": 0, "scan_ns": 0, "filter_ns": 0, "complex_ns": 0, "aggregate": 0,
+                 "run_parse_ns": 0, "run_exec_ns": 0, "exec_body_ns": 0,
                  "simple_ns": 0, "simple_hits": 0, "simple_misses": 0}
         parse_first = i % 2 == 0
         if parse_first:
@@ -150,6 +152,11 @@ def main(argv=None):
         # Outside it: everything else between the timed loop and the aggregate path -- parse-cache
         # lookup, statement dispatch, transaction and connection overhead.
         outside_ms.append(loop_ms[-1] - parse_ms[-1] - whole)
+        # Inside run(): the parse lookup, execute's own wrapper, and the body outside the aggregate
+        # path. These are measured where the statement actually passes, not inferred.
+        loop_parse_ms.append(probe["run_parse_ns"] / 1e6)
+        exec_wrap_ms.append((probe["run_exec_ns"] - probe["exec_body_ns"]) / 1e6)
+        exec_rest2_ms.append((probe["exec_body_ns"] - probe["complex_ns"]) / 1e6)
         aggregate_path += probe["aggregate"]
         hits_total += probe["simple_hits"]
         misses_total += probe["simple_misses"]
@@ -162,6 +169,10 @@ def main(argv=None):
     median_rest = statistics.median(rest_ms)
     median_filter = statistics.median(filter_ms)
     median_outside = statistics.median(outside_ms)
+    median_loop_parse = statistics.median(loop_parse_ms)
+    median_exec_wrap = statistics.median(exec_wrap_ms)
+    median_exec_rest2 = statistics.median(exec_rest2_ms)
+    gap_ms = [a - b for a, b in zip(loop_parse_ms, parse_ms)]
     median_residue = statistics.median(residue)
     low, high = bootstrap_ci(residue)
     prep_low, prep_high = bootstrap_ci(prep_ms)
@@ -169,6 +180,9 @@ def main(argv=None):
     rest_low, rest_high = bootstrap_ci(rest_ms)
     filter_low, filter_high = bootstrap_ci(filter_ms)
     outside_low, outside_high = bootstrap_ci(outside_ms)
+    loop_parse_low, loop_parse_high = bootstrap_ci(loop_parse_ms)
+    exec_wrap_low, exec_wrap_high = bootstrap_ci(exec_wrap_ms)
+    exec_rest2_low, exec_rest2_high = bootstrap_ci(exec_rest2_ms)
     span = max(loads) - min(loads)
 
     print("gate3_split  statements=%d  N=%d  ceiling=%.1f  fixture_sha256=%s"
@@ -203,6 +217,20 @@ def main(argv=None):
           "(loop minus parse minus the whole aggregate path: dispatch, cache, transaction)"
           % (median_outside, " ".join("%.1f" % x for x in outside_ms), outside_low, outside_high,
              median_outside * 1000.0 / TEXT_COUNT))
+    print("     run_parse median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us  "
+          "(parse as the loop pays it; the PARSEONLY leg measures the same texts apart)"
+          % (median_loop_parse, " ".join("%.1f" % x for x in loop_parse_ms),
+             loop_parse_low, loop_parse_high, median_loop_parse * 1000.0 / TEXT_COUNT))
+    print("     exec_wrap median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us  "
+          "(execute() around the body: invalidation check, result handoff)"
+          % (median_exec_wrap, " ".join("%.1f" % x for x in exec_wrap_ms),
+             exec_wrap_low, exec_wrap_high, median_exec_wrap * 1000.0 / TEXT_COUNT))
+    print("     body_rest median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us  "
+          "(statement body outside the aggregate path: dispatch, validation, transaction)"
+          % (median_exec_rest2, " ".join("%.1f" % x for x in exec_rest2_ms),
+             exec_rest2_low, exec_rest2_high, median_exec_rest2 * 1000.0 / TEXT_COUNT))
+    print("     parse_gap median=%.1f  (run_parse - PARSEONLY, per round; this is what the "
+          "subtraction used to put inside dispatch)" % statistics.median(gap_ms))
     print("     plan_path served=aggregate for %d of %d statements (simple-path decisions: %d, "
           "cache_hits=%d cache_misses=%d)"
           % (aggregate_path, TEXT_COUNT * args.n, hits_total + misses_total,

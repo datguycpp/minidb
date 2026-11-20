@@ -3368,3 +3368,25 @@ Nothing above the first entry was edited in the move.
   and under the standing caveat that is **provisional** — three flips on successive admissible runs
   mean the diagnostic is boundary-sensitive at N=11, not that the answer has changed.
   Suite **631 OK**.
+
+- **The `run()` split corrects the headline: "dispatch 483.2" was ~43% measurement artefact. True
+  dispatch is ≈241 ms.** Timing the frozen subject where it spends its time — `run()`'s parse lookup,
+  `execute()`'s wrapper, and the statement body outside the aggregate path — decomposes the
+  previously-inferred `outside` block into measured buckets:
+  ```
+  N=11, loads 2.39-2.78, span 0.39, in window
+  loop 2763.2 | parse(PARSEONLY) 989.7 | run_parse 1220.0 | parse_gap 209.2
+  prep 628.6 | scan 184.2 | filter 267.6 | exec_rest 191.7
+  outside 491.5 = parse_gap 209.2 + exec_wrap 25.3 + body_rest 215.7 + 41.3 unattributed
+  ```
+  *The correction:* the loop pays **1220.0** for parsing the same texts the PARSEONLY leg measures at
+  **989.7** — a **209.2 ms gap** the subtraction was silently assigning to "dispatch". Real dispatch is
+  **exec_wrap 25.3 + body_rest 215.7 = 241.0 ms**, not 483.2. The earlier "biggest undivided block"
+  claim was arithmetic on a subtraction, and this is the third time in this cycle that an inferred
+  remainder has shrunk under direct measurement.
+  *Consequence for the plan:* zeroing dispatch entirely leaves **2522.2**, still **−23.3%** short of
+  1934.4 — so dispatch alone was never the answer, and the earlier "zero dispatch → 2170.5" figure
+  inherited the inflated 483.2. The two-front plan stands, but the fronts are **parse/prep** (the two
+  large blocks) with dispatch as a third, smaller one.
+  Suite **631 OK**; reachability again reads "parser alone could pass" (CI high 1814.5), provisional per
+  the standing caveat.

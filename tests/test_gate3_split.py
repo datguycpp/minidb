@@ -49,6 +49,7 @@ class ProbeTest(unittest.TestCase):
                 for i in range(1, 6):
                     db.run("INSERT INTO t VALUES (%d, 'v%d')" % (i, i))
                 probe = {"prep_ns": 0, "scan_ns": 0, "filter_ns": 0, "complex_ns": 0,
+                         "run_parse_ns": 0, "run_exec_ns": 0, "exec_body_ns": 0,
                          "aggregate": 0, "simple_ns": 0, "simple_hits": 0, "simple_misses": 0}
                 db.plan_probe = probe
                 self.assertEqual(db.run("SELECT count(*) FROM t WHERE id > 1")[1], [(4,)])
@@ -59,6 +60,11 @@ class ProbeTest(unittest.TestCase):
                 self.assertGreater(probe["filter_ns"], 0)
                 self.assertGreater(probe["complex_ns"],
                                    probe["prep_ns"] + probe["scan_ns"] + probe["filter_ns"])
+                # run() is split where the frozen subject spends it: parse lookup, execute wrapper,
+                # and the body -- which contains the complex path it is measured against.
+                self.assertGreater(probe["run_parse_ns"], 0)
+                self.assertGreater(probe["run_exec_ns"], 0)
+                self.assertGreater(probe["exec_body_ns"], probe["complex_ns"])
                 db.plan_probe = None
                 self.assertEqual(db.run("SELECT count(*) FROM t WHERE id > 1")[1], [(4,)])
                 self.assertEqual(probe["aggregate"], 1)

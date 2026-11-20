@@ -1171,7 +1171,15 @@ class Database:
         run() mirrors the sqlite3 CLI — every statement outside a transaction is durable when it
         returns. execute() is the statement primitive and leaves that choice to the caller.
         """
-        result = self._execute(statement)
+        probe = self.plan_probe
+        if probe is None:
+            result = self._execute(statement)
+        else:
+            start = time.perf_counter_ns()
+            try:
+                result = self._execute(statement)
+            finally:
+                probe["exec_body_ns"] += time.perf_counter_ns() - start
         if not isinstance(statement, (ast.Select, ast.Compound, ast.With, ast.Pragma,
                                       ast.Analyze, ast.Vacuum)):
             self._invalidate_reads()
@@ -1235,7 +1243,21 @@ class Database:
     def run(self, sql):
         from .sql.parser import parse
         self._sql = sql
-        return self.execute(_parse_cached(sql), autocommit=True)
+        probe = self.plan_probe
+        if probe is None:
+            return self.execute(_parse_cached(sql), autocommit=True)
+        # The public entry point, split where the frozen subject actually spends its time: the parse
+        # lookup (a miss for every statement in this workload, since the texts are all distinct) and
+        # the execute call. What is left of `run` around them is dispatch.
+        start = time.perf_counter_ns()
+        statement = _parse_cached(sql)
+        parsed = time.perf_counter_ns()
+        try:
+            return self.execute(statement, autocommit=True)
+        finally:
+            end = time.perf_counter_ns()
+            probe["run_parse_ns"] += parsed - start
+            probe["run_exec_ns"] += end - parsed
 
     # -- CREATE --------------------------------------------------------------
     def _create(self, node: ast.CreateTable):
