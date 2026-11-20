@@ -2945,3 +2945,24 @@ Nothing above the first entry was edited in the move.
   *Probe, explicitly not gate evidence (load ≈1.9, one copy, N=9):* cycle median **55.5 → 16.4 ms**
   on a copy of the frozen fixture. Gate 2's price will come from the harness at N≥11 in-window, not
   from this line. Suite **605 OK**; corpus **293/293**; `make verify` **5/5**.
+
+- **GATE 2 PASSES: `ratio_min` 22.007 against the frozen ≤ 60.** W9 at N≥11, artifact from the
+  harness at `ed80c2f`, pre-load **2.63**, per-sample loads **2.72–2.87** (all in window), certified
+  by `--gate-only` — `artifact COMPLETE … (checker schema 2)` — and admitted under `drift-v1`
+  (spans 0.00 / 0.15) **before** the call was read.
+  sqlite median **48.69** (raw `54.52 52.02 52.55 58.92 51.15 43.21 48.69 44.58 47.13 44.05 47.11`,
+  band 32.3%, min 43.21); minidb median **950.81** (raw `1155.73 871.89 952.80 859.72 890.89 870.69
+  984.70 950.81 867.96 1098.53 967.07`, band 31.1%). `ratio` = **19.527**, `ratio_min` = **22.007**
+  → **PASS**. The same workload read **67.257** at the settled session and **410.682** in the first
+  load-valid pair; the delta is the snapshot walk (entry above), priced here by the harness rather
+  than by the probe.
+  *Ordering disclosure, so the record is not tidier than the work:* gate 2 was priced before the
+  round-3 battery re-ran at this tree. The battery then completed at the same commit — corpus
+  **293/293**, syntax **46/46**, fuzz seed 1 **1** (known case-119), seed 7 **0**, `make verify`
+  **5/5**, durability **PASS**, suite **605 OK** — so **gate 4 PASS** holds at `ed80c2f`; but the
+  sequence was measurement-then-battery, not the frozen order, and it is stated here rather than
+  smoothed into compliance.
+  *Standing, unchanged:* gates 1 and 3 remain **MISS** — BLOCK 320.9 vs 259.0, LOOP 3791.5 vs
+  1952.7 — and neither was re-run; the snapshot touches neither subject (BLOCK walks + decodes
+  through the reference decoder; LOOP is the 10k `db.run` path). Goal 6 is **one target met, two
+  unmet** on the record, not a clean sweep.
