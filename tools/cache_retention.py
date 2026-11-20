@@ -155,13 +155,22 @@ def main(argv=None):
     # The frozen selection rule's constraint, checked where the number is printed: distinct is what
     # gate 3 is judged on, so a size whose distinct cost exceeds the constraint is ineligible no
     # matter how good its repeat column looks. Threshold frozen before the sweep: 20 ms.
+    # Three states, not two: a threshold that sits inside its own measurement interval cannot be
+    # applied to a point estimate. Eligible only when the WHOLE interval is within the constraint;
+    # ineligible only when the whole interval is beyond it; otherwise the honest answer is
+    # UNDETERMINED, which never falls back to the median.
+    low_d, high_d = bootstrap_ci(deltas["distinct"])
     distinct_cost = statistics.median(deltas["distinct"])
-    if distinct_cost > DISTINCT_COST_LIMIT:
-        print("  ELIGIBILITY: INELIGIBLE — distinct cost %+.1f ms exceeds the frozen constraint of "
-              "%.1f ms" % (distinct_cost, DISTINCT_COST_LIMIT))
+    if high_d <= DISTINCT_COST_LIMIT:
+        print("  ELIGIBILITY: ELIGIBLE — distinct CI [%+.1f, %+.1f] wholly within the %.1f ms "
+              "constraint" % (low_d, high_d, DISTINCT_COST_LIMIT))
+    elif low_d > DISTINCT_COST_LIMIT:
+        print("  ELIGIBILITY: INELIGIBLE — distinct CI [%+.1f, %+.1f] wholly beyond the %.1f ms "
+              "constraint" % (low_d, high_d, DISTINCT_COST_LIMIT))
     else:
-        print("  ELIGIBILITY: ELIGIBLE — distinct cost %+.1f ms within the frozen constraint of "
-              "%.1f ms" % (distinct_cost, DISTINCT_COST_LIMIT))
+        print("  ELIGIBILITY: UNDETERMINED AT THIS N — distinct %+.1f CI [%+.1f, %+.1f] straddles "
+              "the %.1f ms constraint; no eligibility claim, no fallback to the point estimate"
+              % (distinct_cost, low_d, high_d, DISTINCT_COST_LIMIT))
 
     separated = any(bootstrap_ci(deltas[shape])[0] > 0.0 or bootstrap_ci(deltas[shape])[1] < 0.0
                     for shape in ("distinct", "repeat"))
