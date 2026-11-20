@@ -3102,3 +3102,22 @@ Nothing above the first entry was edited in the move.
   untouched because BLOCK's input is the unchanged W9 file.
   *Resolution defect fixed (condition 6):* `TINY` resolves only when `LOOP` is requested, so
   `--series PARSEONLY` no longer blocks on a file it never opens.
+
+- **Cache-aware snapshot: a regression the re-baselined gate 3 exposed, and the fix.** The first
+  post-rebaseline LOOP capture ran at load 3.42 — **inadmissible**, |Δ| 1.09 against the re-baseline's
+  2.33 — but the number was worth reading: **5020.8 ms**, and **4487.2** at 2.45, *slower than the
+  pre-change revision's 3868.7 on the same fixture*. Cause: `Pager.snapshot()` copied the whole file
+  on **every** call, and a 3-page database queried 10,000 times pays a 12 KB allocation and copy per
+  query while the page cache already holds every page. `snapshot()` now returns `None` when
+  `page_count <= CACHE_PAGES` (unless caching is disabled): batch I/O only where the cache cannot.
+  *Controlled evidence, same fixture, same box:* LOOP **4487.2 → 3889.3** median, back to the frozen
+  regime. Gate 2's input is 8 MB / 1,974 pages and stays on the snapshot, so **22.007 is untouched**;
+  gate 1's BLOCK likewise.
+  *Pinned:* `test_snapshot_is_skipped_when_the_file_already_fits_the_page_cache` — small file →
+  `None`; cache disabled → a view; and the view's bytes equal `read()`'s.
+
+- **Gate 3, post-rebaseline capture: MISS — LOOP median 3703.9 ms against the re-derived 1934.4.**
+  Load **2.35** against the baseline's 2.33 (|Δ| 0.02, admissible), N=7, raw `3616.5 3672.3 3682.9
+  3703.9 3740.3 3820.6 3894.3`, spread 7.5%. That is **−4.3%** against the 3868.7 re-baseline; the
+  gate needs −50%. **Parse alone is 1533.8 ms = 79.3% of the new ceiling**, so the parse path remains
+  the lever and gate 3 stays open — a MISS on its own re-derived subject, recorded as one.

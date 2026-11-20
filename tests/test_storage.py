@@ -251,6 +251,34 @@ class TestDiskDatabase(TempDb):
 
         self.assertEqual(cells(64 * 1024 * 1024), cells(1))
 
+    def test_snapshot_is_skipped_when_the_file_already_fits_the_page_cache(self):
+        # Batch I/O only where the cache cannot: a small file that lives in memory must not pay a
+        # full allocation and copy per call.
+        from minidb.storage import pager as pager_mod
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "small.db")
+            db = Database(path)
+            db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+            db.run("INSERT INTO t VALUES (1, 'a')")
+            db.close()
+
+            pager = Pager(path)
+            try:
+                self.assertGreater(pager.page_count, 1)
+                self.assertIsNone(pager.snapshot())
+                original = pager_mod.CACHE_PAGES
+                # With no page cache, per-page reads are syscalls even for a tiny file, so the
+                # snapshot is the right path again — and its bytes are the file's bytes.
+                pager_mod.CACHE_PAGES = 0
+                try:
+                    view = pager.snapshot()
+                    self.assertIsNotNone(view)
+                    self.assertEqual(view.read(1), pager.read(1))
+                finally:
+                    pager_mod.CACHE_PAGES = original
+            finally:
+                pager.close()
+
     def test_scan_sees_uncommitted_rows(self):
         db = Database(self.path)
         db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")

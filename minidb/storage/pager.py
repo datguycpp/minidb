@@ -250,13 +250,20 @@ class Pager:
         """One sequential read of the file, for read-only walks that touch every page.
 
         Returns a reader with the same contract as `read()` — same bytes, same per-page CRC check,
-        same errors — or **None** when the file is larger than `SNAPSHOT_LIMIT`, where holding a
-        second copy of the database costs more than the syscalls save. Pages pending in `dirty`
+        same errors — or **None** when the snapshot cannot pay for itself: past `SNAPSHOT_LIMIT`,
+        where holding a second copy of the database costs more than the syscalls save; or when the
+        whole file already fits in the page cache (`CACHE_PAGES`), where the snapshot is one extra
+        allocation and copy per call rather than a saved syscall. Pages pending in `dirty`
         are deferred to `read()`, because their uncommitted bytes are not on disk; the snapshot is
         therefore only ever a faster path to the same bytes, never a weaker check.
         """
         size = self.page_count * PAGE_SIZE
         if size > SNAPSHOT_LIMIT:
+            return None
+        # A file the page cache already holds costs nothing to re-read: the snapshot would then be
+        # pure overhead (one allocation and one full copy per call, which is what a small database
+        # queried in a loop actually pays). Batch I/O only where the cache cannot.
+        if CACHE_PAGES and self.page_count <= CACHE_PAGES:
             return None
         self.fh.seek(0)
         blob = self.fh.read(size)
