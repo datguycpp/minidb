@@ -43,20 +43,18 @@ REPEAT_SET = 128   # the corpus's own recurring set: 1,759 statements, 1,171 dis
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def provenance_line(claim):
+def provenance_facts():
     """Four facts, because each alone is a claim about something other than the code that ran.
 
-    1. revision -- the commit; says nothing about a dirty tree.
-    2. dirty -- `status --porcelain`, untracked included; says nothing about *which* copy was imported.
-    3. modules_in_repo -- every loaded `minidb.*` located inside the worktree, with the namespace-package
-       `__path__` handling ported from run_frozen_baseline.py, so a stale install or second checkout fails.
-    4. native -- the built extension's sha256 when it is loaded, because `.gitignore` hides it from both
-       the dirty check and the untracked fold: a locally rebuilt `.so` leaves a clean tree that names no
-       commit. `native=absent` is recorded rather than omitted.
-
-    The dirty hash covers the tracked diff plus every untracked `*.py`, sorted by relative path and hashed
-    as (path, content) pairs so the stamp is reproducible across filesystems and cannot confuse two files
-    with identical bytes. A decision claim on a dirty tree is refused before any timing runs.
+    revision -- the commit; says nothing about a dirty tree.
+    dirty/dirty_sha256 -- `status --porcelain` plus a hash over the tracked diff AND every untracked
+        `*.py` as (relative path, content) pairs sorted by path, so the stamp reproduces across
+        filesystems and cannot confuse two files with identical bytes.
+    modules_in_repo -- every loaded `minidb.*` located inside the worktree, with the namespace-package
+        `__path__` loop ported from run_frozen_baseline.py.
+    native -- the built extension's sha256 when loaded, because `.gitignore` hides it from both the dirty
+        check and the untracked fold: a locally rebuilt `.so` leaves a clean tree that names no commit.
+        `native=absent` is recorded rather than omitted.
     """
     import hashlib
     import subprocess
@@ -67,9 +65,9 @@ def provenance_line(claim):
         except Exception:
             return ""
 
-    revision = run(["git", "rev-parse", "--short", "HEAD"]).strip() or "unknown"
+    facts = {"revision": run(["git", "rev-parse", "--short", "HEAD"]).strip() or "unknown"}
     status = run(["git", "status", "--porcelain"]).strip()
-    dirty = bool(status)
+    facts["dirty"] = "yes" if status else "no"
 
     loaded = [name for name in sys.modules if name == "minidb" or name.startswith("minidb.")]
     locations, outside = [], []
@@ -81,18 +79,17 @@ def provenance_line(claim):
             locations.append(path)
             if not os.path.abspath(path).startswith(REPO_ROOT):
                 outside.append("%s -> %s" % (name, path))
-    imported_inside = not outside and bool(locations)
+    facts["modules_in_repo"] = "yes" if (not outside and locations) else "no"
+    facts["modules"] = str(len(loaded))
+    facts["outside"] = outside
 
-    native = "absent"
+    facts["native"] = "absent"
     native_path = getattr(sys.modules.get("minidb._native"), "__file__", None)
     if native_path and os.path.exists(native_path):
         with open(native_path, "rb") as handle:
-            native = hashlib.sha256(handle.read()).hexdigest()[:16]
+            facts["native"] = hashlib.sha256(handle.read()).hexdigest()[:16]
 
-    line = ("revision=%s dirty=%s modules_in_repo=%s modules=%d native=%s"
-            % (revision, "yes" if dirty else "no", "yes" if imported_inside else "no",
-               len(loaded), native))
-    if dirty:
+    if facts["dirty"] == "yes":
         digest = hashlib.sha256(run(["git", "diff"]).encode())
         untracked = sorted(path for path in run(["git", "ls-files", "--others",
                                                  "--exclude-standard"]).split("\n")
@@ -104,13 +101,30 @@ def provenance_line(claim):
                     digest.update(handle.read())
             except OSError:
                 digest.update(b"<unreadable>")
-        line += " dirty_sha256=%s untracked_py=%d" % (digest.hexdigest()[:16], len(untracked))
-        if claim == "decision":
-            raise SystemExit("cache_retention: refusing a decision claim on a dirty tree -- %s" % line)
-    if not imported_inside:
-        raise SystemExit("cache_retention: mixed subject -- minidb loaded from outside the worktree: "
-                         "%s" % (outside or locations))
+        facts["dirty_sha256"] = digest.hexdigest()[:16]
+        facts["untracked_py"] = str(len(untracked))
+    return facts
+
+
+def format_facts(facts):
+    line = ("revision=%s dirty=%s modules_in_repo=%s modules=%s native=%s"
+            % (facts["revision"], facts["dirty"], facts["modules_in_repo"], facts["modules"],
+               facts["native"]))
+    if "dirty_sha256" in facts:
+        line += " dirty_sha256=%s untracked_py=%s" % (facts["dirty_sha256"], facts["untracked_py"])
     return line
+
+
+def provenance_line(claim):
+    """The launch stamp, and the refusals that belong at the door rather than after the timing."""
+    facts = provenance_facts()
+    if facts["modules_in_repo"] != "yes":
+        raise SystemExit("cache_retention: mixed subject -- minidb loaded from outside the worktree: "
+                         "%s" % (facts["outside"] or "unknown"))
+    if facts["dirty"] == "yes" and claim == "decision":
+        raise SystemExit("cache_retention: refusing a decision claim on a dirty tree -- %s"
+                         % format_facts(facts))
+    return facts
 
 
 def texts(shape="distinct", repeat_set=REPEAT_SET):
@@ -184,7 +198,7 @@ def main(argv=None):
 
     # Provenance is computed BEFORE the timed work: a refusal after a twenty-minute session is not a
     # refusal, and a decision claim on a dirty tree must die at the door.
-    prov = provenance_line(claim)
+    start_facts = provenance_line(claim)
 
     distinct_payload = texts("distinct")
     repeat_payload = texts("repeat")
@@ -213,12 +227,24 @@ def main(argv=None):
                 samples[shape][limb_name].append(time_pass(limb_fn, limb_clear, payload, repeats))
             deltas[shape].append(samples[shape][name][-1] - samples[shape]["none"][-1])
 
-    print("cache_retention  %s  size=%s" % (prov, size), end="")
+    print("cache_retention  %s  size=%s" % (format_facts(start_facts), size), end="")
     print("  texts=%d  repeat_set=%d  N=%d  R=%d  claim=%s  seed=%d  "
           "resamples=%d"
           % (TEXT_COUNT, REPEAT_SET, n, repeats, claim, BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES))
     print("loads=[ %s ]" % " ".join("%.2f" % x for x in loads))
     admissible = all(1.0 <= x <= 3.0 for x in loads)
+    # The stamp is a claim about the interval the number was measured over, not about the instant the
+    # tool started: re-read the same facts at exit and report which, if any, moved.
+    end_facts = provenance_facts()
+    moved = sorted(key for key in start_facts
+                   if key != "outside" and start_facts.get(key) != end_facts.get(key))
+    print("  stable=%s%s" % ("yes" if not moved else "no",
+                             "" if not moved else " (moved: %s -- cannot prove the code was the "
+                             "same throughout)" % ", ".join(moved)))
+    if moved and claim == "decision":
+        raise SystemExit("cache_retention: refusing a decision claim -- the code identity moved during "
+                         "the run (%s)" % ", ".join(moved))
+
     if not admissible:
         print("  SESSION NOT ADMISSIBLE — a load reading left [1.0, 3.0]; the columns below are "
               "direction-only and cannot be certified")
@@ -253,6 +279,18 @@ def main(argv=None):
 
     separated = any(bootstrap_ci(deltas[shape])[0] > 0.0 or bootstrap_ci(deltas[shape])[1] < 0.0
                     for shape in ("distinct", "repeat"))
+    # The stamp is a claim about the interval the number was measured over, not about the instant the
+    # tool started: re-read the same facts at exit and report which, if any, moved.
+    end_facts = provenance_facts()
+    moved = sorted(key for key in start_facts
+                   if key != "outside" and start_facts.get(key) != end_facts.get(key))
+    print("  stable=%s%s" % ("yes" if not moved else "no",
+                             "" if not moved else " (moved: %s -- cannot prove the code was the "
+                             "same throughout)" % ", ".join(moved)))
+    if moved and claim == "decision":
+        raise SystemExit("cache_retention: refusing a decision claim -- the code identity moved during "
+                         "the run (%s)" % ", ".join(moved))
+
     if not admissible:
         # Admissibility gates the claim, not just the wording: an inadmissible session buys nothing,
         # and that includes a separated interval -- the exit-3 precedent, applied at the top level.

@@ -3636,3 +3636,16 @@ Nothing above the first entry was edited in the move.
   **unknown native state** and `modules_in_repo` covering the top-level package only — including the
   256 decision session's manual binding. That is a property of the artifact, not of the measurement, and
   it is written here so a later auditor does not read those older stamps as complete.
+
+- **The stamp now covers the interval, not just the launch instant: `stable=yes|no` re-reads the same
+  four facts at exit and names which moved.** Verified against a real mid-run change — creating one
+  untracked `*.py` after the launch stamp moved `dirty_sha256` and `untracked_py`, so the artifact reads
+  `stable=no (moved: dirty_sha256, untracked_py -- cannot prove the code was the same throughout)`, and
+  removing it restored `stable=yes`. A decision claim refuses when anything moved; a coarse claim records
+  it. The semantic is @research's: **`stable=no` means stability could not be proven**, not that the
+  executed code provably changed — a `.so` rebuilt after `dlopen` leaves the measurement consistent and
+  unverifiable, and refusing it is the conservative call.
+  *Why it matters here specifically:* the R=20 sessions run for ten minutes or more and the tool itself
+  waits on the box, so a launch-only stamp describes an instant while the number describes an interval.
+  Same shape as the load trace: the box is judged by what it recorded throughout, not by its first
+  reading.
