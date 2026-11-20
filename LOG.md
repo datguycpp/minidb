@@ -3139,3 +3139,23 @@ Nothing above the first entry was edited in the move.
   *One inadmissible attempt is recorded beside it:* at load **3.36** (rising to 4.06) the run read
   5237.3 ms and was rejected by the same |Δloadavg| ≤ 1.0 match that binds every other capture; a
   confirmation run is not exempt from the calling condition.
+
+- **Residue reachability, decided on an interval: gate 3's execution residue alone is 2363.0 ms
+  (95% CI [2289.9, 2500.9]) against the 1934.4 ceiling — parser-only work cannot pass the gate.**
+  *The claim this replaces:* the three-state table above said the residue cleared the ceiling at
+  three point estimates. QA's correction stands — with PARSEONLY bands of 50.8–62.9%, the subtraction's
+  interval spanned the bar, so the point estimates established nothing about reachability. The
+  interval is what decides, and the interval now clears.
+  *Instrument:* `tools/gate3_split.py` — one session, paired per round (`parse_i`, `loop_i`, leg order
+  alternating), per-sample loads, residue = loop − parse **paired**, seeded percentile bootstrap of
+  the median (seed 20261104, 20,000 resamples, 2.5th/97.5th), drift rule and window on the trace.
+  *Rule, frozen here:* **reachability reads the interval's lower bound** — PARSER-ONLY CANNOT PASS
+  when low > ceiling; PARSER WORK ALONE COULD PASS when high < ceiling; otherwise NOT ESTABLISHED.
+  *Run:* N=11, loads `2.49 2.69 2.63 2.66 2.89 2.98 2.90 2.91 2.91 2.92 2.93` (span 0.49, in window),
+  parse median **1420.9** (142.1 µs/statement, band 13.2%), loop **3737.9** (373.8 µs/statement, band
+  19.4%), residue median **2363.0** (236.3 µs/statement, band 27.5%), CI **[2289.9, 2500.9]** — the
+  lower bound clears the ceiling by **355 ms**, not by the 76.6 ms a point estimate suggested.
+  *Consequence for the plan:* gate 3 is parser **and** executor. The executor carries ≥2289.9 ms of
+  its own work before a perfect parser could matter, and the combined target from 3737.9 is −48.3%.
+  This is a reachability diagnostic, not a gate call: no ceiling moved and goal 6's tally is
+  unchanged.
