@@ -2906,3 +2906,28 @@ Nothing above the first entry was edited in the move.
   numbers shown; a sample at 0.90 → 5 naming `(a) sample 0`; the declared-span lie (checker 2) still
   **admissible** at 0, because the verdict reads the recompute; and a 1000× ratio (the 60× threshold)
   still admissible at 0. Suite **598 OK**; tools, tests and LOG only.
+
+- **Version boundaries, and the exit taxonomy one defect was spanning.** Two findings from the room's
+  cold read of the shipped tools, both fixed here.
+  *1. The historical gate-2 artifact no longer certifies under today's checker — expected, and now
+  self-explaining.* `--gate-only` on `session-gate2.txt` returns exit 2 (`has no span_sq, span_md —
+  partial row`) because the artifact predates the span schema by two rounds; `--admit` returns 0 on
+  the same file. The session's certification is a **dated event under the checker that issued it**,
+  not a claim today's checker reproduces. The seal now names its checker: `artifact COMPLETE … (checker
+  schema 2)`, with `CHECKER_SCHEMA` bumped whenever required fields or tolerances change, so the
+  certification at LOG 2798 reads as *schema 1* and today's exit 2 explains itself.
+  *2. `--admit` could be fooled by a short trace.* An N=11 artifact carrying 3 load readings returned
+  exit 0 and printed "every sample inside [1.0, 3.0]" about samples it never saw. `admissibility()`
+  now applies the completeness gate mode already had — absent trace, trace shorter than the timed
+  samples, or a run below the frozen N floor is **structural** (`unusable evidence`, exit **2**),
+  while a measured window/span violation stays **exit 5**. One class, one code: 2 means the artifact
+  cannot answer the question, 5 means it answered and the box was wrong. The checks are hoisted from
+  the checker rather than rewritten — one recompute, two consumers, as the docstring already claimed.
+  *3. Admission quotes carry their rule vintage:* `(rule drift-v1)` rides in both the ADMISSIBLE and
+  INCONCLUSIVE lines, because applying a rule frozen two rounds after a run was measured is
+  retrospective analysis, not a verdict that run had. The gate-2 artifact now reads `ADMISSIBLE: W9
+  (rule drift-v1) — drift rule not tripped (spans sqlite 0.00, minidb 0.11 …)`: had the rule existed,
+  it would not have tripped.
+  *Verified:* both real artifacts reproduce the boundary (admit 0, gate 2 with the schema message);
+  four new fixtures pin short and absent traces at 2, the vintage in the output, and the schema in
+  the seal. Suite **602 OK**; tools, tests and LOG only.

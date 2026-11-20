@@ -45,6 +45,13 @@ LOAD_SPAN = re.compile(r"\bload_span=([\d.]+)")
 GATE_N = 11                # the freeze's floor: an N=7 artifact cannot certify a gate-2 call
 DRIFT_SPAN = 1.0           # the calling condition's |delta loadavg| <= 1.0, applied within a run
 WINDOW_LOW, WINDOW_HIGH = 1.0, 3.0
+CHECKER_SCHEMA = 2         # 1: pre-span artifacts; 2: span_sq/span_md required and recomputed.
+                           # Printed in the certification line so a seal names the checker that
+                           # issued it -- an old artifact failing today's schema is expected, not
+                           # a false seal.
+RULE_VINTAGE = "drift-v1"  # the drift rule frozen with its provenance; an admission says which
+                           # vintage evaluated it, because applying a later rule to an earlier run
+                           # is retrospective analysis, not a verdict that run ever had.
 
 
 def parse(path, require_header=True, allow_demo=False):
@@ -284,16 +291,29 @@ def verdict(before, after):
 def admissibility(run):
     """Apply the prospective drift rule to one run, recomputed from the trace.
 
-    Returns (issues, spans). The declared `span_sq`/`span_md` prints are never read for the
-    decision — they appear only inside the message, so a reader can see the declaration the
-    recomputation overran. One implementation serves both consumers: the checker validates these
-    same derived values, and the verdict reads them here.
+    Returns (issues, spans, structural). Two failure classes, two codes: a **structural** defect —
+    absent trace, a trace shorter than the timed samples, or a run below the frozen N floor — means
+    the artifact cannot answer the question at all (exit 2, same as gate mode for the same defects);
+    a **measured** violation means it answered and the box was wrong (exit 5). One class, one code.
+
+    The declared `span_sq`/`span_md` prints are never read for the decision — they appear only inside
+    the message, so a reader can see the declaration the recomputation overran. Gate mode validates
+    these same derived values; this is the second consumer of one recompute, not a copy of it.
     """
-    issues, spans = [], {}
+    issues, structural, spans = [], [], {}
     for leg, label in (("sq", "sqlite"), ("md", "minidb")):
         loads = run.get(f"loads_{leg}")
+        raw = run.get(f"raw_{leg}")
         if not loads:
-            issues.append(f"(trace) no {label} per-sample load trace — cannot admit")
+            structural.append(f"no {label} per-sample load trace — cannot admit")
+            continue
+        if raw and len(loads) != len(raw):
+            structural.append(f"{label} trace carries {len(loads)} load readings for {len(raw)} "
+                              f"timed samples — cannot admit")
+            continue
+        if len(loads) < GATE_N:
+            structural.append(f"{label} trace has N={len(loads)}, below the frozen floor of "
+                              f"{GATE_N} — cannot admit")
             continue
         spans[leg] = max(loads) - min(loads)
         outside = next((i for i, value in enumerate(loads)
@@ -307,7 +327,7 @@ def admissibility(run):
                      else "no declared load_span")
             issues.append(f"(b) {label} span {spans[leg]:.2f} > {DRIFT_SPAN:.1f} "
                           f"(recomputed from trace; {shown})")
-    return issues, spans
+    return issues, spans, structural
 
 
 def main(argv=None):
@@ -349,14 +369,18 @@ def main(argv=None):
                 print(f"bench_pair: {name}: no terminal OK row — cannot admit", file=sys.stderr)
                 status = status or 2
                 continue
-            issues, spans = admissibility(run)
-            if issues:
-                print(f"INCONCLUSIVE: {name} — " + "; ".join(issues))
+            issues, spans, structural = admissibility(run)
+            if structural:
+                print(f"bench_pair: {name}: unusable evidence — " + "; ".join(structural),
+                      file=sys.stderr)
+                status = 2
+            elif issues:
+                print(f"INCONCLUSIVE: {name} (rule {RULE_VINTAGE}) — " + "; ".join(issues))
                 status = 5
             else:
-                print("ADMISSIBLE: %s — drift rule not tripped (spans sqlite %.2f, minidb %.2f; "
-                      "every sample inside [%.1f, %.1f])"
-                      % (name, spans["sq"], spans["md"], WINDOW_LOW, WINDOW_HIGH))
+                print("ADMISSIBLE: %s (rule %s) — drift rule not tripped (spans sqlite %.2f, "
+                      "minidb %.2f; every sample inside [%.1f, %.1f])"
+                      % (name, RULE_VINTAGE, spans["sq"], spans["md"], WINDOW_LOW, WINDOW_HIGH))
         if status == 0:
             print("(admissibility only — the 60x threshold and pass/fail are a separate gate call)")
         return status
@@ -379,7 +403,7 @@ def main(argv=None):
                 print(f"  - {problem}", file=sys.stderr)
             return 2
         print(f"artifact COMPLETE: {len(expected)}/{len(expected)} sections terminal, "
-              f"self-consistent, answers OK")
+              f"self-consistent, answers OK (checker schema {CHECKER_SCHEMA})")
         return 0
 
     try:

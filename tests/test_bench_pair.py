@@ -333,9 +333,33 @@ class AdmissibilityTest(unittest.TestCase):
         status, _ = self.admit(artifact)
         self.assertEqual(status, 0)
 
+    def test_a_short_trace_is_unfit_not_admissible(self):
+        # 11 timed samples, 3 load readings: the old code admitted it and claimed "every sample
+        # inside the window" about samples it never saw.
+        artifact = write_run(self.path("g.txt"), n=11, trace=[2.00] * 3)
+        status, _ = self.admit(artifact)
+        self.assertEqual(status, 2)
+
+    def test_an_absent_trace_is_unfit_not_inconclusive(self):
+        status, _ = self.admit(write_run(self.path("g.txt"), n=11, omit=("loads",)))
+        self.assertEqual(status, 2)
+
+    def test_the_rule_vintage_travels_with_the_verdict(self):
+        status, out = self.admit(write_run(self.path("g.txt"), n=11))
+        self.assertEqual(status, 0)
+        self.assertIn("(rule drift-v1)", out)
+
     def test_the_sixty_x_threshold_is_not_applied(self):
         status, _ = self.admit(write_run(self.path("g.txt"), n=11, minidb_shift=1000.0))
         self.assertEqual(status, 0)
+
+    def test_certification_names_the_checker_schema(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            status = bench_pair.main(["--gate-only", "--workloads", "W1",
+                                      write_run(self.path("g.txt"), n=11)])
+        self.assertEqual(status, 0)
+        self.assertIn("checker schema 2", out.getvalue())
 
 
 if __name__ == "__main__":
