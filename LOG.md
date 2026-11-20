@@ -3234,3 +3234,25 @@ Nothing above the first entry was edited in the move.
   −16.8% against the previous capture's 3703.9. The cache accounts for the difference; parse and
   `rest` account for what remains.
   Suite **624 OK**.
+
+- **Comparators are frozen in a table and verified at invocation — and the accept path found a bug
+  the refusal paths could not.** `tests/skeptic/comparators.py` holds `COMPARATORS` keyed by the
+  **full identity** `GATE:REVISION:LOADAVG` (`gate1:d89f689:2.00`, `gate3:d89f689+:2.00` retired,
+  `gate3:d89f689+:2.33` live), so a re-baseline adds an entry instead of overwriting the number the
+  last capture was called against. The `+` is defined **on the entry it qualifies**: script at the
+  named revision, fixture from `e81300e`, runner from `0e03532`. `lookup()` distinguishes three
+  refusals — `drift` (typo'd load, names the frozen identity), `retired` (names the successor),
+  `unknown` (lists the known identities) — and every retired entry is tested to name a live
+  successor.
+  *Verified live, all four paths:* `gate3:d89f689+:2.31` → **COMPARATOR DRIFT**, `gate3:d89f689:2.00`
+  → **retired, superseded by `gate3:d89f689+:2.33`**, `gate9:abc:1.0` → **unknown**, and
+  `gate3:d89f689+:2.33` → `verified=yes … match=yes`, which then ran the capture.
+  *The accept path immediately caught a defect the refusals could not:* the module-level
+  `identity_spec = COMPARATOR["identity"]` was first written as `identity = …`, shadowing the
+  module's `identity(path)` helper, so the accepted run died with `TypeError: 'str' object is not
+  callable` inside `check_identity`. Refusal tests pass on a broken accept path; only running it
+  proves the instrument still measures. Fixed before the capture below.
+  *Two admissible readings at this tree:* **3080.0** (load 2.58, spread 13.8%, the gate number at
+  `f8ca734`) and **3294.0** (load 2.65, spread 30.3%, confirmation run). Both MISS 1934.4; the spread
+  difference, not the load difference, marks the second as the noisier window.
+  Conformance **293/293**; suite **629 OK**.

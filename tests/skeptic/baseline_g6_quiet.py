@@ -82,12 +82,16 @@ def select_series(argv):
 
 
 def select_comparator(argv):
-    """The gate's own load comparator, named in the artifact rather than left to memory.
+    """The gate's own load comparator, verified against the frozen table rather than trusted.
 
     Each gate is called against its own baseline: gate 1 against the quiet capture at 2.00, gate 3
     against the re-baseline at 2.33. The same reading can be admissible for one and not the other,
-    so the artifact carries which comparator it matched, and a mismatch refuses the capture.
+    so the artifact carries which comparator it matched — and the tuple is checked against
+    `comparators.COMPARATORS`, so a typo'd load or a superseded baseline is refused at invocation
+    instead of caught at audit.
     """
+    from comparators import COMPARATORS, lookup
+
     spec = None
     for index, arg in enumerate(argv):
         if arg == "--comparator" and index + 1 < len(argv):
@@ -96,11 +100,21 @@ def select_comparator(argv):
             spec = arg.split("=", 1)[1]
     if spec is None:
         return None
-    try:
-        name, revision, baseline = spec.rsplit(":", 2)
-        return name, revision, float(baseline)
-    except ValueError:
-        raise SystemExit("baseline: --comparator takes NAME:REVISION:LOADAVG")
+    entry, problem = lookup(spec)
+    if problem is not None:
+        kind, detail = problem
+        if kind == "retired":
+            raise SystemExit("baseline: comparator %s is retired — superseded by %s; name the "
+                             "successor to call a capture against it" % (spec, detail))
+        if kind == "drift":
+            raise SystemExit("baseline: COMPARATOR DRIFT — supplied %s, frozen identity is %s "
+                             "(load %.2f); refusing to measure against a typed number"
+                             % (spec, detail, COMPARATORS[detail]["base_load"]))
+        raise SystemExit("baseline: unknown comparator %s — known identities: %s"
+                         % (spec, ", ".join(sorted(COMPARATORS))))
+    entry = dict(entry)
+    entry["identity"] = spec
+    return entry
 
 
 COMPARATOR = select_comparator(sys.argv[1:])
@@ -178,16 +192,16 @@ EXPECTED = {
 }
 print("loadavg:", loadavg(), flush=True)
 if COMPARATOR is not None:
-    name, revision, baseline = COMPARATOR
+    identity_spec = COMPARATOR["identity"]
+    baseline = COMPARATOR["base_load"]
     reading = float(loadavg())
     delta = abs(reading - baseline)
     matched = delta <= 1.0
-    print("comparator=%s:%s:%.2f baseline_load=%.2f reading=%.2f delta=%.2f match=%s"
-          % (name, revision, baseline, baseline, reading, delta, "yes" if matched else "no"),
-          flush=True)
+    print("comparator=%s verified=yes baseline_load=%.2f reading=%.2f delta=%.2f match=%s"
+          % (identity_spec, baseline, reading, delta, "yes" if matched else "no"), flush=True)
     if not matched:
-        raise SystemExit("baseline: reading %.2f is outside |delta| <= 1.0 of the %s:%s comparator "
-                         "at %.2f — capture refused" % (reading, name, revision, baseline))
+        raise SystemExit("baseline: reading %.2f is outside |delta| <= 1.0 of the %s comparator "
+                         "at %.2f — capture refused" % (reading, identity_spec, baseline))
 if TINY is not None:
     check_identity("tiny", TINY, EXPECTED["tiny"])
 if W9 is not None:
