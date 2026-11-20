@@ -150,9 +150,12 @@ def main(argv=None):
 
         def _count_cache(leg, before):
             after = engine._parse_cached.cache_info()
-            # parse_only() clears the cache at leg start, which resets the counters: a delta would
-            # read negative. A reset is detected by the totals shrinking and read as "this leg".
-            if after.hits + after.misses < before.hits + before.misses:
+            # The parse leg clears the cache at its start, so its totals ARE the leg -- and reading
+            # them as a delta is wrong in a way that hides: two parse legs in a row (which the
+            # alternating order produces every other round) leave before == after == 10k, the delta
+            # reads zero, and the leg disappears from the count. Count the totals for the cleared
+            # leg and deltas for the loop leg, which never clears.
+            if leg == "parse":
                 cache_legs[leg][0] += after.hits
                 cache_legs[leg][1] += after.misses
             else:
@@ -280,7 +283,16 @@ def main(argv=None):
     # per-round median and its seeded-bootstrap 95% interval decide. CI includes zero -> the gap is
     # allocation pressure (collapsed); CI low bound above zero -> real under-load parser cost; any
     # other interval (e.g. wholly negative) -> undetermined, no claim either way.
-    if args.gc == "alternate" and gc_parse_gap["off"] and gc_parse_gap["on"]:
+    # Leg balance is its own check, in the same class as the round balance: a verdict computed over
+    # fewer paired rounds than N is a thinner claim than the one being advertised.
+    loop_legs = cache_legs["loop"][1] // TEXT_COUNT if TEXT_COUNT else 0
+    parse_legs = cache_legs["parse"][1] // TEXT_COUNT if TEXT_COUNT else 0
+    print("     legs      loop=%d parse=%d of %d rounds  (a parse leg clears the cache, so its totals "
+          "are the leg; a lost leg shows here)" % (loop_legs, parse_legs, args.n))
+    if args.gc == "alternate" and (loop_legs != args.n or parse_legs != args.n):
+        print("     DISCRIMINATOR: undetermined — leg balance failed (loop %d, parse %d, N %d)"
+              % (loop_legs, parse_legs, args.n))
+    elif args.gc == "alternate" and gc_parse_gap["off"] and gc_parse_gap["on"]:
         if len(gc_parse_gap["off"]) != len(gc_parse_gap["on"]):
             print("     DISCRIMINATOR: undetermined — unequal rounds (%d off vs %d on); rerun with an "
                   "even N so the comparison carries no count asymmetry"

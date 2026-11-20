@@ -3428,3 +3428,23 @@ Nothing above the first entry was edited in the move.
   thrash reading is measured twice (this seat and @security's independent reproduction).
   *Equal rounds were required, not incidental:* the previous run's 5-vs-6 split was a second confound
   on top of the load trend, and the instrument now refuses to give a verdict when counts differ.
+
+- **The counter asymmetry is explained, and it changes the magnitude: `parse_gap` is real at
+  **177.6 ms CI [144.1, 203.5]**, not 115.7.** @security's read was right — the artifact's parse-leg
+  count was short, and the cause was in my own counter.
+  *The defect:* two parse legs run back-to-back every other round (the order alternates
+  parse-first / loop-first), and the cache totals before and after a cleared leg are both 10,000. My
+  reset detection compared totals and then took a **delta**, so the second of the two adjacent legs
+  contributed **zero**. At N=12 that silently dropped five paired rounds — the verdict was computed
+  over 7 of 12.
+  *The fix:* a parse leg clears at its start, so its post-leg totals **are** the leg — count them
+  directly; the loop leg never clears, so it stays a delta. Plus a **leg-balance check** in the same
+  class as the round-balance refusal: the instrument now prints `legs loop=N parse=N of N` and refuses
+  the verdict when they disagree.
+  *Corrected run (N=12, loads 2.40–2.92, span 0.52, in window, legs 12/12, cache 120k/120k, both 0
+  hits):* parse_gap gc=off median **177.6**, CI **[144.1, 203.5]** → **real**, now over 12 paired rounds.
+  *What moved and what did not:* the **verdict** is unchanged (real, not allocation pressure), but the
+  **magnitude** was understated by 62 ms because five pairs were missing. And the GC effect itself is
+  smaller than the first run suggested: 1721.2 vs 1698.6 across states (**~23 ms**), not the ~90 ms the
+  short-counted run implied. Both corrections run the same way — the missing legs made the gap look
+  smaller and GC look larger.
