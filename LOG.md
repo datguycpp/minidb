@@ -3531,3 +3531,24 @@ Nothing above the first entry was edited in the move.
   then a decision A/B at the knee at R=20. The parameter derivation stands from the earlier entry:
   R=10 gives a ~62 ms half-width, R=20 ~44 ms — and the coarse sessions above show the per-session
   width is dominated by a few slow passes, which is exactly what R is meant to average down.
+
+- **The sweep now measures both shapes, the repeat set is grounded in the corpus, and the first
+  two-shape session shows why the knee exists at all: a cache smaller than the working set thrashes.**
+  *Corpus recurrence, measured:* 22 files, **1,759 statements, 1,171 distinct**; **128** statements
+  occur more than once (histogram 2×:56, 3×:19, 4×:12, 5×:10, …), accounting for **40.7%** of all
+  statement instances. So the repeat shape replays a **128-statement working set**, not an invented
+  locality — @research's cardinality question answered from the corpus rather than chosen.
+  *Two-column session (size 64 vs none, N=11, R=5, loads 1.98–2.99):*
+  ```
+  distinct none 975.2 | 64 976.5 | delta -15.8  CI [-122.6, +116.0]
+  repeat   none 960.2 | 64 998.8 | delta +55.3  CI [  -6.8, + 74.4]
+  ```
+  *Why 64 shows no repeat benefit, and it is structural rather than noise:* the repeat set is 128
+  statements cycling in order through a 64-entry LRU — every access evicts the one that is about to be
+  needed again, so the hit rate is **zero at 64 for a 128-item cycle**, exactly as it is zero at any
+  size for the all-distinct shape. A cache only starts paying on this shape once its size reaches the
+  working set. That places the knee at **sizes ≥ 128**, and it makes the sweep's remaining sessions a
+  search over {256, 1024, unbounded} rather than all six.
+  *Both columns are reported per session, as @qa required:* each shape is paired against its own
+  `none` reference in the same session, and no scalar combines them — the selection rule stays a
+  decision the record makes, not arithmetic the tool performs.

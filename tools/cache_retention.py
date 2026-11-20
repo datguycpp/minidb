@@ -34,8 +34,21 @@ BOOTSTRAP_RESAMPLES = 20000
 SIZES = {"1": 1, "16": 16, "64": 64, "256": 256, "1024": None, "unbounded": 0}
 
 
-def texts():
-    return ["SELECT count(*) FROM t WHERE id > %d" % i for i in range(TEXT_COUNT)]
+REPEAT_SET = 128   # the corpus's own recurring set: 1,759 statements, 1,171 distinct, 128 of them
+                   # occur more than once (median 2). A synthetic locality should replay that set.
+
+
+def texts(shape="distinct", repeat_set=REPEAT_SET):
+    """The two shapes the policy trades between.
+
+    distinct: the gate-3 workload -- every statement unique, so every cache size has zero hits and
+              its only effect is retention plus wrapper cost.
+    repeat:   the corpus's recurrence -- a small set replayed, so a cache can actually hit.
+    """
+    if shape == "distinct":
+        return ["SELECT count(*) FROM t WHERE id > %d" % i for i in range(TEXT_COUNT)]
+    base = ["SELECT count(*) FROM t WHERE id > %d" % i for i in range(repeat_set)]
+    return [base[i % repeat_set] for i in range(TEXT_COUNT)]
 
 
 def bootstrap_ci(values):
@@ -89,35 +102,38 @@ def main(argv=None):
         print("cache_retention: N=%d is below the floor of %d — measure only, never cite"
               % (n, DEFAULT_N), file=sys.stderr)
 
-    payload = texts()
+    distinct_payload = texts("distinct")
+    repeat_payload = texts("repeat")
     name, fn, clear = limb_for(size)
     _, none_fn, none_clear = limb_for("none")
-    loads, deltas = [], []
-    samples = {"none": [], name: []}
+    loads = []
+    deltas = {"distinct": [], "repeat": []}
+    samples = {"distinct": {"none": [], name: []}, "repeat": {"none": [], name: []}}
     for round_index in range(n):
         loads.append(float(open("/proc/loadavg").read().split()[0]))
-        order = [("none", none_fn, none_clear), (name, fn, clear)]
-        if round_index % 2:
-            order.reverse()          # round-robin, not blocked halves: a linear drift must cancel
-        for limb_name, limb_fn, limb_clear in order:
-            samples[limb_name].append(time_pass(limb_fn, limb_clear, payload, repeats))
-        deltas.append(samples[name][-1] - samples["none"][-1])
+        for shape, payload in (("distinct", distinct_payload), ("repeat", repeat_payload)):
+            order = [("none", none_fn, none_clear), (name, fn, clear)]
+            if round_index % 2:
+                order.reverse()      # round-robin, not blocked halves: a linear drift must cancel
+            for limb_name, limb_fn, limb_clear in order:
+                samples[shape][limb_name].append(time_pass(limb_fn, limb_clear, payload, repeats))
+            deltas[shape].append(samples[shape][name][-1] - samples[shape]["none"][-1])
 
-    low, high = bootstrap_ci(deltas)
-    print("cache_retention  size=%s  texts=%d  N=%d  R=%d  claim=%s  seed=%d  resamples=%d"
-          % (size, TEXT_COUNT, n, repeats, claim, BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES))
+    print("cache_retention  size=%s  texts=%d  repeat_set=%d  N=%d  R=%d  claim=%s  seed=%d  "
+          "resamples=%d"
+          % (size, TEXT_COUNT, REPEAT_SET, n, repeats, claim, BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES))
     print("loads=[ %s ]" % " ".join("%.2f" % x for x in loads))
-    print("  none   median=%.1f  raw=[ %s ]"
-          % (statistics.median(samples["none"]),
-             " ".join("%.1f" % x for x in samples["none"])))
-    print("  %-6s median=%.1f  raw=[ %s ]"
-          % (name, statistics.median(samples[name]),
-             " ".join("%.1f" % x for x in samples[name])))
-    print("  paired delta (%s - none) median=%+.1f  CI=[%+.1f, %+.1f]  per-statement=%+.2f us"
-          % (name, statistics.median(deltas), low, high,
-             statistics.median(deltas) * 1000.0 / TEXT_COUNT))
+    for shape in ("distinct", "repeat"):
+        low, high = bootstrap_ci(deltas[shape])
+        print("  %-8s none median=%.1f | %s median=%.1f | paired delta %+.1f  CI=[%+.1f, %+.1f]  "
+              "per-statement=%+.2f us"
+              % (shape, statistics.median(samples[shape]["none"]),
+                 name, statistics.median(samples[shape][name]),
+                 statistics.median(deltas[shape]), low, high,
+                 statistics.median(deltas[shape]) * 1000.0 / TEXT_COUNT))
 
-    separated = low > 0.0 or high < 0.0
+    separated = any(bootstrap_ci(deltas[shape])[0] > 0.0 or bootstrap_ci(deltas[shape])[1] < 0.0
+                    for shape in ("distinct", "repeat"))
     if claim == "coarse":
         print("  CLAIM LEVEL: DIRECTION ONLY — no separation claim at this power; the delta locates "
               "a knee to test, it does not decide a policy")
