@@ -2966,3 +2966,39 @@ Nothing above the first entry was edited in the move.
   1952.7 — and neither was re-run; the snapshot touches neither subject (BLOCK walks + decodes
   through the reference decoder; LOOP is the 10k `db.run` path). Goal 6 is **one target met, two
   unmet** on the record, not a clean sweep.
+
+- **`BLOCK-engine` frozen as a separate subject: definition first, result second.** Ruling recorded
+  above the work — gate 1's frozen subject is `walk + record.decode` **as the reference decoder,
+  called directly**, and re-pointing that function at the native path would leave baseline and
+  post-run measuring two different implementations. Gate 1's MISS stands on its own subject.
+  *Subject:* walk + **engine decode** through `DiskStorage._decode`, the path `Database._rows`
+  already takes via `storage.iter_rows`. No engine change is required for it; the legs differ by
+  **the presence of the compiled `_native` module only**.
+  *Isolation:* same tree, same fixture, one session. The python leg sets `disk._native = None` —
+  the same value a failed import leaves — so the baseline is the decoder's *absence*, not a revision
+  from history. No worktree, no cross-time ceiling.
+  *Required field:* each leg prints `decoder=native` or `decoder=python`, resolved from the module
+  the leg actually used, and the run **fails if both legs report the same decoder** — a stale `.so`
+  surviving a clean would otherwise manufacture a zero-difference.
+  *Estimator:* interleaved paired A/B, **N=11** per leg, per-sample loads, medians and bands
+  reported; the drift rule and the **[1.0, 3.0]** window apply to both legs. Pass if the paired
+  median difference is **≥25% of the python-leg median** and its **95% CI excludes zero**; band as
+  context only.
+  *Constants and their derivation:* C decode measured **5.04×** on decode-only (242.96 → 48.24 ms)
+  and decode is **≈57%** of the block (196.1 of 345.8 ms in the probe), so the maximum block
+  reduction is **≈45%**; **25% is ≈55% of that ceiling**, leaving margin for the unchanged walk and
+  for N=11 variance. Both inputs predate this freeze: the constant is derived, not fitted.
+  *Scorecard:* recorded **beside** goal 6, never inside it. Frozen **now**, before gate 1's
+  post-scan capture, so a likely MISS cannot shape the design in hindsight.
+
+- **Scan batching lands — and it is not gate 1's lever.** `BTree.scan` now reads through the same
+  snapshot as `count_rows` (one sequential read, per-page CRC kept, dirty pages deferred, page path
+  past `SNAPSHOT_LIMIT`). Controlled interleaved A/B on the frozen fixture in one process, load
+  4.22, N=7, **non-gate evidence**: per-page **138.6 ms** vs snapshot **116.5 ms** — a **16%** cut
+  of the walk, because the walk's cost is Node/cell materialisation, not I/O (the I/O share is ~22
+  ms of 138.6, not the ~51 assumed).
+  *Consequence, stated before the capture:* ≤22 ms against the ~62 that gate 1 needs, so the frozen
+  subject is **expected to MISS again**, and that miss will be recorded as one; the `BLOCK-engine`
+  route is how decode earns a scorecard of its own.
+  *Pinned by two tests:* identical cells with and without the snapshot, and uncommitted rows still
+  visible through it. Suite **607 OK**; corpus **293/293**; `make verify` **5/5**.

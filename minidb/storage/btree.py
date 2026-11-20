@@ -47,15 +47,15 @@ class BTree:
         self.pager = pager
 
     # -- page (de)serialisation --------------------------------------------
-    def load(self, page_id):
+    def load(self, page_id, reader=None):
         try:
-            return self._load(page_id)
+            return self._load(page_id, reader)
         except (struct.error, IndexError, ValueError) as exc:
             # A damaged page must surface as our typed storage error, not a struct traceback.
             raise StorageError(f"page {page_id}: corrupt b-tree page ({exc})") from None
 
-    def _load(self, page_id):
-        data = self.pager.read(page_id)
+    def _load(self, page_id, reader=None):
+        data = (reader or self.pager.read)(page_id)
         kind = data[0]
         count = struct.unpack_from("<H", data, 1)[0]
         left = struct.unpack_from("<I", data, 3)[0]
@@ -211,9 +211,15 @@ class BTree:
 
     def scan(self, root):
         out = []
+        # Same batching as `count_rows`: a full scan touches every page once, so one sequential
+        # read beats one syscall per page. The reader keeps the per-page CRC and defers dirty
+        # pages to `read()`; past SNAPSHOT_LIMIT it is None and `load` uses the page path.
+        snapshot = getattr(self.pager, "snapshot", None)
+        view = snapshot() if snapshot is not None else None
+        reader = view.read if view is not None else None
 
         def walk(page_id):
-            node = self.load(page_id)
+            node = self.load(page_id, reader)
             if node.kind == LEAF:
                 out.extend(node.cells)
                 return

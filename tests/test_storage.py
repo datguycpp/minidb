@@ -226,6 +226,42 @@ class TestDiskDatabase(TempDb):
         self.assertIn("checksum mismatch", str(ctx.exception))
         again.close()
 
+    def test_scan_is_identical_with_and_without_the_snapshot(self):
+        # The snapshot is an I/O path, not a semantic one: same cells, same order, and a dirty page
+        # still served from the uncommitted buffer.
+        from minidb.storage import pager as pager_mod
+        db = Database(self.path)
+        db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+        for i in range(1, 301):
+            db.run(f"INSERT INTO t VALUES ({i}, 'v{i}')")
+        root = db.table("t").entry["root"]
+        db.close()
+
+        def cells(limit):
+            original = pager_mod.SNAPSHOT_LIMIT
+            pager_mod.SNAPSHOT_LIMIT = limit
+            try:
+                pager = Pager(self.path, readonly=True)
+                try:
+                    return BTree(pager).scan(root)
+                finally:
+                    pager.close()
+            finally:
+                pager_mod.SNAPSHOT_LIMIT = original
+
+        self.assertEqual(cells(64 * 1024 * 1024), cells(1))
+
+    def test_scan_sees_uncommitted_rows(self):
+        db = Database(self.path)
+        db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+        db.run("INSERT INTO t VALUES (1, 'a')")
+        db.run("BEGIN")
+        db.run("INSERT INTO t VALUES (2, 'b')")
+        self.assertEqual(db.run("SELECT * FROM t")[1], [(1, "a"), (2, "b")])
+        db.run("ROLLBACK")
+        self.assertEqual(db.run("SELECT * FROM t")[1], [(1, "a")])
+        db.close()
+
     def test_schema_survives_reopen_including_constraints(self):
         db = Database(self.path)
         db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, n INTEGER CHECK (n > 0))")
