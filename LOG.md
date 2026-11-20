@@ -3159,3 +3159,25 @@ Nothing above the first entry was edited in the move.
   its own work before a perfect parser could matter, and the combined target from 3737.9 is −48.3%.
   This is a reachability diagnostic, not a gate call: no ceiling moved and goal 6's tally is
   unchanged.
+
+- **Non-parse, split into components: per-query preparation dominates — it is neither the executor
+  nor the scan.** QA's naming correction is accepted and extended by measurement: residue is not
+  executor work, and the largest part of it is not row work at all.
+  *Instrument:* `tools/gate3_split.py` now carries an engine probe — zero-behaviour timing hooks in
+  `_select_complex` (`plan_probe` is `None` by default and the block then runs exactly as before) —
+  that times **preparation** (`_sources` ×2 + `_annotate_comparisons`) and the **scan** separately,
+  emits each with a paired seeded-bootstrap CI, and reports a `plan_path` field naming the path that
+  served.
+  *Run:* N=11, loads `1.58 1.69 2.12 2.11 2.32 2.37 2.50 2.46 2.43 2.47 2.43` (span 0.92, in
+  window). parse **1451.8** (145.2 µs/statement); loop **4035.8** (403.6); residue **2496.5**
+  CI [2342.7, 2964.5]; **prep 1191.6** (119.2 µs) CI [1101.8, 1304.7]; **scan 395.4** (39.5 µs)
+  CI [363.5, 420.6]; **rest 925.7** (92.6 µs) CI [851.1, 1228.3].
+  *Shares of the loop:* parse 36.0%, **prep 29.5%**, scan 9.8%, rest 22.9% — prep is 47.7% of the
+  non-parse residue and **three times the scan** it precedes.
+  *`plan_path`:* **aggregate for 110,000 of 110,000 statements**, zero simple-path decisions — this
+  subject never enters the access-decision plan cache, so nothing here is a plan-cache question, and
+  a decomposition built on that cache would have attributed zero to planning and been wrong.
+  *Consequence:* the executor-scoping error had a second edge — even "executor" understates the work,
+  because preparation (resolving sources and annotating the predicate, per query, for statements that
+  differ only in a literal) is the biggest single component after parsing. It is also the most
+  plausibly cacheable. Ceiling untouched; goal 6 unchanged.

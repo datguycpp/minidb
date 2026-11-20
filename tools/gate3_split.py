@@ -74,11 +74,16 @@ def parse_only():
         engine._parse_cached(sql)
 
 
-def loop():
+def loop(probe=None):
+    """The 10k statements through `db.run`. With a probe dict, the access-decision region is timed
+    by the engine itself (planning separated from execution), and the plan-cache path that served
+    is counted."""
     db = Database(TINY)
     try:
+        db.plan_probe = probe
         for sql in TEXTS:
             db.run(sql)
+        return probe
     finally:
         db.close()
 
@@ -116,21 +121,42 @@ def main(argv=None):
         print("gate3_split: N=%d is below the floor of 11 — measure only, never cite" % args.n,
               file=sys.stderr)
 
-    parse_ms, loop_ms, loads = [], [], []
+    parse_ms, loop_ms, prep_ms, scan_ms, rest_ms, loads = [], [], [], [], [], []
+    aggregate_path = 0
+    hits_total = misses_total = 0
     for i in range(args.n):
         loads.append(loadavg())
-        order = (parse_only, loop) if i % 2 == 0 else (loop, parse_only)
-        values = {}
-        for fn in order:
-            values[fn] = timed(fn)
-        parse_ms.append(values[parse_only])
-        loop_ms.append(values[loop])
+        probe = {"prep_ns": 0, "scan_ns": 0, "aggregate": 0,
+                 "simple_ns": 0, "simple_hits": 0, "simple_misses": 0}
+        parse_first = i % 2 == 0
+        if parse_first:
+            parse_ms.append(timed(parse_only))
+            loop_ms.append(timed(lambda: loop(probe)))
+        else:
+            loop_ms.append(timed(lambda: loop(probe)))
+            parse_ms.append(timed(parse_only))
+        prep = probe["prep_ns"] / 1e6
+        scan = probe["scan_ns"] / 1e6
+        prep_ms.append(prep)
+        scan_ms.append(scan)
+        # Everything the probe did not attribute: the aggregate, projection and fetch after the
+        # filter, plus dispatch and connection overhead.
+        rest_ms.append(loop_ms[-1] - parse_ms[-1] - prep - scan)
+        aggregate_path += probe["aggregate"]
+        hits_total += probe["simple_hits"]
+        misses_total += probe["simple_misses"]
 
     residue = [lo - pa for pa, lo in zip(parse_ms, loop_ms)]
     median_parse = statistics.median(parse_ms)
     median_loop = statistics.median(loop_ms)
+    median_prep = statistics.median(prep_ms)
+    median_scan = statistics.median(scan_ms)
+    median_rest = statistics.median(rest_ms)
     median_residue = statistics.median(residue)
     low, high = bootstrap_ci(residue)
+    prep_low, prep_high = bootstrap_ci(prep_ms)
+    scan_low, scan_high = bootstrap_ci(scan_ms)
+    rest_low, rest_high = bootstrap_ci(rest_ms)
     span = max(loads) - min(loads)
 
     print("gate3_split  statements=%d  N=%d  ceiling=%.1f  fixture_sha256=%s"
@@ -148,6 +174,19 @@ def main(argv=None):
              median_residue * 1000.0 / TEXT_COUNT))
     print("     residue 95%% CI (bootstrap, seed=%d, %d resamples)=[%.1f, %.1f]"
           % (BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES, low, high))
+    print("     prep      median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us"
+          % (median_prep, " ".join("%.1f" % x for x in prep_ms), prep_low, prep_high,
+             median_prep * 1000.0 / TEXT_COUNT))
+    print("     scan      median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us"
+          % (median_scan, " ".join("%.1f" % x for x in scan_ms), scan_low, scan_high,
+             median_scan * 1000.0 / TEXT_COUNT))
+    print("     rest      median=%.1f  raw=[ %s ]  CI=[%.1f, %.1f]  per_stmt=%.1f us"
+          % (median_rest, " ".join("%.1f" % x for x in rest_ms), rest_low, rest_high,
+             median_rest * 1000.0 / TEXT_COUNT))
+    print("     plan_path served=aggregate for %d of %d statements (simple-path decisions: %d, "
+          "cache_hits=%d cache_misses=%d)"
+          % (aggregate_path, TEXT_COUNT * args.n, hits_total + misses_total,
+             hits_total, misses_total))
 
     outside = [x for x in loads if not (WINDOW[0] <= x <= WINDOW[1])]
     if outside or span > DRIFT_SPAN:

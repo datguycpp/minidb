@@ -34,3 +34,29 @@ class ReachabilityRuleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProbeTest(unittest.TestCase):
+    def test_the_probe_attributes_the_aggregate_path_and_none_is_a_no_op(self):
+        import tempfile
+        from minidb.engine import Database
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = tmp + "/p.db"
+            db = Database(path)
+            try:
+                db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+                for i in range(1, 6):
+                    db.run("INSERT INTO t VALUES (%d, 'v%d')" % (i, i))
+                probe = {"prep_ns": 0, "scan_ns": 0, "aggregate": 0,
+                         "simple_ns": 0, "simple_hits": 0, "simple_misses": 0}
+                db.plan_probe = probe
+                self.assertEqual(db.run("SELECT count(*) FROM t WHERE id > 1")[1], [(4,)])
+                self.assertEqual(probe["aggregate"], 1)
+                self.assertGreater(probe["prep_ns"], 0)
+                self.assertGreater(probe["scan_ns"], 0)
+                db.plan_probe = None
+                self.assertEqual(db.run("SELECT count(*) FROM t WHERE id > 1")[1], [(4,)])
+                self.assertEqual(probe["aggregate"], 1)
+            finally:
+                db.close()

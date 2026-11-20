@@ -15,6 +15,7 @@ import os
 from functools import lru_cache
 import re
 import string
+import time
 
 from .sql import ast
 # The C accelerator is optional: without it the Python path below runs, which is the reference
@@ -1040,6 +1041,10 @@ class Database:
         # statistic. (M37: the ladder's "learns from query history" — the history that is safe
         # here is the session's own; see docs/tier6-prework.md's M37 decision.)
         self._plan_cache = {}
+        # Optional timing probe for the access-decision region of single-table selects. It exists
+        # so a decomposition can attribute planning separately from execution without changing
+        # what the engine does: when None (the default) the block runs exactly as before.
+        self.plan_probe = None
         self.data_epoch = 0
         self.tx_snapshot = None
         self.repl_log = bool(repl_log)
@@ -3043,6 +3048,8 @@ class Database:
                 projection.append(item)
                 items.append(item.alias or _heading(item))
 
+        probe = self.plan_probe
+        probe_start = time.perf_counter_ns() if probe is not None else 0
         plan_key = self._plan_key(table, node)
         remembered = self._plan_cache.get(plan_key) if plan_key is not None else None
         if remembered is not None:
@@ -3051,6 +3058,9 @@ class Database:
             decision = self._choose_access(table, node.where, node=node)
             if plan_key is not None:
                 self._remember_plan(plan_key, decision)
+        if probe is not None:
+            probe["simple_ns"] += time.perf_counter_ns() - probe_start
+            probe["simple_hits" if remembered is not None else "simple_misses"] += 1
         if decision["access"] == "index" and self._covering_index(node, table, decision["candidate"]["index"]):
             chosen = decision["candidate"]
             index = chosen["index"]
@@ -3277,13 +3287,29 @@ class Database:
         fast = self._native_aggregate(node)
         if fast is not None:
             return fast
+        probe = self.plan_probe
+        t0 = time.perf_counter_ns() if probe is not None else 0
         source_list = self._sources(node)
+        t_sources = time.perf_counter_ns() if probe is not None else 0
         envs, examined = self._scan_sources(node)
+        t_scan = time.perf_counter_ns() if probe is not None else 0
         if node.where is not None:
             predicate = self._annotate_comparisons(node.where, source_list)
+            t_annotate = time.perf_counter_ns() if probe is not None else 0
             envs = [env for env in envs if truthy(self._eval(predicate, None, env))]
+        else:
+            t_annotate = time.perf_counter_ns() if probe is not None else 0
+        if probe is not None:
+            # Per-query preparation: resolving sources and annotating the predicate. Reported apart
+            # from the scan so a decomposition can tell setup cost from row work.
+            probe["prep_ns"] += (t_sources - t0) + (t_annotate - t_scan)
+            probe["scan_ns"] += t_scan - t_sources
+            probe["aggregate"] += 1
 
+        t_pre = time.perf_counter_ns() if probe is not None else 0
         source_list = self._sources(node)
+        if probe is not None:
+            probe["prep_ns"] += time.perf_counter_ns() - t_pre
         if any(isinstance(item, ast.Star) for item in node.items) and not source_list:
             raise ExecError("no tables specified")
 
