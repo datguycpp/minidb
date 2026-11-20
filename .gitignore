@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.db
 *.sqlite
+!tests/skeptic/fixtures/*.db
 .venv/
 tmp/
 minidb/_native*.so

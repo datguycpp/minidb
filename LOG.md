@@ -3067,3 +3067,38 @@ Nothing above the first entry was edited in the move.
   only for the requested series, `series()`'s inner loop untouched, identities still asserted for
   whatever is measured. Verified by the run above: with `--series BLOCK` it resolved the W9 input
   only, asserted its hash, and printed `rows=100000`.
+
+- **Tiny fixture rebuilt, pinned, and re-baselined — gate 3's ceiling is 1934.4 ms, stated before any
+  post-change capture.** The old `75848fa8…` file is gone and unrecoverable; this replaces it by
+  construction under @default's seven conditions.
+  *Builder:* `tests/skeptic/make_tiny_fixture.py` — one table `t (id INTEGER PRIMARY KEY, v TEXT)`,
+  **4 rows** in a single transaction, values `v<id>`, no clock, no randomness. Bytes **12,288 B**,
+  sha256 `64a9d5417b7ec44389ffbde5b7e6da52ec53aff157156fbfd3e3caed3a4d4c30`.
+  *Revision check (QA's addition 2):* the bytes were produced by the **pre-change revision at
+  `d89f689`**, and a **HEAD build reproduces the same tuple exactly** — the write path is unchanged
+  on this shape, and that equality is now a test rather than a promise.
+  *Committed, not merely derivable (QA's addition 1):* the file lives at
+  `tests/skeptic/fixtures/g6-tiny.db` with a `.gitignore` carve-out
+  (`!tests/skeptic/fixtures/*.db`), so the input is present in every clone; the builder is the
+  regeneration and audit path. `EXPECTED` pins `(12288, 64a9d541…)`.
+  *Shape criterion, with the alternatives disclosed:* at `d89f689` the 10k loop measured **4361 ms at
+  1 row, 3998 ms at 4 rows, 6029 ms at 16 rows**. Four rows was chosen because it reproduces the
+  frozen regime — loop magnitude ≈ 3.9 s, parse share ≈ 39% — not because it produced a preferred
+  number; the other candidates are recorded so the criterion is auditable.
+  *Worktree baseline (condition 3), frozen revision's instrument:* `baseline_g6.py` at `d89f689`,
+  N=7, loadavg **2.33** (2.48 after the series) — **LOOP median 3868.7 ms**, raw `3817.0 3838.9
+  3857.7 3868.7 3950.7 3979.9 4182.6`; BLOCK (not used by this re-baseline) 320.0. The frozen script
+  labels this series `PARSE`; it is the 10k `db.run` loop, and the label is the script's, not a
+  description.
+  *Delivery route (condition 7):* the frozen script hardcodes `/tmp/g6-tiny.db` at :14, so the
+  fixture was placed there and the script was **not edited**. One finding in passing: the same script
+  hardcodes `sys.path.insert(0, "/home/grub/projects/minidb")`, so a naive worktree run would import
+  **HEAD's** engine and call the result a baseline. The runner pre-imports the worktree package and
+  asserts `minidb.engine.__file__` before executing the frozen script — that assert is the difference
+  between a baseline and a mixed-subject measurement.
+  *Ceiling (condition 4):* gate 3's rule is **half the baseline median** — `3868.7 / 2 = 1934.4 ms`
+  — not gate 1's band rule, which would give 3046.8. Stated here, before any post-change capture.
+  The old 1952.7 and its MISS stay dated history; nothing migrates, and gate 1's ceiling is
+  untouched because BLOCK's input is the unchanged W9 file.
+  *Resolution defect fixed (condition 6):* `TINY` resolves only when `LOOP` is requested, so
+  `--series PARSEONLY` no longer blocks on a file it never opens.

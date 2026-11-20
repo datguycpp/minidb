@@ -140,16 +140,17 @@ def show(tag, v):
 
 
 # Fixtures are resolved only for the series actually requested: a missing tiny input must block
-# the series that measure it, not a BLOCK capture whose input is the reproducible W9 file.
-TINY = fixture("G6_TINY_DB", "g6-tiny.db", LEGACY_TINY) if WANTED & {"PARSEONLY", "LOOP"} else None
+# the series that measure it, not a BLOCK capture whose input is the reproducible W9 file. And
+# PARSEONLY never opens a database, so it must not resolve one either.
+TINY = fixture("G6_TINY_DB", "g6-tiny.db", LEGACY_TINY) if "LOOP" in WANTED else None
 W9 = fixture("G6_W9_DB", "w9-fixture.db", LEGACY_W9) if "BLOCK" in WANTED else None
-# The frozen inputs' identities. Both were confirmed by independent hashing, and the W9 one is
-# reproducible: two fresh builds by the committed harness shape (benchmark.py's create + one
-# transaction + build_rows(100000, seed=7)) hash to it byte-for-byte, so a cold clone can verify
-# provenance by rebuilding rather than trusting a copy. The tiny fixture is a three-page capture
-# with no committed builder; its identity is recorded, not reproducible.
+# The frozen inputs' identities. The W9 file is reproduced by the committed harness shape
+# (benchmark.py's create + one transaction + build_rows(100000, seed=7)); the tiny file is built by
+# tests/skeptic/make_tiny_fixture.py, whose bytes were produced by the pre-change revision and are
+# reproduced by HEAD — both are now reproducible by construction, and both are committed so the
+# input is present as well as derivable.
 EXPECTED = {
-    "tiny": (12288, "75848fa83f696ac65f683bc22c90139cbe3bae36e0bad13d90dd2c20e45afb7a"),
+    "tiny": (12288, "64a9d5417b7ec44389ffbde5b7e6da52ec53aff157156fbfd3e3caed3a4d4c30"),
     "w9": (8085504, "f65d581dbef12f634ded07c1e5933fa6558e641dab435718ad29dfbc65d0db82"),
 }
 print("loadavg:", loadavg(), flush=True)
