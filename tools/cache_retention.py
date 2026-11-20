@@ -136,9 +136,16 @@ def main(argv=None):
                 samples[shape][limb_name].append(time_pass(limb_fn, limb_clear, payload, repeats))
             deltas[shape].append(samples[shape][name][-1] - samples[shape]["none"][-1])
 
-    print("cache_retention  size=%s  texts=%d  repeat_set=%d  N=%d  R=%d  claim=%s  seed=%d  "
+    import subprocess
+    try:
+        revision = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
+                                  text=True, timeout=10).stdout.strip() or "unknown"
+    except Exception:
+        revision = "unknown"     # provenance in the artifact: a result carries the code that made it
+    print("cache_retention  revision=%s  size=%s" % (revision, size), end="")
+    print("  texts=%d  repeat_set=%d  N=%d  R=%d  claim=%s  seed=%d  "
           "resamples=%d"
-          % (size, TEXT_COUNT, REPEAT_SET, n, repeats, claim, BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES))
+          % (TEXT_COUNT, REPEAT_SET, n, repeats, claim, BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES))
     print("loads=[ %s ]" % " ".join("%.2f" % x for x in loads))
     if any(not (1.0 <= x <= 3.0) for x in loads):
         print("  SESSION NOT ADMISSIBLE — a load reading left [1.0, 3.0]; the columns below are "
