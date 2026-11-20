@@ -3461,3 +3461,25 @@ Nothing above the first entry was edited in the move.
   folded into the parse target.
   No code change in this entry: the measurement is the deliverable, and the four labelled numbers
   (989.7 / 1220.0 / 177.6 / ~23) remain the sizing basis.
+
+- **The 69.1 ms was not the wrapper: a three-way split shows retention dominates and eviction is
+  cheap.** @qa's control (`lru_cache` over 10k strings ≈ 4.6 ms) was right that lookup cannot be 69.1,
+  and @research's refinement supplied the deciding test: no cache vs 1,024-entry (current) vs
+  **unbounded**. Same 10k texts, cache cleared per series, three passes each:
+  ```
+  no cache   874.3 909.3 853.7   median 874.3
+  lru 1024   927.1 919.6 894.7   median 919.6   (+45.2 vs none)
+  unbounded  920.2 1024.7 1024.6 median 1024.6  (+150.3 vs none)
+  ```
+  *Reading:* the bounded cache costs **+45.2 ms** over no cache in this run (69.1 in the earlier
+  one — the difference is run-to-run variance, so the figure is quoted as a range, not a constant),
+  and the **unbounded** cache costs **+150.3**, i.e. **retention without eviction is three times worse
+  than retention with it**. So the cost is **holding 1,024 live ASTs alive and the allocator state that
+  follows**, not hashing or the dict probe; eviction is a *benefit* here, not the overhead.
+  *Consequence for the policy question:* "recover 69.1 ms of cache overhead" is the wrong framing and
+  is retired. Disabling the cache would recover ~45 ms on this workload by not retaining trees —
+  a real but modest trade against the repeat-text benefit the cache exists for, and the two-shape A/B
+  remains required. A policy that *shrinks* the cache would move retention in the wrong direction
+  (toward the unbounded case), which the same numbers show.
+  *Method note:* all three series measure `parse` on the same texts; the only difference is what the
+  cache retains, so this is a retention experiment, not a parser experiment.
