@@ -3181,3 +3181,26 @@ Nothing above the first entry was edited in the move.
   because preparation (resolving sources and annotating the predicate, per query, for statements that
   differ only in a literal) is the biggest single component after parsing. It is also the most
   plausibly cacheable. Ceiling untouched; goal 6 unchanged.
+
+- **Shape-keyed source cache built under the ruling: prep halves, and the frozen guardrail caught a
+  real bug before commit.** What it caches: `_sources()` results for **catalog-backed table
+  sources**, keyed by `(table, alias, join kind)` — **no literals in the key** — invalidated whenever
+  `data_epoch` moves (any non-read statement). Never the input AST, never the annotated predicate.
+  *The guardrail earned its place immediately:* the first version cached every source shape,
+  CTEs included, and the suite went 620 → 3 failures with recursive-CTE rows missing — a CTE's rows
+  change per iteration without an epoch bump. Fixed by refusing any source whose table has no
+  catalog `entry`, and pinned by a recursive-CTE test.
+  *Safety precondition, checked rather than assumed:* a writable session holds `LOCK_EX` on the file
+  for its lifetime (`pager.py:141–151`), so no other process can write while a session's cache is
+  live — epoch invalidation cannot miss a concurrent commit while the lock exists.
+  *Run (N=11, loads `1.88 2.05 2.05 2.12 2.27 2.25 2.31 2.21 2.21 2.35 2.48`, span 0.60, in
+  window):* parse **1394.1** (139.4 µs/statement); loop **3061.2** (306.1); residue **1659.8**
+  CI [1588.5, 1686.3]; **prep 597.7** (59.8 µs) CI [587.6, 628.7]; **scan 183.1** (18.3 µs)
+  CI [178.3, 193.1]; rest **867.1** (86.7 µs) CI [807.2, 906.8].
+  *Against the pre-cache in-window run:* prep **−49.8%**, scan **−53.7%** (the scan path calls
+  `_sources` too), loop **−24.1%**; against gate 3's recorded 3703.9 capture, **−17.4%**.
+  *Reachability flips:* residue CI high **1686.3 < 1934.4** → **PARSER WORK ALONE COULD PASS**. That
+  changes what the gate needs, not the gate: subject, ceiling and recorded capture are untouched.
+  *Gate 3 still misses at this tree:* a gate capture would read 3061.2 against 1934.4 — it needs
+  **−36.8%** more, and no gate call has been taken on this tree.
+  Conformance **293/293**; suite **622 OK**.

@@ -1041,6 +1041,11 @@ class Database:
         # statistic. (M37: the ladder's "learns from query history" — the history that is safe
         # here is the session's own; see docs/tier6-prework.md's M37 decision.)
         self._plan_cache = {}
+        # Source lists are shape-derived but carry the table's rows, so they are cached against the
+        # data epoch: any non-read statement bumps `data_epoch` (see `execute`), which empties this.
+        # Only plain table sources qualify — a subquery's rows are its own query's answer.
+        self._sources_cache = {}
+        self._sources_epoch = -1
         # Optional timing probe for the access-decision region of single-table selects. It exists
         # so a decomposition can attribute planning separately from execution without changing
         # what the engine does: when None (the default) the block runs exactly as before.
@@ -2563,8 +2568,43 @@ class Database:
                     or any(self._contains_aggregate(item.expr)
                            for item in node.items if not isinstance(item, ast.Star)))
 
+    def _sources_key(self, node):
+        """Shape key for the source cache, or None when the sources are not shape-only.
+
+        Literals never enter it (a source list has no expression), and anything whose rows come
+        from a nested query is excluded: those rows are that query's answer at this epoch, not the
+        table's state.
+        """
+        if node.base_select is not None:
+            return None
+        parts = []
+        if node.table is not None:
+            table = self.tables.get(node.table.lower())
+            # Only catalog-backed tables: a CTE/derived relation is materialised per query and its
+            # rows change without a data epoch bump, which is exactly the staleness a cache must
+            # not introduce.
+            if table is None or table.entry is None:
+                return None
+            parts.append((node.table.lower(), (node.alias or node.table).lower()))
+        for join in node.joins:
+            if join.select is not None or join.table is None:
+                return None
+            table = self.tables.get(join.table.lower())
+            if table is None or table.entry is None:
+                return None
+            parts.append((join.table.lower(), (join.alias or join.table).lower(), join.kind))
+        return tuple(parts) if parts else None
+
     def _sources(self, node):
         """Source list: base table or derived table, then one entry per JOIN."""
+        key = self._sources_key(node)
+        if key is not None:
+            if self._sources_epoch != self.data_epoch:
+                self._sources_cache.clear()
+                self._sources_epoch = self.data_epoch
+            cached = self._sources_cache.get(key)
+            if cached is not None:
+                return cached
         out = []
         if node.base_select is not None:
             columns, rows = self._select_node(node.base_select)
@@ -2592,6 +2632,8 @@ class Database:
                         "collations": collations if join.select is None else {},
                         "affinities": affinities if join.select is None else {},
                         "kind": join.kind, "on": join.on})
+        if key is not None:
+            self._sources_cache[key] = out
         return out
 
     def _annotate_comparisons(self, expression, sources):

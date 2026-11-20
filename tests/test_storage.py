@@ -371,3 +371,36 @@ class TestDiskDatabase(TempDb):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourceCacheTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.path = os.path.join(self.dir, "cache.db")
+        self.db = Database(self.path)
+        self.db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+        for i in range(1, 4):
+            self.db.run("INSERT INTO t VALUES (%d, 'v%d')" % (i, i))
+
+    def tearDown(self):
+        self.db.close()
+
+    def test_source_rows_track_the_data_epoch(self):
+        first = self.db.run("SELECT count(*) FROM t")[1]
+        second = self.db.run("SELECT count(*) FROM t")[1]
+        self.assertEqual(first, second)
+        self.db.run("INSERT INTO t VALUES (4, 'v4')")
+        self.assertEqual(self.db.run("SELECT count(*) FROM t")[1], [(4,)])
+
+    def test_a_cte_is_never_served_from_the_source_cache(self):
+        # Recursive CTE rows change per iteration without a data epoch bump; the cache key refuses
+        # any source that is not catalog-backed, and this is the case that proves it.
+        self.db.run("CREATE TABLE edge (src INTEGER, dst INTEGER)")
+        for src, dst in ((1, 2), (1, 3), (2, 4)):
+            self.db.run("INSERT INTO edge VALUES (%d, %d)" % (src, dst))
+        rows = self.db.run(
+            "WITH RECURSIVE walk(id, depth) AS ("
+            "SELECT src, 0 FROM edge WHERE src = 1 UNION "
+            "SELECT edge.dst, walk.depth + 1 FROM edge JOIN walk ON edge.src = walk.id) "
+            "SELECT id, depth FROM walk ORDER BY id, depth")[1]
+        self.assertEqual(rows, [(1, 0), (2, 1), (3, 1), (4, 2)])
