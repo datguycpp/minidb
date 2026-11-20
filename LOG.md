@@ -3390,3 +3390,18 @@ Nothing above the first entry was edited in the move.
   large blocks) with dispatch as a third, smaller one.
   Suite **631 OK**; reachability again reads "parser alone could pass" (CI high 1814.5), provisional per
   the standing caveat.
+
+- **The `parse_gap` discriminator is built and its first run is INCONCLUSIVE — but it shows the gap is
+  not purely GC.** `gate3_split --gc {on,off,alternate}` alternates GC state per round in one session
+  and emits parse-cache hits/misses per leg beside it.
+  *Cache leg confirmed empirically, not argued:* **loop hits=0 / misses=110000, parse leg hits=0 /
+  misses=60000** — 10k distinct texts through a 1,024-entry LRU thrash, so both legs are equal at zero
+  hits and the "hidden hit benefit" reasoning is retired by measurement.
+  *First run (loads 2.40–3.06, two samples at 3.06 → **exit 3, INCONCLUSIVE**):* gc **on** rounds
+  (5) residue median **1627.4**; gc **off** rounds (6) **1537.3**; parse_gap 159.6. Disabling GC moves
+  the residue ~90 ms in the expected direction, so allocation pressure is *part* of the gap — but the
+  gap does not collapse, and the late rounds ran in the rising warmer window, so the comparison is
+  confounded by time-in-session.
+  *Status:* the discriminator question — "is the 209.2 parse_gap GC, or real under-load parser cost?" —
+  remains **open**. A clean answer needs an in-window `--gc alternate` run whose rounds are not
+  ordered against a load trend. No parse work is sized against 1220.0 until then, per the ruling.

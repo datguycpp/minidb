@@ -107,6 +107,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0] or "")
     parser.add_argument("--n", type=int, default=11)
     parser.add_argument("--ceiling", type=float, default=CEILING)
+    # parse_gap's discriminator: the loop allocates plans, rows and environments between parses
+    # while the parse leg does not, so generational collections may be landing inside the parse
+    # window. Alternate GC state per round in one session and compare the gap by state.
+    parser.add_argument("--gc", choices=("on", "off", "alternate"), default="on")
     args = parser.parse_args(argv)
 
     if not os.path.exists(TINY):
@@ -126,18 +130,48 @@ def main(argv=None):
         [], [], [], [], [], [], [], [], [], [], [], [])
     aggregate_path = 0
     hits_total = misses_total = 0
+    gc_gap = {"on": [], "off": []}
+    cache_legs = {"loop": [0, 0], "parse": [0, 0]}
+    import gc as _gc
     for i in range(args.n):
+        if args.gc == "alternate":
+            _gc.collect()
+            if i % 2 == 0:
+                _gc.disable()
+            else:
+                _gc.enable()
+        gc_state = "off" if not _gc.isenabled() else "on"
         loads.append(loadavg())
         probe = {"prep_ns": 0, "scan_ns": 0, "filter_ns": 0, "complex_ns": 0, "aggregate": 0,
                  "run_parse_ns": 0, "run_exec_ns": 0, "exec_body_ns": 0,
                  "simple_ns": 0, "simple_hits": 0, "simple_misses": 0}
         parse_first = i % 2 == 0
+
+        def _count_cache(leg, before):
+            after = engine._parse_cached.cache_info()
+            # parse_only() clears the cache at leg start, which resets the counters: a delta would
+            # read negative. A reset is detected by the totals shrinking and read as "this leg".
+            if after.hits + after.misses < before.hits + before.misses:
+                cache_legs[leg][0] += after.hits
+                cache_legs[leg][1] += after.misses
+            else:
+                cache_legs[leg][0] += after.hits - before.hits
+                cache_legs[leg][1] += after.misses - before.misses
+
         if parse_first:
+            before = engine._parse_cached.cache_info()
             parse_ms.append(timed(parse_only))
+            _count_cache("parse", before)
+            before = engine._parse_cached.cache_info()
             loop_ms.append(timed(lambda: loop(probe)))
+            _count_cache("loop", before)
         else:
+            before = engine._parse_cached.cache_info()
             loop_ms.append(timed(lambda: loop(probe)))
+            _count_cache("loop", before)
+            before = engine._parse_cached.cache_info()
             parse_ms.append(timed(parse_only))
+            _count_cache("parse", before)
         prep = probe["prep_ns"] / 1e6
         scan = probe["scan_ns"] / 1e6
         filt = probe["filter_ns"] / 1e6
@@ -155,6 +189,7 @@ def main(argv=None):
         # Inside run(): the parse lookup, execute's own wrapper, and the body outside the aggregate
         # path. These are measured where the statement actually passes, not inferred.
         loop_parse_ms.append(probe["run_parse_ns"] / 1e6)
+        gc_gap[gc_state].append(loop_ms[-1] - parse_ms[-1])
         exec_wrap_ms.append((probe["run_exec_ns"] - probe["exec_body_ns"]) / 1e6)
         exec_rest2_ms.append((probe["exec_body_ns"] - probe["complex_ns"]) / 1e6)
         aggregate_path += probe["aggregate"]
@@ -231,6 +266,15 @@ def main(argv=None):
              exec_rest2_low, exec_rest2_high, median_exec_rest2 * 1000.0 / TEXT_COUNT))
     print("     parse_gap median=%.1f  (run_parse - PARSEONLY, per round; this is what the "
           "subtraction used to put inside dispatch)" % statistics.median(gap_ms))
+    print("     parse_cache loop hits=%d misses=%d | parse leg hits=%d misses=%d  "
+          "(equal by construction: 10k distinct texts through a 1024-entry LRU thrashes)"
+          % (cache_legs["loop"][0], cache_legs["loop"][1],
+             cache_legs["parse"][0], cache_legs["parse"][1]))
+    for state in ("on", "off"):
+        if gc_gap[state]:
+            print("     gc=%s rounds=%d  residue median=%.1f  (paired loop-parse, same session)"
+                  % (state, len(gc_gap[state]), statistics.median(gc_gap[state])))
+    _gc.enable()
     print("     plan_path served=aggregate for %d of %d statements (simple-path decisions: %d, "
           "cache_hits=%d cache_misses=%d)"
           % (aggregate_path, TEXT_COUNT * args.n, hits_total + misses_total,
