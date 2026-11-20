@@ -3002,3 +3002,19 @@ Nothing above the first entry was edited in the move.
   route is how decode earns a scorecard of its own.
   *Pinned by two tests:* identical cells with and without the snapshot, and uncommitted rows still
   visible through it. Suite **607 OK**; corpus **293/293**; `make verify` **5/5**.
+
+- **`BLOCK-engine` PASSES its frozen bar: paired median difference 51.4%, 95% CI [163.48, 226.52].**
+  Instrument `tools/block_engine_ab.py` at this commit, N=11 per leg, interleaved with the leg order
+  alternating, one session, one fixture (hash pinned `f65d581d…`), loads **2.70–2.76** (span 0.06),
+  both legs inside [1.0, 3.0]. `decoder=native` and `decoder=python` were **read back from call
+  counts** on `_native.decode` and `record.decode` per leg, and the run fails if both legs report the
+  same decoder — the stale-`.so` failure mode stays a red run, not a manufactured zero-difference.
+  native median **192.12 ms** (raw `259.97 170.23 189.31 192.12 198.76 216.69 186.91 181.82 179.06
+  202.68 259.62`, band 46.7%); python median **389.41 ms** (raw `372.32 459.30 389.41 393.25 435.40
+  371.75 374.85 368.98 388.56 419.88 408.47`, band 23.2%). Paired median difference **200.09 ms =
+  51.4%** of the python median; bar ≥25% and CI excludes zero → **PASS**.
+  *The first N=11 attempt is recorded because it did its job:* loads **3.32–3.99**, outside the
+  window, and the instrument returned **INCONCLUSIVE (exit 3)** with the comparison printed and
+  **no verdict issued** — the drift rule firing on its own subject the first time it was asked.
+  *Scope:* `BLOCK-engine` sits **beside** goal 6, never inside it. Goal 6's tally is unchanged —
+  gate 2 **PASS**, gates 1 and 3 **MISS** on their frozen subjects.
