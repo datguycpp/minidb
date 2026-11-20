@@ -3510,3 +3510,24 @@ Nothing above the first entry was edited in the move.
   wrapper attribution without establishing any replacement.
   *Next step for the policy question:* the same tool in a quiet window, larger N, and — given the
   observed variance — pass-level repetitions inside each sample rather than more passes alone.
+
+- **The sweep is staged and its first session ran in-window: size 64 vs none, paired, direction-only.**
+  `tools/cache_retention.py` now takes `--size` (one candidate per session), `--R` (repetitions inside
+  each pass) and `--claim {coarse,decision}`; limbs are `none` and the candidate, **interleaved with the
+  first-runner flipped every pass**, so a linear drift cancels in the paired delta. The claim level is
+  structural: at `coarse` the tool prints `CLAIM LEVEL: DIRECTION ONLY` and never separation wording.
+  *First session (loads 2.62–2.83, in window; N=11, R=5):*
+  ```
+  none  median 944.5
+  64    median 999.2
+  paired delta (64 - none) median +64.8  CI [-73.5, +176.8]   +6.48 us/statement
+  CLAIM LEVEL: DIRECTION ONLY
+  ```
+  *Reading, at its own claim level:* the delta is **not separated from zero**, so this session says
+  nothing about whether a 64-entry cache costs or saves — it is one point on a curve to be located,
+  and the interval is wider than the effect the policy question is about. That is what the coarse
+  level is for: it cannot be quoted as a decision, by construction.
+  *Staging, frozen before the remaining sessions:* coarse R=5 per size (one session each, ~100 s),
+  then a decision A/B at the knee at R=20. The parameter derivation stands from the earlier entry:
+  R=10 gives a ~62 ms half-width, R=20 ~44 ms — and the coarse sessions above show the per-session
+  width is dominated by a few slow passes, which is exactly what R is meant to average down.
