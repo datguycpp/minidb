@@ -131,6 +131,7 @@ def main(argv=None):
     aggregate_path = 0
     hits_total = misses_total = 0
     gc_gap = {"on": [], "off": []}
+    gc_parse_gap = {"on": [], "off": []}
     cache_legs = {"loop": [0, 0], "parse": [0, 0]}
     import gc as _gc
     for i in range(args.n):
@@ -190,6 +191,7 @@ def main(argv=None):
         # path. These are measured where the statement actually passes, not inferred.
         loop_parse_ms.append(probe["run_parse_ns"] / 1e6)
         gc_gap[gc_state].append(loop_ms[-1] - parse_ms[-1])
+        gc_parse_gap[gc_state].append(loop_parse_ms[-1] - parse_ms[-1])
         exec_wrap_ms.append((probe["run_exec_ns"] - probe["exec_body_ns"]) / 1e6)
         exec_rest2_ms.append((probe["exec_body_ns"] - probe["complex_ns"]) / 1e6)
         aggregate_path += probe["aggregate"]
@@ -274,6 +276,27 @@ def main(argv=None):
         if gc_gap[state]:
             print("     gc=%s rounds=%d  residue median=%.1f  (paired loop-parse, same session)"
                   % (state, len(gc_gap[state]), statistics.median(gc_gap[state])))
+    # parse_gap's discriminator, frozen before the deciding run: with GC disabled, the gap's
+    # per-round median and its seeded-bootstrap 95% interval decide. CI includes zero -> the gap is
+    # allocation pressure (collapsed); CI low bound above zero -> real under-load parser cost; any
+    # other interval (e.g. wholly negative) -> undetermined, no claim either way.
+    if args.gc == "alternate" and gc_parse_gap["off"] and gc_parse_gap["on"]:
+        if len(gc_parse_gap["off"]) != len(gc_parse_gap["on"]):
+            print("     DISCRIMINATOR: undetermined — unequal rounds (%d off vs %d on); rerun with an "
+                  "even N so the comparison carries no count asymmetry"
+                  % (len(gc_parse_gap["off"]), len(gc_parse_gap["on"])))
+        else:
+            off_gap = gc_parse_gap["off"]
+            low_gap, high_gap = bootstrap_ci(off_gap)
+            if low_gap <= 0.0 <= high_gap:
+                verdict = "collapsed — CI includes zero, so the gap reads as allocation pressure"
+            elif low_gap > 0.0:
+                verdict = "real — CI low bound above zero, so the gap survives disabled GC"
+            else:
+                verdict = "undetermined — CI sits wholly below zero, which is not a case this rule covers"
+            print("     parse_gap gc=off median=%.1f CI=[%.1f, %.1f] rounds=%d"
+                  % (statistics.median(off_gap), low_gap, high_gap, len(off_gap)))
+            print("     DISCRIMINATOR: %s" % verdict)
     _gc.enable()
     print("     plan_path served=aggregate for %d of %d statements (simple-path decisions: %d, "
           "cache_hits=%d cache_misses=%d)"

@@ -3405,3 +3405,26 @@ Nothing above the first entry was edited in the move.
   *Status:* the discriminator question — "is the 209.2 parse_gap GC, or real under-load parser cost?" —
   remains **open**. A clean answer needs an in-window `--gc alternate` run whose rounds are not
   ordered against a load trend. No parse work is sized against 1220.0 until then, per the ruling.
+
+- **`parse_gap` resolved: REAL, not allocation pressure — 115.7 ms CI [74.6, 179.8] survives disabled
+  GC.** The criterion was frozen in the instrument before the run (`parse_gap gc=off` median and its
+  seeded bootstrap CI: includes zero → collapsed; low bound above zero → real), and the run was made
+  admissible rather than convenient: **N=12, six rounds per GC state**, loads 2.36–2.71, span 0.35.
+  ```
+  gc=on  rounds=6  residue median=1691.2
+  gc=off rounds=6  residue median=1577.8
+  parse_gap gc=off median=115.7  CI=[74.6, 179.8]
+  DISCRIMINATOR: real — CI low bound above zero, so the gap survives disabled GC
+  parse_cache loop hits=0 misses=120000 | parse leg hits=0 misses=70000
+  ```
+  *What it means:* the in-loop parse is genuinely ~116 ms more expensive than the same texts parsed
+  standalone, and GC is only part of it — the gap fell from 152.2 to 115.7 with collection disabled,
+  so roughly **36 ms is allocation pressure and ~116 ms is real under-load parser cost** (interpreter
+  state, allocator, cache behaviour under an interleaved workload).
+  *Consequence for sizing:* the patch ruling is satisfied — the gap now has a cause, and it is not a
+  subtraction artefact. Parse may be sized against the in-loop **1220.0**, with the 36 ms GC component
+  noted as a separate, addressable slice rather than folded into the parser target.
+  *Also settled here:* the cache assumption is empirical, not argued — **0 hits both legs**, so the
+  thrash reading is measured twice (this seat and @security's independent reproduction).
+  *Equal rounds were required, not incidental:* the previous run's 5-vs-6 split was a second confound
+  on top of the load trend, and the instrument now refuses to give a verdict when counts differ.
