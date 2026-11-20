@@ -3614,3 +3614,25 @@ Nothing above the first entry was edited in the move.
   launched before `24a7b2b` existed; the process imported the tool as of `3928bfd` by construction;
   worktree state at launch not retroactively provable; per-round loads are its only admissibility
   evidence, and they refuse it.
+
+- **The provenance stamp is completed to four facts; every artifact stamped before it is now
+  explicitly weaker than it looks.** `provenance_line` records `revision` · `dirty` · `modules_in_repo`
+  (**all** loaded `minidb.*`, with the namespace-package `__path__` loop ported from
+  `run_frozen_baseline.py`) · `modules=<count>` · `native=<sha256>` or `native=absent`, plus
+  `dirty_sha256` over the tracked diff **and** every untracked `*.py` hashed as (relative path, content)
+  pairs sorted by path, so the stamp reproduces across filesystems and distinguishes two files with
+  identical bytes.
+  *The third door, confirmed present on this box:* `.gitignore` carries `minidb/_native*.so`, a build
+  sits at `minidb/_native.cpython-314-x86_64-linux-gnu.so` (**21976 bytes, sha256
+  `f45df39b0cb8cf53…`**), `git status --porcelain` is empty, and `minidb._native.__file__` resolves to
+  it. A stamp reading `dirty=no modules_in_repo=yes` could therefore name a clean tree while the process
+  loaded an extension no commit names — which is why `native=` is now part of the code identity whenever
+  it is loaded.
+  *Verified on real output:* `revision=86d8a1a dirty=yes modules_in_repo=yes modules=13
+  native=f45df39b0cb8cf53 dirty_sha256=3ea47a9fb79a24a0 untracked_py=0`; two untracked `*.py` probes
+  raised `untracked_py=2` with an identical hash across two consecutive runs (deterministic), and the
+  decision claim still refuses a dirty tree before any timing starts.
+  *Standing caveat for older artifacts:* anything stamped before this completion carries `dirty=no` with
+  **unknown native state** and `modules_in_repo` covering the top-level package only — including the
+  256 decision session's manual binding. That is a property of the artifact, not of the measurement, and
+  it is written here so a later auditor does not read those older stamps as complete.

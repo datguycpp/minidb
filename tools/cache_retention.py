@@ -44,12 +44,19 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def provenance_line(claim):
-    """Three facts, because one is a claim about the checkout and not about the code that ran.
+    """Four facts, because each alone is a claim about something other than the code that ran.
 
-    revision alone says nothing about a dirty tree, and a clean tree says nothing about which copy of
-    minidb the interpreter imported (a stale install on sys.path would stamp the same hash). So: the
-    commit, the worktree state, and the imported package's own location asserted inside the repo --
-    the third ported from run_frozen_baseline.py, which solved it.
+    1. revision -- the commit; says nothing about a dirty tree.
+    2. dirty -- `status --porcelain`, untracked included; says nothing about *which* copy was imported.
+    3. modules_in_repo -- every loaded `minidb.*` located inside the worktree, with the namespace-package
+       `__path__` handling ported from run_frozen_baseline.py, so a stale install or second checkout fails.
+    4. native -- the built extension's sha256 when it is loaded, because `.gitignore` hides it from both
+       the dirty check and the untracked fold: a locally rebuilt `.so` leaves a clean tree that names no
+       commit. `native=absent` is recorded rather than omitted.
+
+    The dirty hash covers the tracked diff plus every untracked `*.py`, sorted by relative path and hashed
+    as (path, content) pairs so the stamp is reproducible across filesystems and cannot confuse two files
+    with identical bytes. A decision claim on a dirty tree is refused before any timing runs.
     """
     import hashlib
     import subprocess
@@ -63,25 +70,46 @@ def provenance_line(claim):
     revision = run(["git", "rev-parse", "--short", "HEAD"]).strip() or "unknown"
     status = run(["git", "status", "--porcelain"]).strip()
     dirty = bool(status)
-    import minidb
-    locations = []
-    for module in (minidb,):
-        if getattr(module, "__file__", None):
-            locations.append(module.__file__)
-        else:
-            locations.extend(getattr(module, "__path__", []))
-    imported_inside = all(os.path.abspath(path).startswith(REPO_ROOT) for path in locations)
-    line = "revision=%s dirty=%s modules_in_repo=%s" % (revision, "yes" if dirty else "no",
-                                                        "yes" if imported_inside else "no")
+
+    loaded = [name for name in sys.modules if name == "minidb" or name.startswith("minidb.")]
+    locations, outside = [], []
+    for name in sorted(loaded):
+        module = sys.modules[name]
+        paths = ([module.__file__] if getattr(module, "__file__", None)
+                 else list(getattr(module, "__path__", [])))
+        for path in paths:
+            locations.append(path)
+            if not os.path.abspath(path).startswith(REPO_ROOT):
+                outside.append("%s -> %s" % (name, path))
+    imported_inside = not outside and bool(locations)
+
+    native = "absent"
+    native_path = getattr(sys.modules.get("minidb._native"), "__file__", None)
+    if native_path and os.path.exists(native_path):
+        with open(native_path, "rb") as handle:
+            native = hashlib.sha256(handle.read()).hexdigest()[:16]
+
+    line = ("revision=%s dirty=%s modules_in_repo=%s modules=%d native=%s"
+            % (revision, "yes" if dirty else "no", "yes" if imported_inside else "no",
+               len(loaded), native))
     if dirty:
-        diff = run(["git", "diff"]).encode()
-        line += " diff_sha256=%s" % hashlib.sha256(diff).hexdigest()[:16]
+        digest = hashlib.sha256(run(["git", "diff"]).encode())
+        untracked = sorted(path for path in run(["git", "ls-files", "--others",
+                                                 "--exclude-standard"]).split("\n")
+                           if path.endswith(".py"))
+        for path in untracked:
+            digest.update(path.encode() + b"\0")
+            try:
+                with open(os.path.join(REPO_ROOT, path), "rb") as handle:
+                    digest.update(handle.read())
+            except OSError:
+                digest.update(b"<unreadable>")
+        line += " dirty_sha256=%s untracked_py=%d" % (digest.hexdigest()[:16], len(untracked))
         if claim == "decision":
-            raise SystemExit("cache_retention: refusing a decision claim on a dirty tree — %s"
-                             % line)
+            raise SystemExit("cache_retention: refusing a decision claim on a dirty tree -- %s" % line)
     if not imported_inside:
-        raise SystemExit("cache_retention: mixed subject — minidb was imported from outside the "
-                         "repo (%s)" % locations)
+        raise SystemExit("cache_retention: mixed subject -- minidb loaded from outside the worktree: "
+                         "%s" % (outside or locations))
     return line
 
 
