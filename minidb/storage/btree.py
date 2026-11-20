@@ -157,8 +157,14 @@ class BTree:
         try:
             total = 0
             stack = [page_id]
+            # A full walk touches every page and revisits none, so one sequential read beats one
+            # syscall per page. `snapshot()` keeps the same bytes and the same CRC check and
+            # returns None past the size limit, where the per-page path is used unchanged.
+            snapshot = getattr(self.pager, "snapshot", None)
+            view = snapshot() if snapshot is not None else None
+            reader = view.read if view is not None else self.pager.read
             while stack:
-                data = self.pager.read(stack.pop())
+                data = reader(stack.pop())
                 kind = data[0]
                 count = struct.unpack_from("<H", data, 1)[0]
                 if kind == LEAF:

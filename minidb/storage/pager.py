@@ -91,6 +91,34 @@ def read_repl_log(path):
 
 
 CACHE_PAGES = int(os.environ.get("MINIDB_CACHE_PAGES", "512"))
+SNAPSHOT_LIMIT = 64 * 1024 * 1024   # a scan snapshot is one read of the file; past this, page reads
+
+
+class _Snapshot:
+    """Page reader over one in-memory copy of the file: same bytes, same checks, fewer syscalls."""
+
+    __slots__ = ("pager", "blob")
+
+    def __init__(self, pager, blob):
+        self.pager = pager
+        self.blob = blob
+
+    def read(self, page_id):
+        pager = self.pager
+        if page_id in pager.dirty:
+            return pager.read(page_id)
+        if page_id < 0 or page_id >= pager.page_count:
+            raise StorageError(f"page {page_id} out of range")
+        start = page_id * PAGE_SIZE
+        data = self.blob[start:start + PAGE_SIZE]
+        if len(data) != PAGE_SIZE:
+            raise StorageError(f"page {page_id} truncated")
+        if pager.version >= 2:
+            payload, stored = data[:USABLE], struct.unpack_from("<I", data, USABLE)[0]
+            if zlib.crc32(payload) != stored:
+                raise StorageError(f"page {page_id}: checksum mismatch")
+            data = payload + b"\x00" * CHECKSUM_SIZE
+        return data
 
 
 class Pager:
@@ -217,6 +245,22 @@ class Pager:
     def _read_page_bytes(self, page_id):
         self.fh.seek(page_id * PAGE_SIZE)
         return self.fh.read(PAGE_SIZE)
+
+    def snapshot(self):
+        """One sequential read of the file, for read-only walks that touch every page.
+
+        Returns a reader with the same contract as `read()` — same bytes, same per-page CRC check,
+        same errors — or **None** when the file is larger than `SNAPSHOT_LIMIT`, where holding a
+        second copy of the database costs more than the syscalls save. Pages pending in `dirty`
+        are deferred to `read()`, because their uncommitted bytes are not on disk; the snapshot is
+        therefore only ever a faster path to the same bytes, never a weaker check.
+        """
+        size = self.page_count * PAGE_SIZE
+        if size > SNAPSHOT_LIMIT:
+            return None
+        self.fh.seek(0)
+        blob = self.fh.read(size)
+        return _Snapshot(self, blob)
 
     def read(self, page_id):
         if page_id in self.dirty:

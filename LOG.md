@@ -2931,3 +2931,17 @@ Nothing above the first entry was edited in the move.
   *Verified:* both real artifacts reproduce the boundary (admit 0, gate 2 with the schema message);
   four new fixtures pin short and absent traces at 2, the vintage in the output, and the schema in
   the seal. Suite **602 OK**; tools, tests and LOG only.
+
+- **Gate-2 lever: a COUNT walk reads the file once instead of once per page.** Profiling the W9
+  cycle (`Database(path)` + `SELECT COUNT(*)` on the frozen 100k fixture) put **51.5 of 55.5 ms
+  inside `Pager.read`** — 1,973 calls of seek+read+CRC per query, ~26 µs each; open was 0.56 ms and
+  close 0.35 ms, so the walk was the whole cost. `BTree.count_rows` now asks the pager for a
+  **snapshot**: one sequential read, each page sliced from the buffer with the **same per-page CRC
+  check**. Dirty pages defer to `read()` — their bytes are not on disk yet — and `snapshot()` returns
+  **None** past `SNAPSHOT_LIMIT` (64 MiB), where the per-page path runs unchanged.
+  *Equivalence by construction:* same bytes, same checks, same errors; only syscall batching changes.
+  Pinned by three tests — uncommitted pages still counted inside a transaction, a forced fallback
+  past the limit, and a corrupted page still raising `checksum mismatch`.
+  *Probe, explicitly not gate evidence (load ≈1.9, one copy, N=9):* cycle median **55.5 → 16.4 ms**
+  on a copy of the frozen fixture. Gate 2's price will come from the harness at N≥11 in-window, not
+  from this line. Suite **605 OK**; corpus **293/293**; `make verify` **5/5**.

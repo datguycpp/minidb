@@ -177,6 +177,55 @@ class TestDiskDatabase(TempDb):
         self.assertEqual(db.run("SELECT COUNT(*) FROM t")[1], [(100,)])
         db.close()
 
+    def test_count_rows_sees_uncommitted_pages_through_the_snapshot(self):
+        # The snapshot is one read of the file, so a page pending in `dirty` is not in it; the
+        # reader must defer to `read()` for those or a COUNT inside a transaction would undercount.
+        db = Database(self.path)
+        db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+        for i in range(1, 11):
+            db.run(f"INSERT INTO t VALUES ({i}, 'v{i}')")
+        db.run("BEGIN")
+        for i in range(11, 16):
+            db.run(f"INSERT INTO t VALUES ({i}, 'v{i}')")
+        self.assertEqual(db.run("SELECT COUNT(*) FROM t")[1], [(15,)])
+        db.run("ROLLBACK")
+        self.assertEqual(db.run("SELECT COUNT(*) FROM t")[1], [(10,)])
+        db.close()
+
+    def test_count_rows_falls_back_when_the_file_is_past_the_snapshot_limit(self):
+        from minidb.storage import pager as pager_mod
+        db = Database(self.path)
+        db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+        for i in range(1, 201):
+            db.run(f"INSERT INTO t VALUES ({i}, 'v{i}')")
+        self.assertEqual(db.run("SELECT COUNT(*) FROM t")[1], [(200,)])
+        original = pager_mod.SNAPSHOT_LIMIT
+        pager_mod.SNAPSHOT_LIMIT = 1
+        try:
+            self.assertEqual(db.run("SELECT COUNT(*) FROM t")[1], [(200,)])
+        finally:
+            pager_mod.SNAPSHOT_LIMIT = original
+        db.close()
+
+    def test_snapshot_still_verifies_every_page_checksum(self):
+        db = Database(self.path)
+        db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+        for i in range(1, 201):
+            db.run(f"INSERT INTO t VALUES ({i}, '{'x' * 100}')")
+        db.close()
+        size = os.path.getsize(self.path)
+        last_page = size // PAGE_SIZE - 1
+        with open(self.path, "r+b") as handle:
+            handle.seek(last_page * PAGE_SIZE + PAGE_SIZE - 1)
+            byte = handle.read(1)
+            handle.seek(last_page * PAGE_SIZE + PAGE_SIZE - 1)
+            handle.write(bytes([byte[0] ^ 0xFF]))
+        again = Database(self.path)
+        with self.assertRaises(StorageError) as ctx:
+            again.run("SELECT COUNT(*) FROM t")
+        self.assertIn("checksum mismatch", str(ctx.exception))
+        again.close()
+
     def test_schema_survives_reopen_including_constraints(self):
         db = Database(self.path)
         db.run("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, n INTEGER CHECK (n > 0))")
