@@ -40,6 +40,51 @@ REPEAT_SET = 128   # the corpus's own recurring set: 1,759 statements, 1,171 dis
                    # occur more than once (median 2). A synthetic locality should replay that set.
 
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def provenance_line(claim):
+    """Three facts, because one is a claim about the checkout and not about the code that ran.
+
+    revision alone says nothing about a dirty tree, and a clean tree says nothing about which copy of
+    minidb the interpreter imported (a stale install on sys.path would stamp the same hash). So: the
+    commit, the worktree state, and the imported package's own location asserted inside the repo --
+    the third ported from run_frozen_baseline.py, which solved it.
+    """
+    import hashlib
+    import subprocess
+
+    def run(args):
+        try:
+            return subprocess.run(args, capture_output=True, text=True, timeout=10).stdout
+        except Exception:
+            return ""
+
+    revision = run(["git", "rev-parse", "--short", "HEAD"]).strip() or "unknown"
+    status = run(["git", "status", "--porcelain"]).strip()
+    dirty = bool(status)
+    import minidb
+    locations = []
+    for module in (minidb,):
+        if getattr(module, "__file__", None):
+            locations.append(module.__file__)
+        else:
+            locations.extend(getattr(module, "__path__", []))
+    imported_inside = all(os.path.abspath(path).startswith(REPO_ROOT) for path in locations)
+    line = "revision=%s dirty=%s modules_in_repo=%s" % (revision, "yes" if dirty else "no",
+                                                        "yes" if imported_inside else "no")
+    if dirty:
+        diff = run(["git", "diff"]).encode()
+        line += " diff_sha256=%s" % hashlib.sha256(diff).hexdigest()[:16]
+        if claim == "decision":
+            raise SystemExit("cache_retention: refusing a decision claim on a dirty tree — %s"
+                             % line)
+    if not imported_inside:
+        raise SystemExit("cache_retention: mixed subject — minidb was imported from outside the "
+                         "repo (%s)" % locations)
+    return line
+
+
 def texts(shape="distinct", repeat_set=REPEAT_SET):
     """The two shapes the policy trades between.
 
@@ -109,6 +154,10 @@ def main(argv=None):
         print("cache_retention: N=%d is below the floor of %d — measure only, never cite"
               % (n, DEFAULT_N), file=sys.stderr)
 
+    # Provenance is computed BEFORE the timed work: a refusal after a twenty-minute session is not a
+    # refusal, and a decision claim on a dirty tree must die at the door.
+    prov = provenance_line(claim)
+
     distinct_payload = texts("distinct")
     repeat_payload = texts("repeat")
     name, fn, clear = limb_for(size)
@@ -136,13 +185,7 @@ def main(argv=None):
                 samples[shape][limb_name].append(time_pass(limb_fn, limb_clear, payload, repeats))
             deltas[shape].append(samples[shape][name][-1] - samples[shape]["none"][-1])
 
-    import subprocess
-    try:
-        revision = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
-                                  text=True, timeout=10).stdout.strip() or "unknown"
-    except Exception:
-        revision = "unknown"     # provenance in the artifact: a result carries the code that made it
-    print("cache_retention  revision=%s  size=%s" % (revision, size), end="")
+    print("cache_retention  %s  size=%s" % (prov, size), end="")
     print("  texts=%d  repeat_set=%d  N=%d  R=%d  claim=%s  seed=%d  "
           "resamples=%d"
           % (TEXT_COUNT, REPEAT_SET, n, repeats, claim, BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES))
