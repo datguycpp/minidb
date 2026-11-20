@@ -3483,3 +3483,27 @@ Nothing above the first entry was edited in the move.
   (toward the unbounded case), which the same numbers show.
   *Method note:* all three series measure `parse` on the same texts; the only difference is what the
   cache retains, so this is a retention experiment, not a parser experiment.
+
+- **The retention claim does not survive its own N: at eleven passes every difference overlaps, and
+  the earlier "+45.2 / three times worse" is withdrawn to unproven.** `tools/cache_retention.py` runs
+  the three limbs (none / bounded 1,024 / unbounded) with alternating limb order, a per-pass cache
+  clear and the fleet's seeded bootstrap.
+  *First N=11 run (loads 2.94–3.17 — **out of the fleet's window**, so a diagnostic, not a certified
+  measurement):*
+  ```
+  none      median 1123.2  CI [ 925.9, 1189.1]
+  bounded   median 1203.9  CI [1009.7, 1349.6]
+  unbounded median 1049.9  CI [ 936.1, 1222.3]
+  bounded - none = +80.6 OVERLAP | unbounded - none = -73.3 OVERLAP | bounded - unbounded = +153.9 OVERLAP
+  ```
+  *What this settles:* at N=3 the limbs overlapped exactly where the conclusion needed separation
+  (@qa's read), and at N=11 the limbs still overlap — with one raw `none` pass at **1736.5 ms** against
+  a median of 1123.2, the parse-only series is too noisy in this load band to separate differences of
+  this size at all. **The retention conclusion is unproven, not merely indicative**: the direction may
+  be right, but this instrument at this load cannot carry it, and the earlier "retention dominates,
+  eviction is cheap" sentence is retired rather than qualified.
+  *What survives, measured independently:* lookup cannot be the 69.1 — two seats measured a
+  1,024-entry LRU over 10k distinct strings at 0.32–0.46 µs/call (≈3–5 ms per 10k). That kills the
+  wrapper attribution without establishing any replacement.
+  *Next step for the policy question:* the same tool in a quiet window, larger N, and — given the
+  observed variance — pass-level repetitions inside each sample rather than more passes alone.
