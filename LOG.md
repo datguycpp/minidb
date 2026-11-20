@@ -3018,3 +3018,28 @@ Nothing above the first entry was edited in the move.
   **no verdict issued** — the drift rule firing on its own subject the first time it was asked.
   *Scope:* `BLOCK-engine` sits **beside** goal 6, never inside it. Goal 6's tally is unchanged —
   gate 2 **PASS**, gates 1 and 3 **MISS** on their frozen subjects.
+
+- **Resolution beside the `BLOCK-engine` freeze: the CI clause was underdetermined at freeze time,
+  and it is settled at first use — prospectively, without reclassifying the PASS.** QA found the
+  instrument quoting a **median** point estimate with a **t-interval centred on the mean** (its
+  midpoint is 195.00, not 200.09); the freeze said "95% CI excluding zero" without naming the
+  statistic the interval belongs to. The PASS holds on either estimator — median share **51.4%**,
+  mean share **50.1%**, both far above the 25% bar — so the fix lands in the instrument and the
+  record, not in the verdict.
+  *Resolved rule (prospective, effective from this commit):* the interval is a **seeded percentile
+  bootstrap of the median**, seed **20261104**, **20,000** resamples, 2.5th/97.5th percentiles —
+  every constant shown, and deterministic, so any seat reproduces it from the printed raws. The
+  chain is now median → median share → CI of that median; the t-interval answered a different
+  question and is retired.
+  *Pairing rule, also frozen here:* **positional by round** — sample *i* of the native list pairs
+  with sample *i* of the python list, in the order printed. A re-derivation that pairs differently
+  gets a different median and is not a re-derivation.
+  *Effect on the recorded result:* from the published samples, the bootstrap interval is
+  **[155.06, 217.20]** — clears zero by 155 ms and is **wider on the low side** than the retired
+  t-interval [163.48, 226.52], so the corrected rule is the more conservative one. The PASS entry
+  above keeps its quoted t-interval as what the instrument emitted at the time; this entry
+  supersedes it as the interval of record. Median difference recomputes as **200.10** (emitted
+  200.09, agreement at print precision); mean 195.00 is now printed as context only.
+  *Pinned by test:* `test_the_published_interval_reproduces_from_the_published_raws` fixes seed,
+  resample count and percentile convention together against the recorded numbers, and a second test
+  pins determinism.

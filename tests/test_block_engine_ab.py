@@ -39,5 +39,25 @@ class BlockEngineGuardTest(unittest.TestCase):
         self.assertEqual(block_engine_ab.main(["--fixture", copy, "--n", "11"]), 2)
 
 
+    def test_bootstrap_ci_is_deterministic_and_brackets_the_median(self):
+        values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0]
+        low, high = block_engine_ab.bootstrap_ci(values)
+        self.assertEqual((low, high), block_engine_ab.bootstrap_ci(values))
+        self.assertLessEqual(low, 6.0)
+        self.assertGreaterEqual(high, 6.0)
+
+    def test_the_published_interval_reproduces_from_the_published_raws(self):
+        # Pins seed, resample count and percentile convention together: these are the recorded
+        # native/python samples from the BLOCK-engine PASS, and the interval they give.
+        native = [259.97, 170.23, 189.31, 192.12, 198.76, 216.69, 186.91, 181.82, 179.06,
+                  202.68, 259.62]
+        python = [372.32, 459.30, 389.41, 393.25, 435.40, 371.75, 374.85, 368.98, 388.56,
+                  419.88, 408.47]
+        diffs = [p - n for n, p in zip(native, python)]
+        low, high = block_engine_ab.bootstrap_ci(diffs)
+        self.assertAlmostEqual(low, 155.06, places=2)
+        self.assertAlmostEqual(high, 217.20, places=2)
+
+
 if __name__ == "__main__":
     unittest.main()

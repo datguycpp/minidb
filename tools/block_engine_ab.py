@@ -10,10 +10,12 @@ report the same decoder — a stale `.so` surviving a clean would otherwise manu
 difference instead of a red run.
 
 Estimator (frozen): interleaved paired A/B, N=11 per leg, alternating which leg goes first so drift
-cancels; per-sample load readings; medians and bands reported. **Pass** if the paired median
-difference is >= 25% of the python-leg median and the 95% CI of the paired differences excludes
-zero. The 25% is derived, not fitted: C decode measured 5.04x on decode-only and decode is ~57% of
-the block (<=45% ceiling), so 25% is ~55% of the ceiling.
+cancels; per-sample load readings; medians and bands reported. Pairing is **positional by round**:
+sample i of the native list pairs with sample i of the python list. **Pass** if the paired median
+difference is >= 25% of the python-leg median and the 95% CI of that same statistic — a seeded
+percentile bootstrap of the median, seed 20261104, 20,000 resamples — excludes zero. The 25% is
+derived, not fitted: C decode measured 5.04x on decode-only and decode is ~57% of the block
+(<=45% ceiling), so 25% is ~55% of the ceiling.
 
 Exit codes: 0 pass, 2 unusable input, 3 window/drift not satisfied, 4 bar not met.
 """
@@ -21,8 +23,8 @@ Exit codes: 0 pass, 2 unusable input, 3 window/drift not satisfied, 4 bar not me
 import argparse
 import hashlib
 import json
-import math
 import os
+import random
 import statistics
 import sys
 import time
@@ -35,7 +37,8 @@ from minidb.storage.pager import Pager  # noqa: E402
 
 PINNED = "f65d581dbef12f634ded07c1e5933fa6558e641dab435718ad29dfbc65d0db82"
 BAR = 0.25                 # frozen: >=25% of the python-leg median
-T95_DF10 = 2.228           # two-sided 95% t for n=11 paired samples
+BOOTSTRAP_SEED = 20261104  # fixed so the interval is reproducible from the printed raws
+BOOTSTRAP_RESAMPLES = 20000
 WINDOW = (1.0, 3.0)
 DRIFT_SPAN = 1.0
 
@@ -58,6 +61,26 @@ def sha256(path):
 def band(values):
     median = statistics.median(values)
     return 0.0 if median == 0 else (max(values) - min(values)) / median * 100.0
+
+
+def bootstrap_ci(values, seed=BOOTSTRAP_SEED, resamples=BOOTSTRAP_RESAMPLES):
+    """Percentile bootstrap of the MEDIAN, so the interval belongs to the quoted statistic.
+
+    The freeze pairs a median point estimate with a CI; a t-interval centres on the mean and would
+    answer a different question (the seam QA found at the rule's first use). Constants are fixed and
+    printed: seed 20261104, 20,000 resamples, 2.5th/97.5th percentiles. Deterministic for a given
+    input, so any seat can reproduce the interval from the printed raw samples.
+    """
+    rng = random.Random(seed)
+    n = len(values)
+    medians = []
+    for _ in range(resamples):
+        sample = [values[rng.randrange(n)] for _ in range(n)]
+        medians.append(statistics.median(sample))
+    medians.sort()
+    low = medians[int(0.025 * resamples)]
+    high = medians[int(0.975 * resamples) - 1]
+    return low, high
 
 
 def table_root(path, name="t"):
@@ -182,9 +205,7 @@ def main(argv=None):
     median_diff = statistics.median(diffs)
     share = median_diff / median_python if median_python else 0.0
     mean_diff = statistics.mean(diffs)
-    sd = statistics.stdev(diffs)
-    half = T95_DF10 * sd / math.sqrt(len(diffs))
-    low, high = mean_diff - half, mean_diff + half
+    low, high = bootstrap_ci(diffs)
 
     print("BLOCK-engine  rows=100000  N=%d  fixture_sha256=%s" % (args.n, digest))
     print("loads=[ %s ]  window=[%.1f, %.1f]  span=%.2f"
@@ -194,8 +215,10 @@ def main(argv=None):
           % (median_native, " ".join("%.2f" % x for x in native_ms), band(native_ms)))
     print("     python_ms  median=%.2f  raw=[ %s ]  band=%.1f%%  decoder=python"
           % (median_python, " ".join("%.2f" % x for x in python_ms), band(python_ms)))
-    print("     paired_diff median=%.2f ms (%.1f%% of python median)  mean=%.2f  "
-          "95%% CI=[%.2f, %.2f]" % (median_diff, share * 100, mean_diff, low, high))
+    print("     paired_diff median=%.2f ms (%.1f%% of python median)  mean=%.2f (context)"
+          % (median_diff, share * 100, mean_diff))
+    print("     95%% CI of the median (bootstrap, seed=%d, %d resamples)=[%.2f, %.2f]"
+          % (BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES, low, high))
 
     outside = [x for x in loads if not (WINDOW[0] <= x <= WINDOW[1])]
     if outside or (max(loads) - min(loads)) > DRIFT_SPAN:
