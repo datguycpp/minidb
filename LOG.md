@@ -3121,3 +3121,21 @@ Nothing above the first entry was edited in the move.
   3703.9 3740.3 3820.6 3894.3`, spread 7.5%. That is **−4.3%** against the 3868.7 re-baseline; the
   gate needs −50%. **Parse alone is 1533.8 ms = 79.3% of the new ceiling**, so the parse path remains
   the lever and gate 3 stays open — a MISS on its own re-derived subject, recorded as one.
+
+- **The ceiling's source number is reproducible from committed artifacts: the frozen-revision runner
+  is committed, and a second in-window run lands 0.32% from the recorded baseline.**
+  `tests/skeptic/run_frozen_baseline.py` delivers the committed fixture to `/tmp/g6-tiny.db` (the only
+  path the frozen script reads) after checking its pinned tuple, imports the worktree package
+  **before** the frozen script runs so the script's hardcoded `sys.path` cannot pull HEAD in, asserts
+  every loaded `minidb` module lives under the worktree — `__file__` where it exists, `__path__` for
+  the namespace package `minidb.storage` — and prints revision, fixture identity and engine path into
+  the artifact.
+  Run: revision `d89f6890665…`, engine `/tmp/minidb-d89f689/minidb/engine.py`, load **2.06** (the
+  recorded baseline's 2.33, |Δ| **0.27**), **LOOP median 3856.2 ms** raw `3838.7 3839.9 3840.6
+  3856.2 3878.9 3937.1 3971.1` — **0.32%** from 3868.7, inside both noise and the load match.
+  *The ceiling stays 1934.4:* it was derived from the recorded baseline before the capture, and this
+  is a reproduction check, not a re-baseline. **The "documented, produced outside the repo" caveat is
+  retired** — the number regenerates from the tree.
+  *One inadmissible attempt is recorded beside it:* at load **3.36** (rising to 4.06) the run read
+  5237.3 ms and was rejected by the same |Δloadavg| ≤ 1.0 match that binds every other capture; a
+  confirmation run is not exempt from the calling condition.
