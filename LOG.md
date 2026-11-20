@@ -3308,3 +3308,23 @@ Nothing above the first entry was edited in the move.
   claim that survives both runs is the one that matters for planning: the residue sits close to the
   ceiling, so parse and `rest` are both needed.
   Conformance **293/293**, `make verify` 5/5, suite **631 OK**.
+
+- **Gate-3 capture at `9603ec1`: MISS at 2823.5 ms against 1934.4** — taken on the quiet dip the room
+  was waiting for, with the comparator verified rather than typed.
+  ```
+  comparator=gate3:d89f689+:2.33 verified=yes baseline_load=2.33 reading=2.77 delta=0.44 match=yes
+  fixture tiny: 12288 64a9d541…  loads before/after: 2.77 / 2.91
+  LOOP n=7 ms: 2573.2 2706.0 2713.2 2823.5 2914.1 3070.2 3548.3  median=2823.5  spread=34.5%
+  ```
+  *Verdict:* **MISS**, needing **−31.5%**. Against the previous capture (3080.0) it is **−8.3%**; against
+  the 3868.7 re-baseline, −27.0%.
+  *Caveat stated with the number:* the spread is **34.5%** — the widest of any admissible gate capture
+  here — and the load trended upward across the run (2.77 → 2.91). Admissible under the frozen
+  conditions (|Δ| 0.44, sample inside the window), but a wide-spread reading is a weaker point
+  estimate than 3080.0's, and it should be read as the tree's gate number with that width attached,
+  not as a tight measurement.
+  *The split's 2688.5 and this capture's 2823.5 are different instruments, not a contradiction:*
+  `gate3_split` is a paired N=11 component rig, `baseline_g6_quiet` is the frozen N=7 gate instrument.
+  Both miss; the gap between them is the paired-vs-serial sampling difference (the paired rig
+  alternates PARSEONLY and LOOP in one session). Neither number replaces the other; the gate number
+  is the N=7 one.
