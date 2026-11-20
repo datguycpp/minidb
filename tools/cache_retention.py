@@ -190,7 +190,8 @@ def main(argv=None):
           "resamples=%d"
           % (TEXT_COUNT, REPEAT_SET, n, repeats, claim, BOOTSTRAP_SEED, BOOTSTRAP_RESAMPLES))
     print("loads=[ %s ]" % " ".join("%.2f" % x for x in loads))
-    if any(not (1.0 <= x <= 3.0) for x in loads):
+    admissible = all(1.0 <= x <= 3.0 for x in loads)
+    if not admissible:
         print("  SESSION NOT ADMISSIBLE — a load reading left [1.0, 3.0]; the columns below are "
               "direction-only and cannot be certified")
     for shape in ("distinct", "repeat"):
@@ -224,7 +225,12 @@ def main(argv=None):
 
     separated = any(bootstrap_ci(deltas[shape])[0] > 0.0 or bootstrap_ci(deltas[shape])[1] < 0.0
                     for shape in ("distinct", "repeat"))
-    if claim == "coarse":
+    if not admissible:
+        # Admissibility gates the claim, not just the wording: an inadmissible session buys nothing,
+        # and that includes a separated interval -- the exit-3 precedent, applied at the top level.
+        print("  CLAIM LEVEL: NOT ADMISSIBLE — an interval computed over a session that left the "
+              "window supports no claim at any level, separation included")
+    elif claim == "coarse":
         print("  CLAIM LEVEL: DIRECTION ONLY — no separation claim at this power; the delta locates "
               "a knee to test, it does not decide a policy")
     elif separated:

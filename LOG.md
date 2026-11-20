@@ -3593,3 +3593,24 @@ Nothing above the first entry was edited in the move.
   inside a ±45 ms measurement. The frozen rule is not amended here; the finding is that **the
   constraint needs the same R=20 power the benefit was going to get**, and no eligibility claim is
   quoted from this session.
+
+- **The 256 decision session (R=20, N=11) ran on a hostile box, returned UNDETERMINED, and exposed a
+  claim-level hole: it printed `SEPARATED` on an inadmissible session.** Fixed here — admissibility now
+  gates the claim level, not only the wording.
+  ```
+  revision=3928bfd (by construction; stamp did not yet exist)  N=11  R=20  claim=decision  seed=20261104  settle 2.60 cap 120s
+  loads=[ 2.60 2.53 2.46 2.60 2.58 5.51 2.58 2.46 2.60 2.56 3.33 ]   -> NOT ADMISSIBLE (5.51, 3.33)
+  distinct  none 1120.1 | 256 1171.7 | delta  +46.3  CI [ -52.0, +143.2]  -> UNDETERMINED
+  repeat    none 1104.3 | 256    1.6 | delta -1102.8  CI [-1227.2, -1016.4]
+  ```
+  *The finding that matters is negative and it is about power, not about caches:* quadrupling R from 5
+  to 20 **widened** the distinct interval (+45 -> +97 half-width) because the box was worse for longer —
+  R averages within-pass noise, it cannot average a load episode, and one 5.51 reading sits inside this
+  session. Resolution comes from a quiet window, not from repetitions on a busy one.
+  *Outcome under the frozen rule:* **UNDETERMINED**, so **no policy ships** and the front stays parked;
+  no fallback to the point estimate, per @research's tie-break. The repeat column's ~1.1 s benefit is
+  corroborated but remains uncertified, because its session was inadmissible too.
+  *Binding for this session, stated only as knowable:* tree clean at `3928bfd` at last verification;
+  launched before `24a7b2b` existed; the process imported the tool as of `3928bfd` by construction;
+  worktree state at launch not retroactively provable; per-round loads are its only admissibility
+  evidence, and they refuse it.
