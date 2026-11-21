@@ -3649,3 +3649,17 @@ Nothing above the first entry was edited in the move.
   waits on the box, so a launch-only stamp describes an instant while the number describes an interval.
   Same shape as the load trace: the box is judged by what it recorded throughout, not by its first
   reading.
+
+- **The quiet window was not usable, and the reason is the instrument's own footprint.** `gate3_split`
+  was started at loadavg **1.57** (the quietest reading of the stretch) and its own trace left the
+  window inside the session: `loads=[2.80 2.81 3.31 3.20 3.35 3.48 3.44 3.44 3.33 3.22 3.44] span=0.68`
+  → `INCONCLUSIVE: window/drift not satisfied`, **exit code 3** — the refusal is machine-detectable, not just a printed line. The tool refused its own capture, which is correct:
+  **no figure from this run is quoted anywhere**, and the medians it printed are not a baseline.
+  *Why it matters beyond this run:* the box's idle level was ~1.6 and the run's own CPU (plus the
+  gateway's two busy processes) carried the 1-minute average past 3.0 within the first round and held
+  it there. A window frozen for a quieter box can be unsatisfiable for a CPU-bound instrument on a
+  busier one — the same "the setup raises the average it is judged by" shape as the fixture build, now
+  measuring the harness itself. Earlier `gate3_split` sessions were admissible at 2.52–2.85 because the
+  box was idle then; nothing about the instrument changed.
+  *Standing numbers are therefore unchanged:* parse in-loop **1220.0**, gap **177.6** CI [144.1, 203.5],
+  GC ~23, gate 3 **2549.2** vs 1934.4 (MISS, needs −24.1%). This run adds no evidence to any of them.
