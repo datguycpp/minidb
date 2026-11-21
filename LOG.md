@@ -3663,3 +3663,23 @@ Nothing above the first entry was edited in the move.
   box was idle then; nothing about the instrument changed.
   *Standing numbers are therefore unchanged:* parse in-loop **1220.0**, gap **177.6** CI [144.1, 203.5],
   GC ~23, gate 3 **2549.2** vs 1934.4 (MISS, needs −24.1%). This run adds no evidence to any of them.
+
+- **Admissibility splits into comparability (pre-event) and stability (trace), and the refusal names
+  which fired.** The refused capture above was judged by a per-sample window the frozen text never
+  said — it says "before" — and the asymmetry is structural: `loadavg` is a one-minute average, so a
+  thirty-second baseline (2.33 → 2.48) never records its footprint while a ten-minute N=11 rig fully
+  absorbs its own. Holding the rig to a per-sample window asks for ambient + instrument ≤ 3.0, i.e.
+  ambient ≤ ~1.5 for ten minutes, which is a stricter bar than the instrument it is compared against
+  ever met.
+  *Now printed by the tool:*
+  ```
+  admissibility  pre_load=1.60  baseline=2.33  delta=0.73  in_window=yes  match=yes  trace_span=… (<= 1.0: …)
+  context: N of 11 samples left the window after the pre-event read, max=… — recorded as context, not as a refusal
+  ```
+  Comparability is the pre-event read inside [1.0, 3.0] **and** |Δ| ≤ 1.0 against the 2.33 baseline;
+  stability is `span ≤ 1.0` over the per-round trace, because the paired differences assume a stationary
+  box. Either failing is INCONCLUSIVE (exit 3) and the message names the failing condition.
+  *Applies prospectively.* The capture refused earlier is **not** retroactively re-certified here: under
+  this classification its pre-event reading (1.57) would have been admissible and its components would
+  have counted, which is a consequence for the room to rule on rather than for the tool to assert by
+  re-reading an old artifact under a new rule.

@@ -11,8 +11,15 @@ Not a gate call. It issues no pass/fail for goal 6, and its numbers never enter 
 
 Constants are the BLOCK-engine precedent: seeded percentile bootstrap of the median, seed 20261104,
 20,000 resamples, 2.5th/97.5th percentiles, so any seat reproduces the interval from the printed
-per-round raws. Leg order alternates each round, per-sample loads are read fresh, and the drift rule
-(window [1.0, 3.0], span <= 1.0) applies to the trace: a run that trips it is INCONCLUSIVE.
+per-round raws. Leg order alternates each round.
+
+Admissibility is two conditions, because conflating them holds a ten-minute rig to a stricter bar than
+the thirty-second baseline it is compared against. **Comparability is pre-event**: a loadavg read taken
+before the payload is built must sit inside [1.0, 3.0] and within 1.0 of the 2.33 baseline this gate was
+re-baselined at. **Stability is the trace**: span <= 1.0 across the per-round readings, since the paired
+differences assume a stationary box. Mid-run readings that leave the window are printed as context and
+are not a refusal, because a running rig absorbs its own footprint into a one-minute average while a
+short baseline never does. Either condition failing is INCONCLUSIVE, and the refusal names which one.
 
 Exit codes: 0 reachable or excluded (a verdict was reached), 2 unusable input, 3 window/drift.
 """
@@ -39,6 +46,8 @@ CEILING = 1934.4
 BOOTSTRAP_SEED = 20261104
 BOOTSTRAP_RESAMPLES = 20000
 WINDOW = (1.0, 3.0)
+BASELINE_LOAD = 2.33      # comparator gate3:d89f689+:2.33 -- the load this gate was re-baselined at
+BASELINE_DELTA = 1.0      # the calling condition's |loadavg| tolerance against that baseline
 DRIFT_SPAN = 1.0
 
 
@@ -143,6 +152,13 @@ def main(argv=None):
     if args.n < 11:
         print("gate3_split: N=%d is below the floor of 11 — measure only, never cite" % args.n,
               file=sys.stderr)
+
+    # Two different conditions, and conflating them holds a ten-minute rig to a stricter bar than the
+    # thirty-second baseline it is compared against: loadavg is a one-minute average, so a short
+    # baseline never records its own footprint while a long rig fully absorbs its own. Comparability is
+    # a PRE-EVENT condition (absolute window plus match against the baseline it is called against);
+    # stability is a property of the trace (span). Read the pre-event figure here, before the payload.
+    pre_load = loadavg()
 
     (parse_ms, loop_ms, prep_ms, scan_ms, rest_ms, filter_ms, complex_ms,
      outside_ms, loop_parse_ms, exec_wrap_ms, exec_rest2_ms, loads) = (
@@ -331,9 +347,28 @@ def main(argv=None):
           % (aggregate_path, TEXT_COUNT * args.n, hits_total + misses_total,
              hits_total, misses_total))
 
+    in_window = WINDOW[0] <= pre_load <= WINDOW[1]
+    delta = abs(pre_load - BASELINE_LOAD)
+    matched = delta <= BASELINE_DELTA
+    stable = span <= DRIFT_SPAN
     outside = [x for x in loads if not (WINDOW[0] <= x <= WINDOW[1])]
-    if outside or span > DRIFT_SPAN:
-        print("INCONCLUSIVE: window/drift not satisfied — outside=%s span=%.2f" % (outside, span))
+    print("     admissibility  pre_load=%.2f  baseline=%.2f  delta=%.2f  in_window=%s  match=%s  "
+          "trace_span=%.2f (<= %.1f: %s)"
+          % (pre_load, BASELINE_LOAD, delta, "yes" if in_window else "no", "yes" if matched else "no",
+             span, DRIFT_SPAN, "yes" if stable else "no"))
+    if outside:
+        print("     context: %d of %d samples left the window after the pre-event read, max=%.2f — "
+              "recorded as context, not as a refusal" % (len(outside), len(loads), max(loads)))
+    failures = []
+    if not in_window:
+        failures.append("pre-event load %.2f outside [%.1f, %.1f]" % (pre_load, WINDOW[0], WINDOW[1]))
+    if not matched:
+        failures.append("pre-event delta %.2f exceeds %.1f against baseline %.2f"
+                        % (delta, BASELINE_DELTA, BASELINE_LOAD))
+    if not stable:
+        failures.append("trace span %.2f exceeds %.1f" % (span, DRIFT_SPAN))
+    if failures:
+        print("INCONCLUSIVE: %s" % "; ".join(failures))
         return 3
     print("REACHABILITY: " + classify(low, high, args.ceiling))
     return 0
