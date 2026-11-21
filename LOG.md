@@ -3790,3 +3790,24 @@ Nothing above the first entry was edited in the move.
   choosing a number for its plausibility — the failure this map exists to end. The **form** is frozen:
   agreement tested on consecutive cycles at the same hour-of-day, tolerance frozen before the first
   hourly table is quoted, and the artifact says which criterion applied or refused.
+
+- **The tolerance's shape is implemented with its numbers deliberately absent.** `tools/schedule_calibration.py`
+  carries the three frozen properties as mechanism, not prose:
+  - **Closed taxonomy, default = never tighten.** `TIGHTENING_REASONS` is a whitelist — `span/stability`
+    and `pre-event comparability` only. Everything else, including a reason no one has classified yet,
+    returns `never`. The asymmetry is the ruling's: a missed tightening costs a slower schedule; a wrong
+    tightening teaches the schedule from noise it did not cause.
+  - **The refusal subscribes to the reason, not to refusals.** @research's line is the implementation:
+    the loop reads the printed reason, so a dirty tree, a counter defect or a claim-level refusal leaves
+    the tolerance untouched and appears in the trail as `no change (not an ambient cause)`.
+  - **Operational termination.** `tolerance × starts_per_cycle < 1` means the schedule names hours so
+    narrow no session could start inside one; the loop stops there and prints `UNSCHEDULABLE` with the
+    trail as its evidence, instead of tightening toward zero while nobody is rule-triggered to declare.
+  *The three numbers are not defaulted:* start tolerance, step and starts-per-cycle must be supplied on
+  the command line or the tool refuses, because a default would be a number chosen for how it reads.
+  *Tests (7, `tests/test_schedule_calibration.py`):* an ambient reason tightens; a non-ambient one does
+  not; an **unclassified** reason does not; the trail records the failing reason; the loop stops at the
+  floor instead of consuming the whole trail; a generous schedule stays schedulable.
+  *Verified at the CLI:* `--tolerance 3 --step 1 --starts-per-cycle 2` with three refusals tightens on
+  the two ambient ones, skips the dirty tree, and ends `schedulable`; omitting the parameters refuses
+  with the reason printed.
