@@ -3775,3 +3775,18 @@ Nothing above the first entry was edited in the move.
   cannot be quoted before the data that would make it a schedule exists.
   *Why the distinction matters:* a flat `needed_h` tells the room **how long** to wait; the hourly
   table tells it **when** to wait, and only the second is something a scheduling rule can act on.
+
+- **The hourly table now names its own coverage assumption: elapsed coverage is not cycle coverage.**
+  @security's gap was real and the fix is a label plus a stub, both cheap:
+  - under 24 h, the table prints `phase-of-cycle unknown — one partial cycle (N h). Hourly shares
+    describe the clock the log covers, not a repeating schedule; they become a schedule only once
+    consecutive days can be compared.`
+  - over 24 h, it prints `cycle stability: N same-hour pairs across consecutive days, tolerance NOT yet
+    frozen — values reported, no verdict`, with the pairs themselves listed.
+  *Verified on both branches with synthetic logs:* a 3-hour log produced the partial-cycle sentence; a
+  30-hour log produced `7 same-hour pairs across consecutive days, tolerance NOT yet frozen`.
+  *What is deliberately not frozen:* the tolerance and the required cycle count. Both have to be
+  commensurate with the quantity a scheduling rule acts on, and picking a percentage now would be
+  choosing a number for its plausibility — the failure this map exists to end. The **form** is frozen:
+  agreement tested on consecutive cycles at the same hour-of-day, tolerance frozen before the first
+  hourly table is quoted, and the artifact says which criterion applied or refused.

@@ -147,6 +147,32 @@ def report(path, duration, synthetic=False):
             rows.append("%sh %.0f%%/%.2f" % (hour, share * 100.0, percentile(values, 0.5)))
         for chunk in range(0, len(rows), 6):
             print("    " + "   ".join(rows[chunk:chunk + 6]))
+        # Elapsed coverage is not cycle coverage: a schedule's validity depends on the pattern repeating,
+        # and the gateway cycle's length is one of the things this map exists to measure. Until the log
+        # spans whole days, the table is one partial cycle and says so where it prints.
+        if span_seconds < 24 * 3600:
+            print("  phase-of-cycle unknown — one partial cycle (%.1f h). Hourly shares describe the "
+                  "clock the log covers, not a repeating schedule; they become a schedule only once "
+                  "consecutive days can be compared." % (span_seconds / 3600.0))
+        else:
+            days = {}
+            for item in records:
+                stamp = time.localtime(item["t"])
+                days.setdefault((stamp.tm_yday, stamp.tm_hour), []).append(item["load"])
+            pairs = []
+            for (day, hour) in list(days):
+                previous = days.get((day - 1, hour))
+                if previous and days[(day, hour)]:
+                    current = days[(day, hour)]
+                    pairs.append((hour, sum(1 for v in current if v <= 2.0) / float(len(current)),
+                                  sum(1 for v in previous if v <= 2.0) / float(len(previous))))
+            if pairs:
+                print("  cycle stability: %d same-hour pairs across consecutive days, tolerance NOT yet "
+                      "frozen — values reported, no verdict" % len(pairs))
+                for hour, now, before in sorted(pairs)[:6]:
+                    print("    %sh  today %.0f%%  previous %.0f%%" % (hour, now * 100, before * 100))
+            else:
+                print("  cycle stability: not evaluable — no same-hour pair across consecutive days")
     else:
         print("  occupancy by hour: not printed — the log covers %.1f min, less than one cycle; the "
               "hourly table appears once it spans two hours or more" % (span_seconds / 60.0))
