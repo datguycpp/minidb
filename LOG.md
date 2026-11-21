@@ -3722,3 +3722,23 @@ Nothing above the first entry was edited in the move.
   *Now sampling on this box* (`~/.minidb-ambient.jsonl`, 5 s interval, append-only, runs across sessions)
   so the gateway's busy/idle cycle is measured rather than guessed. The scheduling threshold gets frozen
   from that log, not before it.
+
+- **Correction to the entry above, as a successor because `aff1fbc` is pinned and pushed: the flat
+  curve was a property of the fixture, not a measurement of the box.** The synthetic log places its
+  episode independently of start ambient, so `P(span>1.0 | start≤x)` is flat **by construction** — any
+  threshold produces the same number. The synthetic run validated the **metric**; it says nothing about
+  whether low ambient predicts fewer episodes, and that question belongs to the observed log alone. The
+  earlier entry's "confirmed numerically" is retired: what it confirms is that the estimator computes
+  what it claims to compute.
+  *Two guards added with the correction:*
+  - `MIN_STARTS = 30` per band — a probability from a handful of candidate starts is a coin, not a
+    lookup. Bands below the floor print `insufficient data (N starts < floor 30)`; the synthetic's
+    1.00 band (12 of 600) now reads exactly that instead of printing 0.167.
+  - **D is per instrument, not global** (`INSTRUMENT_D`: `gate3_split` 600 s, `retention-coarse` 120 s,
+    `retention-decision` 700 s) — exposure scales with session length, so scheduling a two-minute
+    capture by a ten-minute rig's D would over-restrict it.
+  *Every report now names its source:* `source=observed (this box's own sampling)`, or
+  `source=SYNTHETIC -- metric validation only … flatness is a property of the fixture, not behaviour of
+  the box`, so a fixture table cannot be quoted as a box finding by a later reader.
+  *Live log at this commit:* 38 samples over 3.1 min, ambient min 1.89 / p50 2.38 / p90 2.88 / max 3.13 —
+  every band `insufficient data`, which is the honest state after three minutes.

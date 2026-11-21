@@ -30,6 +30,10 @@ import time
 
 DEFAULT_LOG = os.path.expanduser("~/.minidb-ambient.jsonl")
 SPAN_ALLOWANCE = 1.0        # the frozen stability rule's allowance, in loadavg
+MIN_STARTS = 30             # a band with fewer candidate starts reports insufficient data, never a rate
+# D is instrument-specific: episode exposure scales with session length, so scheduling a two-minute
+# capture by a ten-minute rig's D would over-restrict it. Frozen per instrument, not globally.
+INSTRUMENT_D = {"gate3_split": 600, "retention-coarse": 120, "retention-decision": 700}
 THRESHOLDS = (1.0, 1.2, 1.5, 1.8, 2.0, 2.33)
 
 
@@ -69,7 +73,7 @@ def percentile(values, fraction):
     return ordered[index]
 
 
-def report(path, duration):
+def report(path, duration, synthetic=False):
     records = load_records(path)
     if len(records) < 2:
         print("ambient_map: need at least two samples to report (have %d)" % len(records))
@@ -79,6 +83,10 @@ def report(path, duration):
     print("ambient_map  samples=%d  covered=%.1f min  interval=%.1fs  span_allowance=%.1f  window=%.0fs"
           % (len(records), span_seconds / 60.0,
              span_seconds / max(1, len(records) - 1), SPAN_ALLOWANCE, duration))
+    print("  source=%s" % ("SYNTHETIC -- metric validation only. The flatness of this table is a "
+                          "property of the fixture (episodes placed independently of start ambient), "
+                          "not behaviour of the box; only an observed log can test that."
+                          if synthetic else "observed (this box's own sampling)"))
     print("  ambient  min=%.2f  p50=%.2f  p90=%.2f  max=%.2f"
           % (min(loads), percentile(loads, 0.5), percentile(loads, 0.9), max(loads)))
 
@@ -88,7 +96,11 @@ def report(path, duration):
     for threshold in THRESHOLDS:
         eligible = [(index, load) for index, _, load in starts if load <= threshold]
         if not eligible:
-            print("  %-10.2f %-11d —                       —" % (threshold, 0))
+            print("  %-10.2f %-11d insufficient data      —" % (threshold, 0))
+            continue
+        if len(eligible) < MIN_STARTS:
+            print("  %-10.2f %-11d insufficient data (%d starts < floor %d)"
+                  % (threshold, len(eligible), len(eligible), MIN_STARTS))
             continue
         unstable = over_ceiling = 0
         for index, _ in eligible:
@@ -112,12 +124,16 @@ def report(path, duration):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     path, interval, duration = DEFAULT_LOG, 5, 600
-    sampling = reporting = False
+    sampling = reporting = synthetic = False
     for index, arg in enumerate(argv):
         if arg == "--sample":
             sampling = True
         elif arg == "--report":
             reporting = True
+        elif arg == "--fixture":
+            synthetic = True
+        elif arg == "--instrument" and index + 1 < len(argv):
+            duration = INSTRUMENT_D.get(argv[index + 1], duration)
         elif arg == "--log" and index + 1 < len(argv):
             path = os.path.expanduser(argv[index + 1])
         elif arg == "--interval" and index + 1 < len(argv):
@@ -128,7 +144,7 @@ def main(argv=None):
         sample(path, interval)
         return 0
     if reporting:
-        return report(path, duration)
+        return report(path, duration, synthetic)
     print(__doc__)
     return 2
 
