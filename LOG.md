@@ -3762,3 +3762,16 @@ Nothing above the first entry was edited in the move.
   rule would actually use are the rare ones, so they may read `insufficient` indefinitely — and if they
   do, the finding is **no start threshold is schedulable on this box**, which reopens the re-baseline
   question with evidence. The freeze allows that outcome instead of routing around it.
+
+- **`needed_h` is labelled as a projection, and the hourly table that turns it into a schedule is in
+  place behind a coverage gate.** @research's caveat was exact: the figure divides by **overall**
+  occupancy, so it assumes the band's share of the clock is stationary — on a few-minute log that is an
+  extrapolation wearing a measurement's clothes. The output now reads `needed_h*` with the assumption
+  spelled out, and once the log spans **two hours or more** the report prints occupancy by hour
+  (`share of samples ≤ 2.00 / median ambient`), which is computable from the timestamps already in the
+  jsonl — no new collection needed.
+  *Verified:* the current log (8.9 min) prints `occupancy by hour: not printed — the log covers 8.9
+  min, less than one cycle; the hourly table appears once it spans two hours or more`, so the column
+  cannot be quoted before the data that would make it a schedule exists.
+  *Why the distinction matters:* a flat `needed_h` tells the room **how long** to wait; the hourly
+  table tells it **when** to wait, and only the second is something a scheduling rule can act on.

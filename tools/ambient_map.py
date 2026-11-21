@@ -93,7 +93,7 @@ def report(path, duration, synthetic=False):
           % (min(loads), percentile(loads, 0.5), percentile(loads, 0.9), max(loads)))
 
     starts = [(index, item["t"], item["load"]) for index, item in enumerate(records)]
-    print("  threshold  starts   indep  P(span>%.1f)      needed_h"
+    print("  threshold  starts   indep  P(span>%.1f)      needed_h*"
           % SPAN_ALLOWANCE)
     for threshold in THRESHOLDS:
         eligible = [(index, load) for index, _, load in starts if load <= threshold]
@@ -131,6 +131,25 @@ def report(path, duration, synthetic=False):
                  over / len(independent)))
     print("  note: P(span) is the stability rule the rig actually fails; P(max>3.0) is context only, "
           "because absolute trace values do not gate under the split rule")
+    print("  * needed_h divides by OVERALL occupancy, i.e. it assumes the band's share of the clock is "
+          "stationary. On a short log that figure is a projection, not a measurement; the hourly table "
+          "below is what turns it into a schedule once the log covers a gateway cycle.")
+    if span_seconds >= 2 * 3600:
+        buckets = {}
+        for item in records:
+            hour = time.strftime("%H", time.localtime(item["t"]))
+            buckets.setdefault(hour, []).append(item["load"])
+        print("  occupancy by hour (share of samples <= 2.00 | median ambient):")
+        rows = []
+        for hour in sorted(buckets):
+            values = buckets[hour]
+            share = sum(1 for value in values if value <= 2.0) / float(len(values))
+            rows.append("%sh %.0f%%/%.2f" % (hour, share * 100.0, percentile(values, 0.5)))
+        for chunk in range(0, len(rows), 6):
+            print("    " + "   ".join(rows[chunk:chunk + 6]))
+    else:
+        print("  occupancy by hour: not printed — the log covers %.1f min, less than one cycle; the "
+              "hourly table appears once it spans two hours or more" % (span_seconds / 60.0))
     return 0
 
 
