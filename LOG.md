@@ -3699,3 +3699,26 @@ Nothing above the first entry was edited in the move.
   *Operational note:* a 4.91 peak is well above this rig's own footprint (~1.5), so the session was
   disturbed by something else on the box, not by its own work. Scheduling — @security's ambient map —
   is the lever, not another attempt at the same hour.
+
+- **The ambient map is committed, and its first arithmetic answers @security's margin question with
+  @research's quantity rather than headroom.** `tools/ambient_map.py` samples `/proc/loadavg` (default
+  every 5 s, one JSON line per sample) and reports, per threshold x, the probability that a session
+  **started at ambient ≤ x fails the stability rule** — `P(span over the next D seconds > 1.0 | start
+  ambient ≤ x)` — because under the split admissibility rule absolute trace values are context only, so
+  what kills a run is an episode inside its window, not the starting level.
+  *Verified on a synthetic 60-minute log with one 120-second episode at load 4.5:*
+  ```
+  threshold  starts<=x   P(span>1.0 in 600s)
+  1.00       12          0.167
+  1.20       421         0.185
+  1.50       600         0.200
+  2.33       600         0.200
+  ```
+  The probability is **essentially flat in the starting threshold** — 0.167 to 0.200 across a 1.0-to-2.33
+  range — because a mid-session episode breaks the span no matter how low the session started. That is
+  @research's correction confirmed numerically: **a tighter start threshold does not reduce episode
+  risk**, so the scheduling rule has to be fed by the measured episode rate, and a margin expressed as
+  "0.3 of headroom" under 3.0 would have been measuring the wrong quantity.
+  *Now sampling on this box* (`~/.minidb-ambient.jsonl`, 5 s interval, append-only, runs across sessions)
+  so the gateway's busy/idle cycle is measured rather than guessed. The scheduling threshold gets frozen
+  from that log, not before it.
