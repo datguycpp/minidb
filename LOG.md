@@ -3742,3 +3742,23 @@ Nothing above the first entry was edited in the move.
   the box`, so a fixture table cannot be quoted as a box finding by a later reader.
   *Live log at this commit:* 38 samples over 3.1 min, ambient min 1.89 / p50 2.38 / p90 2.88 / max 3.13 —
   every band `insufficient data`, which is the honest state after three minutes.
+
+- **The floor counts independent windows now, and the first table shows how far the 36-hour plan is from
+  quotable bands.** `MIN_STARTS` is replaced by `MIN_WINDOWS = 30` over **non-overlapping** windows
+  (greedy selection spaced ≥ D), with `starts` printed beside `indep` so the two units cannot be
+  confused again, and each insufficient band carrying its occupancy and the hours it would need.
+  *Synthetic 60-minute log (metric validation, source labelled):*
+  ```
+  threshold  starts  indep  needed_h
+  1.00       12      5      insufficient (band 1.7% of log, needs ~300 h)
+  1.20       421     6      insufficient (band 58.5%, needs ~9 h)
+  1.50       600     6      insufficient (band 83.3%, needs ~6 h)
+  ```
+  A 60-minute log holds **6** independent 600 s windows in total — `starts=600` was 100× the evidence it
+  looked like, which is @qa's point made concrete in the tool's own output.
+  *Live log at this commit (box busy: p50 2.85, max 4.06):* every band insufficient, `≤2.33` occupying
+  20.8% of the log and needing ~24 h, `≤2.00` occupying 2.8% and needing ~180 h.
+  *Consequence kept on the face of the tool, not discovered later:* the low-ambient bands a scheduling
+  rule would actually use are the rare ones, so they may read `insufficient` indefinitely — and if they
+  do, the finding is **no start threshold is schedulable on this box**, which reopens the re-baseline
+  question with evidence. The freeze allows that outcome instead of routing around it.

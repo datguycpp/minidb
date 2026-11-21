@@ -30,7 +30,9 @@ import time
 
 DEFAULT_LOG = os.path.expanduser("~/.minidb-ambient.jsonl")
 SPAN_ALLOWANCE = 1.0        # the frozen stability rule's allowance, in loadavg
-MIN_STARTS = 30             # a band with fewer candidate starts reports insufficient data, never a rate
+MIN_WINDOWS = 30            # independent windows, NOT raw starts: at 5s sampling with D=600s, thirty
+                            # consecutive starts span 150s -- about a quarter of one window. Counting
+                            # starts would let a band print a confident rate from minutes of data.
 # D is instrument-specific: episode exposure scales with session length, so scheduling a two-minute
 # capture by a ten-minute rig's D would over-restrict it. Frozen per instrument, not globally.
 INSTRUMENT_D = {"gate3_split": 600, "retention-coarse": 120, "retention-decision": 700}
@@ -91,19 +93,30 @@ def report(path, duration, synthetic=False):
           % (min(loads), percentile(loads, 0.5), percentile(loads, 0.9), max(loads)))
 
     starts = [(index, item["t"], item["load"]) for index, item in enumerate(records)]
-    print("  threshold  starts<=x   P(span>%.1f in %.0fs)   P(max>3.0 in %.0fs)"
-          % (SPAN_ALLOWANCE, duration, duration))
+    print("  threshold  starts   indep  P(span>%.1f)      needed_h"
+          % SPAN_ALLOWANCE)
     for threshold in THRESHOLDS:
         eligible = [(index, load) for index, _, load in starts if load <= threshold]
         if not eligible:
-            print("  %-10.2f %-11d insufficient data      —" % (threshold, 0))
+            print("  %-10.2f %-8d %-6s insufficient data" % (threshold, 0, "0"))
             continue
-        if len(eligible) < MIN_STARTS:
-            print("  %-10.2f %-11d insufficient data (%d starts < floor %d)"
-                  % (threshold, len(eligible), len(eligible), MIN_STARTS))
-            continue
-        unstable = over_ceiling = 0
+        # Greedy non-overlapping selection: a window that starts within D of the last accepted one is
+        # the same observation twice, so it cannot be evidence twice.
+        independent, last_t = [], None
         for index, _ in eligible:
+            if last_t is None or records[index]["t"] - last_t >= duration:
+                independent.append(index)
+                last_t = records[index]["t"]
+        occupancy = len(eligible) / float(len(records))
+        needed_h = (MIN_WINDOWS * duration / 3600.0 / occupancy) if occupancy else float("inf")
+        if len(independent) < MIN_WINDOWS:
+            print("  %-10.2f %-8d %-6d insufficient data (%d indep < floor %d; band occupies %.1f%% of "
+                  "the log, needs ~%.0f h)" % (threshold, len(eligible), len(independent),
+                                               len(independent), MIN_WINDOWS, occupancy * 100.0,
+                                               needed_h))
+            continue
+        unstable = over = 0
+        for index in independent:
             horizon_end = records[index]["t"] + duration
             window = [item["load"] for item in records[index:] if item["t"] <= horizon_end]
             if not window:
@@ -111,11 +124,11 @@ def report(path, duration, synthetic=False):
             if max(window) - min(window) > SPAN_ALLOWANCE:
                 unstable += 1
             if max(window) > 3.0:
-                over_ceiling += 1
-        total = len(eligible)
-        print("  %-10.2f %-11d %-22s %s"
-              % (threshold, total, "%.3f (%d/%d)" % (unstable / total, unstable, total),
-                 "%.3f" % (over_ceiling / total)))
+                over += 1
+        print("  %-10.2f %-8d %-6d %-15s P(max>3.0)=%.3f"
+              % (threshold, len(eligible), len(independent),
+                 "%.3f (%d/%d)" % (unstable / len(independent), unstable, len(independent)),
+                 over / len(independent)))
     print("  note: P(span) is the stability rule the rig actually fails; P(max>3.0) is context only, "
           "because absolute trace values do not gate under the split rule")
     return 0
