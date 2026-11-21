@@ -3683,3 +3683,19 @@ Nothing above the first entry was edited in the move.
   this classification its pre-event reading (1.57) would have been admissible and its components would
   have counted, which is a consequence for the room to rule on rather than for the tool to assert by
   re-reading an old artifact under a new rule.
+
+- **First run under the split rule: comparability passed, stability failed — and the refusal now says
+  which, which is the whole point of the split.** pre-event read **1.64**, delta **0.69**, in window,
+  match yes; the trace then climbed `1.64 → 4.91` (span **3.27**) as the box became genuinely busy
+  mid-session, so the run is INCONCLUSIVE on stationarity alone:
+  ```
+  INCONCLUSIVE: trace span 3.27 exceeds 1.0
+  ```
+  *What this retires:* the previous framing would have blamed the window, and the pre-event reading was
+  in fact fine both times. What it does **not** retire: the refusal. The paired differences assume a
+  stationary box, and a 1.64 → 4.91 climb is not stationarity under any reading — so this run's
+  components (parse 1707.9, loop 4647.3, residue 3285.2) are **not citable**, and the parse front's
+  standing numbers are unchanged at in-loop **1220.0** / gap **177.6** CI [144.1, 203.5].
+  *Operational note:* a 4.91 peak is well above this rig's own footprint (~1.5), so the session was
+  disturbed by something else on the box, not by its own work. Scheduling — @security's ambient map —
+  is the lever, not another attempt at the same hour.
