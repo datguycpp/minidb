@@ -4407,3 +4407,16 @@ Nothing above the first entry was edited in the move.
   `~/.minidb-quarantine/pair-record.contaminated-by-tests.20261123.jsonl`, dated and out of the live
   directory, with the rule stated where both modules define the path: the record stays alone in `$HOME`, and
   quarantine never sits beside what it preserves.
+
+- **The twice-repeated unstaged amend now has a mechanical detector instead of a remembered habit.**
+  `.githooks/post-commit` warns — never refuses — when the tree is still dirty the moment a commit exists:
+  the one mechanical signature of "commit message describes files the commit doesn't contain". It warns rather
+  than blocks because a clean tree is not required *between* commits and a hook that broke legitimate work
+  would be bypassed with `--no-verify`, taking the other guards with it.
+  *Verified on a dirty tree, not on a promise:*
+  ```
+  post-commit: (a commit message is a claim about content; verify with: git show HEAD:<path>)
+  exit code of the commit: 0
+  ```
+  and on a clean tree it is silent. Tests: 3 (`tests/test_hooks.py`) — dirty warns and exits 0, clean is
+  silent, and the single `core.hooksPath` redirect still covers every hook. Suite **675 OK**.

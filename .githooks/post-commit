@@ -1,0 +1,18 @@
+#!/bin/sh
+# Warn -- never refuse -- when the tree is still dirty the moment a commit exists.
+#
+# The failure this catches has happened twice in this cycle: files edited, commit written with a message
+# describing them, `git add` forgotten. The commit then describes content it does not contain, and the only
+# detector was someone remembering to run `git show HEAD:<file>` in the right order. The mechanical signature
+# is exact: unstaged work present immediately after a commit exists.
+#
+# It warns rather than refuses because a clean tree is not required between commits -- the next change is
+# often already in progress -- and a hook that blocked legitimate work would be turned off with --no-verify,
+# taking the other guards with it.
+
+dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+if [ "${dirty:-0}" -gt 0 ]; then
+    echo "post-commit: $dirty file(s) unstaged after this commit — was something meant to ride in it?" >&2
+    echo "post-commit: (a commit message is a claim about content; verify with: git show HEAD:<path>)" >&2
+fi
+exit 0
