@@ -4374,3 +4374,9 @@ Nothing above the first entry was edited in the move.
   First poll lines land in `~/.minidb-pair-watch.jsonl` (`state=no`, `action=wait`), so a live watcher is
   distinguishable from a dead one from the very first minute. The autonomy introduces a **forwarder, not a
   decision**: every spending decision is still the frozen harness's, at the frozen gates.
+  *Every poll line carries the sha that decided (@research's provenance gap).* A long-lived watcher keeps its
+  code in memory while the tree moves on, so path-equality stops meaning version-equality the moment a commit
+  lands. `pair_watch` now stamps `rev=<short HEAD>` on every record and in its startup line, and the standing
+  rule is: **restart both units on every watcher-code push.** The log then names the code that decided rather
+  than the code that happens to be on disk — the same "revision in the artifact" rule the provenance stamp
+  applies to measurements, applied to a process that runs for days.

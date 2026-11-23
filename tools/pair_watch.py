@@ -39,6 +39,20 @@ WATCH_LOG = os.path.expanduser("~/.minidb-pair-watch.jsonl")
 HARNESS = os.path.join(REPO, "tools", "baseline_attempts.py")
 
 
+def revision():
+    """The sha this process is actually running.
+
+    A long-lived watcher keeps its code in memory while the tree moves on, so path-equality stops meaning
+    version-equality the moment a commit lands. Stamping every poll line makes the process auditable: the
+    log names the code that decided, not the code that happens to be on disk.
+    """
+    try:
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO, capture_output=True,
+                              text=True, timeout=10).stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
 def row_band(spec):
     sys.path.insert(0, os.path.join(REPO, "tests", "skeptic"))
     from comparators import lookup
@@ -55,8 +69,8 @@ def record(path, payload):
 
 def poll(spec, base, tolerance, dry_run=False, watch_log=WATCH_LOG):
     state = ambient_map.trailing_state(AMBIENT, target=base, band=tolerance)
-    entry = {"t": time.time(), "row": spec, "band": [round(max(0.0, base - tolerance), 2),
-                                                     round(base + tolerance, 2)],
+    entry = {"t": time.time(), "rev": revision(), "row": spec,
+             "band": [round(max(0.0, base - tolerance), 2), round(base + tolerance, 2)],
              "state": state["state"], "share": round(state["share"], 4), "n": state["n"]}
     if state["state"] != "yes":
         record(watch_log, dict(entry, action="wait"))
@@ -92,8 +106,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     base, tolerance = row_band(args.comparator)
-    print("pair_watch: row=%s band=[%.2f, %.2f] interval=%ds dry_run=%s log=%s"
-          % (args.comparator, max(0.0, base - tolerance), base + tolerance, args.interval,
+    print("pair_watch: rev=%s row=%s band=[%.2f, %.2f] interval=%ds dry_run=%s log=%s"
+          % (revision(), args.comparator, max(0.0, base - tolerance), base + tolerance, args.interval,
              args.dry_run, args.log), flush=True)
     if args.once or args.dry_run:
         return 0 if poll(args.comparator, base, tolerance, args.dry_run, args.log) else 3

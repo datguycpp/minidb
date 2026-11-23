@@ -90,6 +90,9 @@ class PairWatchTest(unittest.TestCase):
             entry = json.loads(handle.read().strip())
         self.assertEqual(entry["action"], "would-launch")
         self.assertEqual(entry["state"], "yes")
+        # every poll line names the code that decided, so path-equality never has to stand in for
+        # version-equality on a long-lived process
+        self.assertIn("rev", entry)
 
 
 if __name__ == "__main__":
