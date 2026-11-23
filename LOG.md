@@ -4320,3 +4320,16 @@ Nothing above the first entry was edited in the move.
   because the consecutive gaps partition the span — a 56-hour log with a 45-hour hole would have reported
   0.0 h of coverage. It is now the sum of intervals actually sampled inside the tolerance (`11.8 h`, gap
   `45.0 h`), with a test that a hole separates coverage from span. Suite **665 OK**.
+  *The expiry verdict decomposes per row, and the replay is a measurement rather than a memory.*
+  `row_outcomes()` replays the trailing rule over the whole log **per pending row** and reports
+  `yes_runs`, `last_yes` age and `pending_recurrence`, so expiry says *which* quiet failed to return instead
+  of bundling two findings with different evidence into one sentence. Live at n=8,591:
+  ```
+  row outcome: night     target=0.38 band=[0.08,0.68] yes_runs=11 last_yes=1.0h ago pending_recurrence=True
+  row outcome: afternoon target=0.72 band=[0.42,1.02] yes_runs=23 last_yes=0.9h ago
+  ```
+  *That replay contains a finding the instantaneous reading hid:* both rows **have** reached `yes` — 11
+  night windows and 23 afternoon windows, the most recent about an hour ago — while every current reading
+  says `no`. "Both bands read 0%" was true of the instant and false of the night: schedulable windows have
+  been passing unspent, which is what the harness exists to catch and what the horizon now bounds.
+  Test added (a night stretch reaches `yes` on the night row and never on the afternoon row). Suite **666 OK**.

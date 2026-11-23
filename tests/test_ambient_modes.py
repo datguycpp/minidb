@@ -99,6 +99,22 @@ class AmbientModesTest(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_row_outcomes_are_replayed_per_row(self):
+        # The expiry verdict must say WHICH quiet failed to return. The replay answers from the log, so a
+        # row's "never reached yes" is a measurement rather than a memory of the evenings.
+        now = time.time()
+        night = [(now - 4 * 3600 + i * 5, 0.30) for i in range(720)]
+        busy = [(now - 3600 + i * 5, 1.60) for i in range(720)]
+        path = write_log(night + busy)
+        try:
+            rows = ambient_map.row_outcomes(path)
+            labels = {row["label"]: row for row in rows}
+            self.assertIn("night", labels)
+            self.assertGreaterEqual(labels["night"]["yes_runs"], 1)
+            self.assertEqual(labels["afternoon"]["yes_runs"], 0)   # busy hour: never reached yes
+        finally:
+            os.unlink(path)
+
     def test_mode_share_is_definitional(self):
         # "majority in-gate" is the definition, not a tuned cutoff: exactly half is schedulable.
         self.assertEqual(ambient_map.MODE_SHARE, 0.50)

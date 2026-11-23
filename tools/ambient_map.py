@@ -532,6 +532,52 @@ def trailing_state(path, target=TARGET_LOAD, band=BAND, share=MODE_SHARE, minimu
     return {"state": state, "n": len(window), "share": fraction, "age": age}
 
 
+def row_outcomes(path, minimum=MODE_MIN_SAMPLES, share=MODE_SHARE):
+    """Per-row schedulability replay: which quiet reached `yes`, how often, and when it last did.
+
+    The expiry verdict decomposes per row because the two questions decay differently -- an afternoon
+    hypothesis already weakened, a night candidate one observation old -- so "neither mode offered a window"
+    would bundle two findings into one sentence. Replays the trailing rule over the log, so the answer comes
+    from the instrument rather than from anyone's memory of the evenings.
+    """
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "tests", "skeptic"))
+    from comparators import COMPARATORS
+
+    records = load_records(path)
+    rows = []
+    for identity, entry in sorted(COMPARATORS.items()):
+        if entry.get("gate") != "gate3" or not entry.get("pending"):
+            continue
+        target, band = entry.get("target_load"), entry.get("launch_tolerance")
+        if target is None or band is None:
+            continue
+        low, high = max(0.0, target - band), target + band
+        flags, last_yes = [], None
+        for index, record in enumerate(records):
+            if index + 1 < minimum:
+                flags.append(False)
+                continue
+            window = records[index + 1 - minimum:index + 1]
+            inside = sum(1 for item in window if low <= item["load"] <= high)
+            ok = inside / minimum >= share
+            flags.append(ok)
+            if ok:
+                last_yes = record["t"]
+        runs = 0
+        for index in range(len(flags)):
+            if flags[index] and (index == 0 or not flags[index - 1]):
+                runs += 1
+        rows.append({"identity": identity,
+                     "label": "night" if target < 0.5 else "afternoon",
+                     "target": target, "band": [round(low, 2), round(high, 2)],
+                     "yes_runs": runs,
+                     "last_yes_age_h": (None if last_yes is None
+                                        else round((records[-1]["t"] - last_yes) / 3600.0, 2)),
+                     "pending_recurrence": bool(entry.get("pending_recurrence"))})
+    return rows
+
+
 def horizon_status(path, now=None, end=None):
     """Days left to the frozen horizon, plus the liveness the horizon's verdict depends on."""
     import datetime
@@ -553,7 +599,14 @@ def horizon_status(path, now=None, end=None):
     live = age <= MAX_AGE
     result = {"expired": days_left <= 0, "days_left": days_left, "live": live, "age": age,
               "coverage_h": covered, "largest_gap_h": largest}
+    result["rows"] = row_outcomes(path)
     if days_left <= 0:
+        result["per_row"] = ["%s: %s" % (row["label"],
+                                         "never reached yes (0 candidate windows)"
+                                         if row["yes_runs"] == 0 else
+                                         "%d candidate window(s), last %.1fh ago"
+                                         % (row["yes_runs"], row["last_yes_age_h"] or -1))
+                             for row in result["rows"]]
         result["outcome"] = ("no schedulable window observed — a result about the box; both rows retired "
                              "unmeasured" if live else
                              "insufficient observation — the sampler was not live at the horizon")
@@ -592,8 +645,15 @@ def modes(path, target=TARGET_LOAD, band=BAND, share=MODE_SHARE, max_age=MAX_AGE
           % (HORIZON_END[0], HORIZON_END[1], HORIZON_END[2], HORIZON_END[3], HORIZON_END[4],
              horizon["days_left"], "live" if horizon["live"] else "STALE", horizon["coverage_h"],
              horizon["largest_gap_h"] or 0.0))
+    for row in horizon["rows"]:
+        print("row outcome: %-9s target=%.2f band=[%.2f,%.2f] yes_runs=%d last_yes=%s pending_recurrence=%s"
+              % (row["label"], row["target"], row["band"][0], row["band"][1], row["yes_runs"],
+                 "never" if row["last_yes_age_h"] is None else "%.1fh ago" % row["last_yes_age_h"],
+                 row["pending_recurrence"]))
     if horizon["outcome"]:
         print("horizon outcome: %s" % horizon["outcome"])
+        for line in horizon.get("per_row", []):
+            print("  expiry: %s" % line)
 
     buckets = {}
     for record in records:
