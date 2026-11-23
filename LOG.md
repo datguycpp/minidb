@@ -4101,3 +4101,45 @@ Nothing above the first entry was edited in the move.
   as part of the row, or "the baseline" quietly changes meaning between captures.
   *Nothing has been run under either reading.* The capture waits for the ruling plus a reading in
   [0.42, 1.02].
+
+- **The hybrid runner covers the wrong series, and the stamp now proves it instead of hiding it.**
+  `run_frozen_baseline.py` runs `<worktree>/tests/skeptic/baseline_g6.py`, and **nothing in the tree at
+  `d89f689` emits `loop_ms`** (`git grep -l "loop_ms\|LOOP n=" d89f689 -- tests/ tools/` returns nothing;
+  that script prints `PARSE n=7` and `BLOCK rows=… n=7`). The LOOP series — the one whose median the
+  gate-3 ceiling halves — is emitted by `tools/gate3_split.py`, a **later** instrument. So "reading (a) is
+  already built" holds for PARSE/BLOCK and **not** for LOOP: the frozen runner cannot, as it stands,
+  produce the number a re-baseline would halve.
+  *Extension so it can:* `--script` runs any script after the worktree engine is imported and asserted
+  (the `__path__`-aware module check already in place — probe confirmed 10 `minidb.*` modules all under
+  `/tmp/minidb-d89f689`). Verified on all three stamp branches:
+  ```
+  default            script=d89f689 path=/tmp/minidb-d89f689/tests/skeptic/baseline_g6.py
+  --script tools/…   script=<HEAD>  path=tools/gate3_split.py
+  --script /tmp/…    script=external path=/tmp/probe_engine.py
+  ```
+  The stamp prints `engine=`, `script=`, `runner=`, `fixture_pin=` — a HEAD script against a frozen engine
+  is a **mixed pair** and says so, rather than borrowing the worktree's revision for a file the worktree
+  does not contain. `script=` is the revision of the file that actually executed; labelling it with the
+  runner's revision would be a false stamp, which is worse than the half-stamp it replaces.
+  *Consequence for the pair:* the baseline leg must be `gate3_split`'s LOOP leg against the `d89f689`
+  engine, not `baseline_g6.py`; the subject leg is the same leg at HEAD. Both under the launch band, back
+  to back, both pre-loads recorded, gap printed.
+
+- **CORRECTION (supersedes the LOOP-emitter claim two entries above): `baseline_g6_quiet.py` at HEAD DOES
+  emit LOOP, at N=7 — it is the script that produced `3868.7`, and it is the frozen-baseline instrument the
+  row names.** My check was too narrow: I grepped for the literal `loop_ms`, which `gate3_split` prints,
+  and missed that the quiet capture prints `LOOP n=7 ms: [...] median=…` through a `tag`, so "nothing at
+  HEAD emits LOOP" was wrong in the only way that matters — it pointed at the wrong instrument. The true
+  statement is narrower and was already in the record: **nothing in the tree at `d89f689` emits LOOP**
+  (`baseline_g6.py` there prints `PARSE`/`BLOCK`), and the LOOP baseline was measured by the later script
+  run against the `d89f689` engine — the `+` convention doing exactly what it was designed for.
+  *What that changes:* the pair's baseline leg is **`baseline_g6_quiet.py --series LOOP`, N=7, against the
+  `d89f689` engine via `run_frozen_baseline.py --script`** — same instrument, same N as the retired row, so
+  the half-median rule applies on the same basis and the pair costs ~1–2 minutes rather than ~20.
+  `gate3_split`'s LOOP is an **N=11 paired** leg with a different estimator: usable, but its ceiling would
+  not be comparable to `1934.4` without saying so in the row.
+  *Both fixes landed with the correction:* every gate-3 row now carries `instrument` and `instrument_n`
+  beside its load (2.00, 2.33 and the pending 0.72 row all name `baseline_g6_quiet` / 7), enforced by
+  `test_every_gate3_row_names_its_instrument_and_n` so a future swap is **visible in the row** rather than
+  inferred from a date; and the attempt harness passes `--series LOOP` so a baseline attempt no longer runs
+  BLOCK's 100k-row fixture for a number gate 3 never reads. Suite **644 OK**.

@@ -29,6 +29,16 @@ class ComparatorTest(unittest.TestCase):
         self.assertEqual(problem, ("retired", "gate3:d89f689+:2.33"))
         self.assertEqual(entry["ceiling_ms"], 1952.7)
 
+    def test_every_gate3_row_names_its_instrument_and_n(self):
+        # The estimator is part of the comparator: an N=11 paired rig and an N=7 serial capture produce
+        # ceilings by the same rule from different machines of measurement, so a swap has to be visible
+        # in the row rather than inferred from a date.
+        for identity, entry in COMPARATORS.items():
+            if entry.get("gate") != "gate3":
+                continue
+            self.assertIsNotNone(entry.get("instrument"), identity)
+            self.assertIsNotNone(entry.get("instrument_n"), identity)
+
     def test_an_unfrozen_identity_is_unknown(self):
         entry, problem = lookup("gate9:abc:1.00")
         self.assertEqual(problem, ("unknown", None))

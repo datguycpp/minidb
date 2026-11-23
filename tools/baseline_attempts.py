@@ -97,10 +97,14 @@ def parse_capture(text):
 
 def run_attempt(number, comparator):
     started = time.time()
-    result = subprocess.run([sys.executable, CAPTURE, "--comparator", comparator], cwd=REPO,
+    # --series LOOP: the gate-3 baseline is the LOOP median at N=7. Without it the capture also runs
+    # BLOCK, whose 100k-row fixture is a gate-1 input and costs minutes for a number gate 3 never reads.
+    result = subprocess.run([sys.executable, CAPTURE, "--comparator", comparator, "--series", "LOOP"],
+                            cwd=REPO,
                             capture_output=True, text=True)
     text = result.stdout + result.stderr
-    record = {"attempt": number, "instrument": INSTRUMENT, "instrument_D_seconds": INSTRUMENT_D,
+    record = {"attempt": number, "instrument": INSTRUMENT, "instrument_n": 7,
+              "instrument_D_seconds": INSTRUMENT_D,
               "revision": revision(), "exit": result.returncode,
               "seconds": round(time.time() - started, 1), "values": parse_capture(text)}
     refusal = re.search(r"baseline: (.+)", text)
@@ -145,7 +149,8 @@ def main(argv=None):
 
         if simulate is not None:
             code = simulate[min(number - 1, len(simulate) - 1)]
-            record = {"attempt": number, "instrument": INSTRUMENT, "instrument_D_seconds": INSTRUMENT_D,
+            record = {"attempt": number, "instrument": INSTRUMENT, "instrument_n": 7,
+              "instrument_D_seconds": INSTRUMENT_D,
                       "revision": revision(), "exit": code, "seconds": 0.0, "simulated": True,
                       "values": {}, "refusal": "SIMULATED refusal" if code else ""}
         else:

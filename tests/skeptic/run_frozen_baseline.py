@@ -86,6 +86,13 @@ def revision(worktree):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0] or "")
     parser.add_argument("--worktree", default=os.environ.get("G6_WORKTREE", "/tmp/minidb-d89f689"))
+    # The frozen tree emits PARSE and BLOCK only; the gate-3 LOOP series -- the one whose median the
+    # ceiling halves -- comes from a LATER instrument (tools/gate3_split.py). Running that against the
+    # frozen engine is the same hybrid problem one level out, so the runner takes the script as a
+    # parameter instead of assuming the worktree's own baseline_g6.py.
+    parser.add_argument("--script", default=None,
+                        help="script to run after the worktree engine is imported and asserted "
+                             "(default: <worktree>/tests/skeptic/baseline_g6.py)")
     args = parser.parse_args(argv)
     worktree = os.path.abspath(args.worktree)
 
@@ -93,9 +100,26 @@ def main(argv=None):
     print("frozen-runner: fixture=%s %s" % (LEGACY_TINY, deliver_fixture()), flush=True)
     print("frozen-runner: engine=%s" % load_worktree(worktree), flush=True)
 
-    script = os.path.join(worktree, "tests", "skeptic", "baseline_g6.py")
+    script = args.script or os.path.join(worktree, "tests", "skeptic", "baseline_g6.py")
     if not os.path.exists(script):
-        raise SystemExit("frozen-runner: %s has no baseline_g6.py" % worktree)
+        raise SystemExit("frozen-runner: no script at %s" % script)
+    # Full stamp: the row's identity names two revisions plus the fixture pin, so the artifact has to
+    # prove all three or the identity is half-asserted. `script=` is the revision of the file that
+    # actually executed -- the worktree's copy, not HEAD's -- because a stamp naming a revision that did
+    # not run is worse than a missing field. `runner=` names this wrapper, which does come from HEAD.
+    # `script=` is the revision of the file that actually executed. A script taken from HEAD against a
+    # frozen engine is a *mixed* script/engine pair, and the stamp has to say so rather than borrowing
+    # the worktree's revision for a file the worktree does not contain.
+    absolute = os.path.abspath(script)
+    if absolute.startswith(REPO + os.sep):
+        script_rev = revision(REPO)          # a HEAD script against a frozen engine: mixed, and says so
+    elif absolute.startswith(worktree + os.sep):
+        script_rev = revision(worktree)      # the frozen tree's own script
+    else:
+        script_rev = "external"              # neither tree: never claim a revision it does not have
+    print("frozen-runner: script=%s path=%s" % (script_rev, script), flush=True)
+    print("frozen-runner: runner=%s" % revision(REPO), flush=True)
+    print("frozen-runner: fixture_pin=bytes=%d sha256=%s" % deliver_fixture(), flush=True)
     runpy.run_path(script, run_name="__main__")
 
 
