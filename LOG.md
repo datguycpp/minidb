@@ -4082,3 +4082,22 @@ Nothing above the first entry was edited in the move.
   demanding an immediately live successor (a declaration is honest before its measurement exists), and
   three new tests pin the pending branch — refused with its own reason, `base_load`/`ceiling_ms` None, and
   `target_load`/`captured_pre_load` carried as distinct fields. Suite **643 OK** (640 + 3).
+
+- **The paired re-capture needs a code-state ruling first: on current code the gate is unsatisfiable by
+  construction.** The half-median rule halves the baseline (`3868.7 → 1934.35`, `3905.4 → 1952.7`), so a
+  baseline measured on **the subject's own code** yields `ceiling = LOOP/2` and the gate asks the loop to
+  beat half of itself (`2549.2 → 1274.6`): impossible, not demanding. Two readings are coherent and they
+  differ in what the number means:
+  - **(a) same reference, new conditions:** baseline re-measured on the **frozen reference engine**
+    (`d89f689`) at the quiet floor, ceiling ≈ (reference LOOP at 0.72)/2, and `2549.2` is **re-judged**
+    against it — the original gate question ("can the loop halve its reference cost?") survives intact;
+  - **(b) new reference:** baseline measured on **current** code, ceiling ≈ 1275, and `2549.2` becomes
+    dated history with **no verdict** — a new, harder gate rather than a re-judgement.
+  *Mechanical fact that constrains the choice:* `tests/skeptic/baseline_g6_quiet.py` **does not exist at
+  `d89f689`** (`git cat-file` refuses it; 149 commits between), so "re-run the same instrument at the same
+  revision" is not available as a straight checkout. The `+` in the comparator identity already encodes this:
+  the engine is frozen at `d89f689` while the harness comes from later commits, so reading (a) means a
+  **hybrid checkout** — reference `minidb/` with the current capture script — and that hybrid must be frozen
+  as part of the row, or "the baseline" quietly changes meaning between captures.
+  *Nothing has been run under either reading.* The capture waits for the ruling plus a reading in
+  [0.42, 1.02].
