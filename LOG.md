@@ -4020,3 +4020,23 @@ Nothing above the first entry was edited in the move.
   *Score convention recorded beside the trend:* strata are scored at their lower edge and the open top
   stratum `[2.00, inf)` at **2.0** because its midpoint is unbounded; a different score changes `|z|`, not
   the direction at these event rates, so every citation of the trend must carry that condition.
+
+- **The bounded retry loop exists, with the refusals counted as data and the pre-registered expectation
+  written before any attempt.** `tools/baseline_attempts.py`: at most **3** attempts, each started only on
+  a **comparable pre-event reading** ([1.0, 3.0] and |Δ| ≤ 1.0 against 2.33 — an incomparable start would
+  not be a measurement, so it waits rather than spending an attempt), every refusal recorded to
+  `~/.minidb-baseline-attempts.jsonl` with its exit code, pre-load, trace span and the reason printed by the
+  instrument, and the attempt count published beside any baseline.
+  *Verified in both directions (simulated, so no measurement was faked):*
+  ```
+  --simulate 3,3,3 -> exit 3: "NO BASELINE OBTAINED; REFUSALS RECORDED — this is a result about the box …
+                      It is not a verdict that the box cannot be scheduled."
+  --simulate 3,0,0 -> exit 0: "BASELINE OBTAINED under 2 attempt(s) … label for citation: 'obtained under
+                      2 attempts, comparator baseline 2.33, span-verified'"
+  ```
+  *Pre-registered expectation, before the run:* the comparable band is where episodes are near-certain
+  (0 of 34 comparable-start windows survived in the map's record), so **"no baseline obtained" is the
+  likely outcome** — and per the ruling that is not a scheduling verdict, it is the input the re-baseline
+  question needs. An underpowered refusal is not the proxy answer.
+  *Labels fixed now:* any resulting number is cited as "obtained under N attempts, comparator baseline 2.33,
+  span-verified", with no causal claim about ambient attached.
