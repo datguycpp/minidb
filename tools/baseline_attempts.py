@@ -44,6 +44,13 @@ SUBJECT_TOLERANCE = 0.30     # representativeness for the pair's second leg: sam
                              # itself "matched".
 WINDOW = (1.0, 3.0)
 MAX_ATTEMPTS = 3          # baseline launches, frozen by ruling
+AGGREGATE_RULE = "SINGLE_PASS"  # gate 3 is satisfied by ONE complete, properly-gated passing pair: the
+                                # comparison is baseline-vs-subject under the SAME conditions, so a pass in
+                                # any single mode demonstrates the halving there. Every other completed
+                                # verdict is recorded beside it, never averaged or hidden -- a miss in one
+                                # mode next to a pass in another is mode-dependent performance, a finding.
+                                # Frozen BEFORE any verdict exists: choosing this after two disagreements is
+                                # the post-hoc rule-picking the freeze order forbids.
 SUBJECT_MAX_ATTEMPTS = 1  # subject launches, counted separately: a baseline-only outcome must not burn
                           # the budget it earned, and subject retries must not be uncapped
 STRATUM_EDGES = (1.0, 1.2, 1.5, 1.8, 2.0)
@@ -126,7 +133,7 @@ def wait_for_comparable(cap_seconds, base, tolerance, poll=15):
 
 def parse_capture(text):
     values = {}
-    for name, pattern in (("loop", r"loop_ms\s+median=([0-9.]+)"),
+    for name, pattern in (("loop", r"LOOP n=\d+ ms: .*?median=([0-9.]+)"),
                           ("parse", r"parse_ms\s+median=([0-9.]+)"),
                           ("reading", r"reading=([0-9.]+)"),
                           ("delta", r"delta=([0-9.]+)")):
@@ -183,6 +190,7 @@ def main(argv=None):
         return 2
 
     base, tolerance, row_state = row_gate(comparator) if comparator else (BASELINE_DELTA * 2.33, 1.0, "none")
+    row_label = "night" if base < 0.5 else "afternoon"
     print("row gate: comparator=%s state=%s base=%.2f tolerance=%.2f" % (comparator, row_state, base, tolerance))
     state = mode_state(base, tolerance)
     print("mode gate: row-band=[%.2f, %.2f] state=%s share=%.1f%% n=%d (need >=50%% over >=60 samples "
@@ -282,6 +290,24 @@ def main(argv=None):
                          "ACCEPTED" if record["exit"] == 0 else "REFUSED", record["values"]))
                 if record["exit"] == 0:
                     break
+    verdict = {"mode_label": row_label, "aggregate_rule": AGGREGATE_RULE, "status": "undecided"}
+    if baseline is not None:
+        base_loop = (baseline.get("values") or {}).get("loop")
+        subject_loop = ((subject or {}).get("values") or {}).get("loop")
+        if base_loop and subject_loop:
+            ceiling = base_loop / 2.0
+            verdict.update({"ceiling_ms": round(ceiling, 1), "subject_ms": round(subject_loop, 1),
+                            "status": "pass" if subject_loop <= ceiling else "miss"})
+        else:
+            verdict["status"] = "undecided"
+    print("verdict  mode=%s aggregate=%s status=%s  %s"
+          % (verdict["mode_label"], AGGREGATE_RULE, verdict["status"],
+             "" if verdict["status"] == "undecided" else
+             "ceiling=%.1f subject=%.1f" % (verdict["ceiling_ms"], verdict["subject_ms"])))
+    print("verdict label for citation: 'gate 3 %s, CONDITIONAL on the %s mode' — not comparable to the "
+          "retired 1934.4 or to another mode's verdict without its label."
+          % (verdict["status"], verdict["mode_label"]))
+
     pair_status = ("none" if baseline is None else
                    "complete" if subject and subject.get("status") == "complete" else "baseline-only")
 

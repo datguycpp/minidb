@@ -4276,3 +4276,21 @@ Nothing above the first entry was edited in the move.
   moved except the addition of a second, separately-parameterised row.
   *Tests:* two added — the band follows the row (0.35 is `no` on the default band, `yes` on the night band)
   and the night row is pending-recurrence with a band reaching below 0.42. Suite **660 OK**.
+
+- **Gate 3's aggregation is frozen before any verdict exists, and every verdict is labelled by the mode that
+  spent it.** Two pending rows mean two mode-conditional verdicts eventually; without a frozen rule, gate 3
+  would have no status the first time two modes disagree, and the aggregation would be chosen after seeing
+  them — the post-hoc rule-picking the freeze order forbids.
+  *Frozen:* **`AGGREGATE_RULE = "SINGLE_PASS"`** — gate 3 is satisfied by **one complete, properly-gated
+  passing pair**, because the comparison is baseline-vs-subject **under the same conditions**, so a pass in
+  any single mode demonstrates the halving there. Every other completed verdict is **recorded beside it**,
+  never averaged and never hidden: a miss in one mode next to a pass in another is mode-dependent
+  performance — a finding to investigate, not a number to re-roll. An incomplete pair (`baseline-only`)
+  decides nothing, per the already-frozen half-pair rule.
+  *At birth, not on request:* every run prints
+  `verdict  mode=<mode> aggregate=SINGLE_PASS status=pass|miss|undecided` and the citation label
+  `'gate 3 <status>, CONDITIONAL on the <mode> mode' — not comparable to the retired 1934.4 or to another
+  mode's verdict without its label`. The ceiling is derived **inside the pair** as baseline/2 (the frozen
+  half-median rule), so a verdict never needs the row completed first; the row records what the pair found.
+  *Tests:* two added — the rule's value is pinned, and a simulated night pair prints `mode=night` with the
+  conditional label. Suite **662 OK**.

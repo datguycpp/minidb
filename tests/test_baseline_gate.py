@@ -64,6 +64,31 @@ class TrailingStateTest(unittest.TestCase):
         self.assertEqual(entry["target_load"], 0.38)
         self.assertLess(entry["target_load"] - entry["launch_tolerance"], 0.42)   # reaches below 0.72's floor
 
+    def test_the_aggregate_rule_is_frozen_before_any_verdict_exists(self):
+        # Two modes will produce two conditional verdicts. "One passing pair satisfies gate 3" was chosen
+        # with zero verdicts in existence; choosing after two disagreements is the post-hoc rule-picking
+        # the freeze order forbids.
+        self.assertEqual(baseline_attempts.AGGREGATE_RULE, "SINGLE_PASS")
+
+    def test_a_verdict_is_labelled_by_the_mode_that_spent_it(self):
+        path = self.log([(self.now - 300 + i * 5, 0.35) for i in range(60)])
+        original = baseline_attempts.AMBIENT
+        baseline_attempts.AMBIENT = path
+        original_log = baseline_attempts.LOG
+        baseline_attempts.LOG = os.devnull
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                baseline_attempts.main(["--simulate", "0", "--no-wait",
+                                        "--comparator", "gate3:d89f689+:0.38",
+                                        "--subject-comparator", "gate3:d89f689+:0.38"])
+        finally:
+            baseline_attempts.LOG = original_log
+            baseline_attempts.AMBIENT = original
+        output = buffer.getvalue()
+        self.assertIn("mode=night", output)
+        self.assertIn("CONDITIONAL on the night mode", output)
+
     def test_a_stale_log_is_stale(self):
         path = self.log([(self.now - 10 ** 5, 0.55)])
         self.assertEqual(ambient_map.trailing_state(path)["state"], "stale")
