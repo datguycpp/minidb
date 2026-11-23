@@ -4040,3 +4040,23 @@ Nothing above the first entry was edited in the move.
   question needs. An underpowered refusal is not the proxy answer.
   *Labels fixed now:* any resulting number is cited as "obtained under N attempts, comparator baseline 2.33,
   span-verified", with no causal claim about ambient attached.
+
+- **The retry loop was running the wrong instrument, and the fix changes what the attempts cost and mean.**
+  @qa's question — *which instrument does each attempt run?* — exposed it: the loop invoked `gate3_split`,
+  the decomposition rig whose own docstring says it "issues no pass/fail for goal 6", with a ten-minute
+  session and a `span <= 1.0` rule. A gate-3 baseline is a **capture**: `tests/skeptic/baseline_g6_quiet.py`,
+  N=7, ~30 seconds, whose own frozen rule is the comparator match. So the loop was (a) spending 10-minute
+  sessions on an instrument that cannot produce a ceiling number, (b) applying the rig's stability rule to a
+  capture it does not govern, and (c) inheriting a 600 s survival bound for a 30 s instrument with ~1/20th
+  the episode exposure.
+  *Corrected tool, verified on both branches:* runs the capture with `--comparator`, records **instrument,
+    D, revision, exit, refusal, pre_load, start stratum, start phase** and an explicit
+  `survival_bound: "unknown at D=30s — the map's 0/34 bound is over 600s windows and does not transfer"`.
+  Sample record: `{'instrument': 'baseline_g6_quiet', 'instrument_D_seconds': 30.0, 'revision': 'bb1f7bd',
+  'pre_load': 2.33, 'start_stratum': '>2.00', 'start_phase': 'busy', 'survival_bound': 'unknown at D=30s…'}`
+  *And an immediate live finding about the frozen comparator:* at the time of writing the box reads
+  **1.24/1.40/1.49**, which is **below** the comparable floor — `|1.24 − 2.33| = 1.09 > 1.0`, so the capture
+  would refuse to start. The comparator was frozen for a box that lived at 2.33; on a box that now spends
+  most of its time near 0.6, the comparable band's **lower edge is itself unreachable during quiet phases**.
+  That is the re-baseline question arriving as a live measurement rather than as an argument, and it is
+  recorded here before any attempt is spent.
