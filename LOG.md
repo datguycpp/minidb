@@ -3835,3 +3835,27 @@ Nothing above the first entry was edited in the move.
   threshold" outcome live rather than remote.
   *Phase scoping, printed:* the rates are labelled as measured over the phase(s) the log covers; a
   quiet-phase rate is not transferred to busy-phase starts.
+
+- **The sampler was dead for 45 hours and every "sampling is live" statement since was wrong. The
+  failure is mine, and the guards now make it structural rather than a habit.** Checked directly: last
+  sample was **2,698 minutes old (~45.0 h)**, `pgrep ambient_map` empty, no unit, no cron entry. The log
+  holds **2,500 samples spanning 3.47 h** — that is the entire log that has ever existed, so every
+  projection after it ("2–3 h to a quotable band", "~5–6 h, tonight", "decidable in a few hours") was
+  extrapolated from a frozen file while the room reported it as accumulating. Same class the room has
+  retired five times: a number quoted by assumption instead of measurement, this time by me, about my own
+  instrument.
+  *What survives:* the 3.47 h of measurement is real and reproduces second-seat — p50 **0.56**, 91.4%
+  ≤2.00, `P_hat` 0.167–0.429 with `P_upper` 0.377–0.628, and the weak-predictor observation. What does
+  not survive is any sentence implying growth.
+  *Two guards, both structural:*
+  - **`tools/minidb-ambient.service`** — a systemd user unit (`Restart=always`, `RestartSec=10`), enabled
+    and verified running: log grew 2504 → 2516 samples over the check, `interval≈5 s`. It survives
+    sessions, which the ad-hoc background launch did not.
+  - **`stale=` in every report**, with `MAX_AGE = 120 s` frozen in advance (24× the default interval).
+    A stale log prints `stale=yes` and `REFUSED: … No rate is quoted from a stale log`, exit 3 —
+    verified on a shifted copy (`stale=yes`, exit 3) and on the live log (`stale=no`, exit 0).
+    *Why it had to be structural:* a file that stopped growing is indistinguishable from a file nobody
+    has checked, so the guard cannot be a habit of asking.
+  - **Coverage holes are named, not averaged:** the report now prints `covered=209.5 min in 2 segment(s)`
+    and `coverage holes: 1 gap larger than 120s, largest 45.0 h — first-to-last span is 48.5 h but only
+    3.5 h of it is sampled`, so the dead interval is visible in the same line that reports coverage.

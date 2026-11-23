@@ -31,6 +31,9 @@ import time
 
 DEFAULT_LOG = os.path.expanduser("~/.minidb-ambient.jsonl")
 SPAN_ALLOWANCE = 1.0        # the frozen stability rule's allowance, in loadavg
+MAX_AGE = 120              # freshness threshold in seconds, frozen in advance: 24x the default 5s
+                            # interval. A file that stopped growing is indistinguishable from one nobody
+                            # has checked yet, so a rate from a stale log is refused, not caveated.
 MIN_WINDOWS = 30            # independent windows, NOT raw starts: at 5s sampling with D=600s, thirty
                             # consecutive starts span 150s -- about a quarter of one window. Counting
                             # starts would let a band print a confident rate from minutes of data.
@@ -112,16 +115,35 @@ def percentile(values, fraction):
     return ordered[index]
 
 
-def report(path, duration, synthetic=False, rate_bar=None):
+def report(path, duration, synthetic=False, rate_bar=None, max_age=MAX_AGE):
     records = load_records(path)
     if len(records) < 2:
         print("ambient_map: need at least two samples to report (have %d)" % len(records))
         return 2
+    age = time.time() - records[-1]["t"]
+    stale = age > max_age
+    print("  freshness  last_sample=%.0fs ago  max_age=%ds  stale=%s"
+          % (age, max_age, "yes" if stale else "no"))
+    if stale:
+        print("  REFUSED: the log's last sample is older than the freshness threshold, so this file "
+              "describes a past window, not the box now. No rate is quoted from a stale log.")
+        return 3
     span_seconds = records[-1]["t"] - records[0]["t"]
+    gaps = sorted(records[i]["t"] - records[i - 1]["t"] for i in range(1, len(records)))
+    interval = gaps[len(gaps) // 2] if gaps else 0.0
+    # A log can carry holes (the sampler died once and was restarted 45 h later). Coverage is what the
+    # samples actually span, not first-to-last, and a hole must be named rather than averaged into it.
+    holes = [gap for gap in gaps if gap > max(2 * interval, max_age)]
+    covered = span_seconds - sum(holes)
     loads = [item["load"] for item in records]
-    print("ambient_map  samples=%d  covered=%.1f min  interval=%.1fs  span_allowance=%.1f  window=%.0fs"
-          % (len(records), span_seconds / 60.0,
-             span_seconds / max(1, len(records) - 1), SPAN_ALLOWANCE, duration))
+    print("ambient_map  samples=%d  covered=%.1f min in %d segment(s)  interval=%.1fs  span_allowance=%.1f"
+          "  window=%.0fs"
+          % (len(records), covered / 60.0, len(holes) + 1, interval, SPAN_ALLOWANCE, duration))
+    if holes:
+        print("  coverage holes: %d gap(s) larger than %ds, largest %.1f h — first-to-last span is "
+              "%.1f h but only %.1f h of it is sampled"
+              % (len(holes), max(2 * interval, max_age), max(holes) / 3600.0, span_seconds / 3600.0,
+                 covered / 3600.0))
     print("  source=%s" % ("SYNTHETIC -- metric validation only. The flatness of this table is a "
                           "property of the fixture (episodes placed independently of start ambient), "
                           "not behaviour of the box; only an observed log can test that."
