@@ -48,6 +48,16 @@ AMBIENT = os.path.expanduser("~/.minidb-ambient.jsonl")
 # Acquired non-blocking AFTER the gates pass (never across the pre-launch wait, which would turn one row's
 # wait into the other row's starvation) and held across baseline through subject including the inter-leg gap.
 LOCK_PATH = os.path.expanduser("~/.minidb-pair.lock")
+# The durable pair record. The watcher's stop gate reads THIS, not the registry: the registry says what a
+# row is, this says what has already been spent under it. One line per invocation, keyed by the LAUNCH
+# identity -- identity-follows-capture means the verdict's own identity is the captured one and would never
+# match the pending row a watcher polls, so a stop gate keyed on the verdict identity would silently never
+# fire (the unanchored-regex class, wearing a different name).
+# NOTE: this file lives alone in the home directory on purpose. A quarantined copy kept beside it with a
+# suffixed name (e.g. `.contaminated-by-tests`) would be re-ingested by any future directory-wide read or
+# `*.jsonl` glob -- preserving evidence and poisoning the record in the same move. Quarantine goes to
+# ~/.minidb-quarantine/, dated, out of the live directory.
+PAIR_RECORD = os.environ.get("MINIDB_PAIR_RECORD", os.path.expanduser("~/.minidb-pair-record.jsonl"))
 LOCK_EXIT = 5
 
 
@@ -337,6 +347,12 @@ def main(argv=None):
                          "ACCEPTED" if record["exit"] == 0 else "REFUSED", record["values"]))
                 if record["exit"] == 0:
                     break
+    pair_status = ("none" if baseline is None else
+                   "complete" if subject and subject.get("status") == "complete" else "baseline-only")
+    captured_pre = None
+    if baseline is not None:
+        captured_pre = ((baseline.get("values") or {}).get("reading")
+                        or (baseline.get("pre_load")))
     verdict = {"mode_label": row_label, "aggregate_rule": AGGREGATE_RULE, "status": "undecided"}
     if baseline is not None:
         base_loop = (baseline.get("values") or {}).get("loop")
@@ -362,9 +378,24 @@ def main(argv=None):
           "retired 1934.4 or to another mode's verdict without its label."
           % (verdict["status"], verdict["mode_label"]))
 
+    # Durable pair record, keyed by the LAUNCH identity. Identity-follows-capture means the verdict's own
+    # identity is the captured one (0.41 here, not 0.38), so a stop gate keyed on the verdict identity would
+    # never match the pending row a watcher polls and would never fire -- a gate present in code and dead in
+    # effect, the unanchored-regex class under another name.
+    try:
+        with open(PAIR_RECORD, "a") as handle:
+            handle.write(json.dumps({
+                "t": time.time(), "rev": revision(), "launch_row": comparator,
+                "live_identity": ("gate3:d89f689+:%.2f" % captured_pre) if captured_pre else None,
+                "mode_label": verdict["mode_label"], "verdict": verdict.get("status"),
+                "pair_status": pair_status, "ceiling_ms": verdict.get("ceiling_ms"),
+                "subject_ms": verdict.get("subject_ms"),
+                "baseline_spread_pct": verdict.get("baseline_spread_pct"),
+                "subject_spread_pct": verdict.get("subject_spread_pct")}) + "\n")
+    except OSError as error:
+        print("pair record: NOT WRITTEN (%s) — a verdict that cannot be recorded must not be silent" % error)
+
     release_lock(locals().get("lock"))
-    pair_status = ("none" if baseline is None else
-                   "complete" if subject and subject.get("status") == "complete" else "baseline-only")
 
     print("baseline_attempts  instrument=%s  D~%.0fs  attempts=%d  cap=%d  pair=%s  log=%s"
           % (INSTRUMENT, INSTRUMENT_D, len(attempts), MAX_ATTEMPTS, pair_status, LOG))

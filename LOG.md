@@ -4380,3 +4380,30 @@ Nothing above the first entry was edited in the move.
   rule is: **restart both units on every watcher-code push.** The log then names the code that decided rather
   than the code that happens to be on disk — the same "revision in the artifact" rule the provenance stamp
   applies to measurements, applied to a process that runs for days.
+
+- **No spend after a verdict exists, unattended or not — and the gate keys on the LAUNCH identity.**
+  `pair_watch.verdict_exists()` blocks on a durable **pair record** entry with `launch_row == spec`,
+  `pair_status == complete` **and a real verdict** (`pass`/`miss`); it does not block on `baseline-only` (the
+  baseline is a real measurement and the subject may follow at a matched load), nor on a `complete` pair whose
+  loops never parsed (`undecided` measured nothing). Blocked polls log `wait reason=verdict-exists`.
+  *Why the launch key:* identity-follows-capture means a pair launched on `:0.38` records its verdict against
+  `:0.41`; a gate matching the verdict identity would never match the pending row a watcher polls — present in
+  code, dead in effect. The record carries both (`launch_row`, `live_identity`) so the trap is testable rather
+  than argued, and a test asserts a drifted live identity still blocks the row that launched it.
+  *Clearing:* only the row's landing commit, which rewrites the registry — never elapsed time, which would
+  resurrect the constant-versus-reality drift retired three times already.
+  **Two defects found while building it, both my own:**
+  *1. Tests were writing the PRODUCTION pair record.* `~/.minidb-pair-record.jsonl` filled with synthetic
+  entries during suite runs; it has been archived as `~/.minidb-pair-record.jsonl.contaminated-by-tests` (kept,
+  not deleted) and both test modules now point the record at a throwaway path. A test that writes an evidence
+  file manufactures the evidence it is supposed to check.
+  *2. A default argument bound a stale path.* `verdict_exists(..., path=PAIR_RECORD)` captured the module value
+  at import, so both the env override and test isolation were ignored and the gate would have read the
+  production record forever. Resolved at call time now, with the reason in a comment.
+  Suite **672 OK, 0 unclosed-file warnings**, and a clean suite run leaves the production record **absent**.
+  *Quarantine moved out of the live directory (@research's exclusion note).* A suffixed twin beside the live
+  record (`~/.minidb-pair-record.jsonl.contaminated-by-tests`) would be **re-ingested by any directory-wide
+  read or `*.jsonl` glob** — preserving evidence and poisoning the record in the same move. It now lives at
+  `~/.minidb-quarantine/pair-record.contaminated-by-tests.20261123.jsonl`, dated and out of the live
+  directory, with the rule stated where both modules define the path: the record stays alone in `$HOME`, and
+  quarantine never sits beside what it preserves.

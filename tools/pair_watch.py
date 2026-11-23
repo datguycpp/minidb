@@ -36,6 +36,8 @@ import ambient_map  # noqa: E402
 
 AMBIENT = os.path.expanduser("~/.minidb-ambient.jsonl")
 WATCH_LOG = os.path.expanduser("~/.minidb-pair-watch.jsonl")
+# Same path, same rule: quarantine lives in ~/.minidb-quarantine/, never beside the live record.
+PAIR_RECORD = os.environ.get("MINIDB_PAIR_RECORD", os.path.expanduser("~/.minidb-pair-record.jsonl"))
 HARNESS = os.path.join(REPO, "tools", "baseline_attempts.py")
 
 
@@ -62,12 +64,47 @@ def row_band(spec):
     return entry["target_load"], entry["launch_tolerance"]
 
 
+def verdict_exists(spec, path=None):
+    """No spend after a verdict exists, unattended or not.
+
+    Keyed on the LAUNCH identity, never on the verdict's own: identity-follows-capture means a pair launched
+    on `:0.38` produces a verdict against `:0.41`, so a check matching the verdict identity would never match
+    the pending row the watcher polls and the gate would be present in code and dead in effect.
+    `baseline-only` does not stop the watcher -- the baseline is a real measurement and the subject may
+    follow at a matched load; the block clears only when the row's landing commit rewrites the registry.
+    """
+    # Resolve at call time: a default bound at definition time silently ignores both an env override and
+    # any test isolation applied after import -- the gate would read the production record forever.
+    path = PAIR_RECORD if path is None else path
+    if not os.path.exists(path):
+        return False
+    with open(path) as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            # A verdict, not merely a completed invocation: a `complete` pair whose loops never parsed
+            # (undecided) has measured nothing and must not block the next window.
+            if (entry.get("launch_row") == spec and entry.get("pair_status") == "complete"
+                    and entry.get("verdict") in ("pass", "miss")):
+                return True
+    return False
+
+
 def record(path, payload):
     with open(path, "a") as handle:
         handle.write(json.dumps(payload) + "\n")
 
 
 def poll(spec, base, tolerance, dry_run=False, watch_log=WATCH_LOG):
+    if verdict_exists(spec):
+        record(watch_log, {"t": time.time(), "rev": revision(), "row": spec, "action": "wait",
+                           "reason": "verdict-exists"})
+        return False
     state = ambient_map.trailing_state(AMBIENT, target=base, band=tolerance)
     entry = {"t": time.time(), "rev": revision(), "row": spec,
              "band": [round(max(0.0, base - tolerance), 2), round(base + tolerance, 2)],

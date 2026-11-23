@@ -25,8 +25,15 @@ class TrailingStateTest(unittest.TestCase):
     def setUp(self):
         self.now = time.time()
         self.paths = []
+        # Tests must never write a production artifact: the pair record is a durable evidence file.
+        handle = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
+        handle.close()
+        self.paths.append(handle.name)
+        self._pair_record = baseline_attempts.PAIR_RECORD
+        baseline_attempts.PAIR_RECORD = handle.name
 
     def tearDown(self):
+        baseline_attempts.PAIR_RECORD = self._pair_record
         for path in self.paths:
             if os.path.exists(path):
                 os.unlink(path)
