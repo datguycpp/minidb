@@ -567,16 +567,26 @@ def modes(path, target=TARGET_LOAD, band=BAND, share=MODE_SHARE, max_age=MAX_AGE
     medians = {day: sorted(v)[len(v) // 2] for day, v in days.items()}
     print("day medians: " + "  ".join("%s=%.2f(n=%d)" % (day, medians[day], len(days[day]))
                                       for day in sorted(medians)))
-    if len(medians) >= 2:
-        spread = max(medians.values()) - min(medians.values())
-        if spread > band:
-            print("valley: day medians differ by %.2f (> band %.2f) — two modes, and the pooled centre "
-                  "between them names no state the box occupies; target is a MODE CENTRE" % (spread, band))
+    # The valley is read off HOURLY medians, not day medians: a day median is a composite of its own
+    # hours (one day here held 0.35 and 1.62), so a day-level spread flags structure it cannot locate.
+    # Hourly medians name the states; the widest adjacent gap between them is the region no state occupies.
+    hourly = sorted(sorted(v)[len(v) // 2] for v in buckets.values() if len(v) >= MODE_MIN_SAMPLES)
+    if len(hourly) >= 2:
+        gaps = [(hourly[i + 1] - hourly[i], hourly[i], hourly[i + 1]) for i in range(len(hourly) - 1)]
+        widest, low_edge, high_edge = max(gaps)
+        if widest > band:
+            print("valley: no hour's median lies between %.2f and %.2f (gap %.2f > band %.2f) — the "
+                  "structure is intra-day, and any single target names one mode, not the distribution"
+                  % (low_edge, high_edge, widest, band))
         else:
-            print("valley: none — day medians differ by %.2f, inside one band, so the days are one mode"
-                  % spread)
+            print("valley: none — the widest gap between hourly medians is %.2f, inside one band" % widest)
     else:
-        print("cycle stability: not evaluable — fewer than two day medians in the log")
+        print("cycle stability: not evaluable — fewer than two hourly medians at the sample floor")
+    below = sum(1 for load in [r["load"] for r in records] if load < low)
+    above = sum(1 for load in [r["load"] for r in records] if load > high)
+    print("band split: below=%.1f%%  in=%.1f%%  above=%.1f%% — which side of the band is excluding"
+          % (100 * below / len(records), 100 * (len(records) - below - above) / len(records),
+             100 * above / len(records)))
     return 0
 
 

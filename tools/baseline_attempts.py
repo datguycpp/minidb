@@ -96,16 +96,19 @@ def revision():
         return "unknown"
 
 
-def mode_state():
+def mode_state(base=None, tolerance=None):
     """The mode flag: a precondition for the harness even starting its wait.
 
     The pointwise gate says the *instant* is admissible; this says the *stretch* is schedulable, and the
     two-gate rule exists because a busy mode can hold a single in-band dip that the pointwise gate would
-    wave through. Shares one definition with `ambient_map.trailing_state` rather than re-deriving it.
+    wave through. The band is derived from the row the harness was launched with -- a night row targeting
+    0.38 must not be judged against the 0.72 row's floor, or the row that names the mode refuses the mode.
     """
     sys.path.insert(0, os.path.join(REPO, "tools"))
     import ambient_map
-    return ambient_map.trailing_state(AMBIENT)
+    if base is None or tolerance is None:
+        return ambient_map.trailing_state(AMBIENT)
+    return ambient_map.trailing_state(AMBIENT, target=base, band=tolerance)
 
 
 def wait_for_comparable(cap_seconds, base, tolerance, poll=15):
@@ -181,9 +184,11 @@ def main(argv=None):
 
     base, tolerance, row_state = row_gate(comparator) if comparator else (BASELINE_DELTA * 2.33, 1.0, "none")
     print("row gate: comparator=%s state=%s base=%.2f tolerance=%.2f" % (comparator, row_state, base, tolerance))
-    state = mode_state()
-    print("mode gate: state=%s share=%.1f%% n=%d (need >=50%% over >=60 samples before waiting)"
-          % (state["state"], 100 * state["share"], state["n"]))
+    state = mode_state(base, tolerance)
+    print("mode gate: row-band=[%.2f, %.2f] state=%s share=%.1f%% n=%d (need >=50%% over >=60 samples "
+          "before waiting)"
+          % (max(0.0, base - tolerance), base + tolerance, state["state"], 100 * state["share"],
+             state["n"]))
     if state["state"] != "yes":
         print("baseline_attempts: REFUSED — the box is not in a schedulable mode (%s). The pointwise gate "
               "alone would accept a dip inside an unschedulable stretch, which is exactly the spend the "
@@ -206,7 +211,7 @@ def main(argv=None):
         # The mode gate is evaluated AGAIN here, at the instant the window is spent. A `yes` at wait-start
         # can flip during a wait of minutes, and the pointwise gate cannot tell a dip from a mode: a gate
         # that is not evaluated where the spend happens is not a gate.
-        launch_state = mode_state()
+        launch_state = mode_state(base, tolerance)
         if launch_state["state"] != "yes":
             print("attempt %d: ABORTED — mode is %s at launch (was %s at wait-start); the window is not "
                   "spent on a stretch that stopped being schedulable while the harness waited."
@@ -245,8 +250,8 @@ def main(argv=None):
     # Second leg: its own gates, at its own instant. The pair is two spends, and gating only the first
     # makes a "complete" pair whose halves were launched under different rules.
     if baseline is not None and subject_comparator:
-        gate = mode_state()
         captured = (baseline.get("values") or {}).get("reading", base) or base
+        gate = mode_state(captured, tolerance)
         load = captured if simulate is not None else read_load()
         gap = abs(load - captured)
         pointwise = gap <= SUBJECT_TOLERANCE

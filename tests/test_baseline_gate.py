@@ -48,6 +48,22 @@ class TrailingStateTest(unittest.TestCase):
         path = self.log([(self.now - 60 + i * 5, 0.55) for i in range(12)])
         self.assertEqual(ambient_map.trailing_state(path)["state"], "insufficient")
 
+    def test_the_trailing_band_follows_the_row_not_a_constant(self):
+        # A night row targets 0.38; judged against the 0.72 row's floor the night mode reads `no` by
+        # construction, so the row that names the mode would refuse it. The band must come from the row.
+        path = self.log([(self.now - 300 + i * 5, 0.35) for i in range(60)])
+        self.assertEqual(ambient_map.trailing_state(path)["state"], "no")
+        self.assertEqual(ambient_map.trailing_state(path, target=0.38, band=0.30)["state"], "yes")
+
+    def test_the_night_row_is_pending_recurrence_with_its_own_band(self):
+        sys.path.insert(0, os.path.join(ROOT, "tests", "skeptic"))
+        from comparators import lookup
+        entry, problem = lookup("gate3:d89f689+:0.38")
+        self.assertEqual(problem[0], "pending")
+        self.assertTrue(entry.get("pending_recurrence"))
+        self.assertEqual(entry["target_load"], 0.38)
+        self.assertLess(entry["target_load"] - entry["launch_tolerance"], 0.42)   # reaches below 0.72's floor
+
     def test_a_stale_log_is_stale(self):
         path = self.log([(self.now - 10 ** 5, 0.55)])
         self.assertEqual(ambient_map.trailing_state(path)["state"], "stale")
@@ -59,7 +75,8 @@ class TrailingStateTest(unittest.TestCase):
         original = baseline_attempts.AMBIENT
         baseline_attempts.AMBIENT = path
         try:
-            self.assertEqual(baseline_attempts.main(["--simulate", "0", "--no-wait"]), 4)
+            self.assertEqual(baseline_attempts.main(["--simulate", "0", "--no-wait",
+                                                     "--comparator", "gate3:d89f689+:0.38"]), 4)
         finally:
             baseline_attempts.AMBIENT = original
 
@@ -72,7 +89,7 @@ class TrailingStateTest(unittest.TestCase):
         states = [{"state": "yes", "share": 1.0, "n": 60, "age": 5.0},
                   {"state": "no", "share": 0.2, "n": 60, "age": 5.0}]
         original_gate = baseline_attempts.mode_state
-        baseline_attempts.mode_state = lambda: states.pop(0)
+        baseline_attempts.mode_state = lambda *a, **k: states.pop(0) if len(states) > 1 else states[0]
         try:
             self.assertEqual(baseline_attempts.main(["--simulate", "0", "--no-wait",
                                                      "--log", os.devnull]), 3)
@@ -91,13 +108,14 @@ class TrailingStateTest(unittest.TestCase):
                   {"state": "yes", "share": 1.0, "n": 60, "age": 5.0},
                   {"state": "no", "share": 0.2, "n": 60, "age": 5.0}]
         original_gate, original_log = baseline_attempts.mode_state, baseline_attempts.LOG
-        baseline_attempts.mode_state = lambda: states.pop(0)
+        baseline_attempts.mode_state = lambda *a, **k: states.pop(0) if len(states) > 1 else states[0]
         baseline_attempts.LOG = os.devnull
         buffer = io.StringIO()
         try:
             with contextlib.redirect_stdout(buffer):
                 code = baseline_attempts.main(["--simulate", "0", "--no-wait",
-                                               "--subject-comparator", "gate1:d89f689:2.00"])
+                                               "--comparator", "gate3:d89f689+:0.38",
+                                               "--subject-comparator", "gate3:d89f689+:0.38"])
             self.assertEqual(code, 0)                       # a baseline was obtained
             self.assertIn("pair=baseline-only", buffer.getvalue())
         finally:
@@ -114,7 +132,8 @@ class TrailingStateTest(unittest.TestCase):
         try:
             with contextlib.redirect_stdout(buffer):
                 code = baseline_attempts.main(["--simulate", "0", "--no-wait",
-                                               "--subject-comparator", "gate1:d89f689:2.00"])
+                                               "--comparator", "gate3:d89f689+:0.38",
+                                               "--subject-comparator", "gate3:d89f689+:0.38"])
             self.assertEqual(code, 0)
             self.assertIn("pair=complete", buffer.getvalue())
         finally:
@@ -126,7 +145,8 @@ class TrailingStateTest(unittest.TestCase):
         original_ambient, original_log = baseline_attempts.AMBIENT, baseline_attempts.LOG
         baseline_attempts.AMBIENT, baseline_attempts.LOG = path, os.devnull
         try:
-            self.assertEqual(baseline_attempts.main(["--simulate", "0", "--no-wait"]), 0)
+            self.assertEqual(baseline_attempts.main(["--simulate", "0", "--no-wait",
+                                                     "--comparator", "gate3:d89f689+:0.38"]), 0)
         finally:
             baseline_attempts.AMBIENT, baseline_attempts.LOG = original_ambient, original_log
 

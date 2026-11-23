@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import sys
@@ -46,6 +48,23 @@ class AmbientModesTest(unittest.TestCase):
         finally:
             os.unlink(path)
         self.assertEqual(ambient_map.MODE_MIN_SAMPLES, 60)
+
+    def test_the_valley_is_read_off_hourly_medians_not_day_medians(self):
+        # One day can hold two states (0.35 and 1.62): its median describes neither, so a day-level spread
+        # cannot locate the empty region. The hourly medians can, and the widest adjacent gap is the valley.
+        now = time.time()
+        first = [(now - 7200 + i * 5, 0.35) for i in range(720)]
+        second = [(now - 3600 + i * 5, 1.62) for i in range(720)]
+        path = write_log(first + second)
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                ambient_map.modes(path, max_age=10 ** 9)
+        finally:
+            os.unlink(path)
+        output = buffer.getvalue()
+        self.assertIn("valley: no hour's median lies between 0.35 and 1.62", output)
+        self.assertIn("band split:", output)
 
     def test_mode_share_is_definitional(self):
         # "majority in-gate" is the definition, not a tuned cutoff: exactly half is schedulable.

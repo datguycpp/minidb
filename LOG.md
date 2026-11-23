@@ -4234,3 +4234,45 @@ Nothing above the first entry was edited in the move.
   exists only inside the harness process. Closing that needs one of two things, and it is a ruling:
   either the capture accepts a **measured row** on stdin/a path (a sidecar after all, but scoped to one
   row and printed), or the row lands on disk first and the pair is one commit apart by construction.
+
+- **The valley line was measuring the wrong thing, and the band now reports which side excludes.**
+  Two instruments corrected against the doubled log (n=8,157):
+  *1. `valley` is read off **hourly** medians, not day medians.* A day median is a composite of its own
+  hours — 11-23 held 0.35 at 19:00 and 1.62 at 15:00, and its median (0.94) describes neither — so a
+  day-level spread flags structure it cannot locate and fires on differences that are not valleys. The
+  widest **adjacent gap between hourly medians** is the region no state occupies:
+  ```
+  valley: no hour's median lies between 0.64 and 1.07 (gap 0.43 > band 0.30) — the structure is
+          intra-day, and any single target names one mode, not the distribution
+  ```
+  *2. `band split` prints below / in / above*, because "in-gate share" alone cannot show which edge is
+  doing the excluding. Live: **below 25.3% / in 35.2% / above 39.5%** — and in tonight's deep-quiet hours
+  the exclusion is **from below**, at p50 0.35–0.51 against a band floor of 0.42. That is the same
+  from-below exclusion the retired `[1.0, 3.0]` window produced, now visible in the artifact instead of
+  inferred from a table that only counted what was inside.
+  *Neither change moves a parameter:* target 0.72 stays a mode centre, the band stays `[0.42, 1.02]`, and
+  tonight's deep quiet reads as **excluded pending a ruling**, not as schedulable. Test added for the
+  hourly-valley form (a day holding 0.35 and 1.62 must report the 0.35–1.62 gap). Suite **658 OK**.
+
+- **The night-mode row is pre-registered, and the trailing band is derived from whichever row the harness
+  was launched with.** `gate3:d89f689+:0.38` — `target_load 0.38` (median of 11-23's 18:00–21:00, n=2,879;
+  p25 0.30, p75 0.51), `launch_tolerance 0.30` → band **[0.08, 0.68]**, `pending: True`,
+  **`pending_recurrence: True`**, instrument `baseline_g6_quiet`, N=7, no ceiling. It exists so recurrence can
+  be **spent** rather than watched: a second evening inside that band can run the pair with parameters frozen
+  *before* the capture, instead of the room observing the mode and then freezing from it — which would have
+  cost a third evening.
+  *The condition that makes it work (@research's):* `mode_state()` now takes the row's band, so a fixture at
+  0.35 reads **`no` against the 0.72 row** and **`yes` against the night row** — the row that names a mode no
+  longer refuses that mode. Verified end to end on a synthetic night stretch:
+  ```
+  row gate: comparator=gate3:d89f689+:0.38 state=pending base=0.38 tolerance=0.30
+  mode gate: row-band=[0.08, 0.68] state=yes share=100.0% n=60
+  subject row gate: captured_pre=0.38 reading=0.38 gap=0.00
+  pair=complete
+  ```
+  *What it does not do:* it schedules nothing. `pending_recurrence` marks one observation; a second evening
+  decides whether the row goes live, and until then tonight's exclusion stays labelled `pending recurrence`
+  rather than "by design". Two quiets, two rows — the 0.72 row's framework is unamended, and no constant
+  moved except the addition of a second, separately-parameterised row.
+  *Tests:* two added — the band follows the row (0.35 is `no` on the default band, `yes` on the night band)
+  and the night row is pending-recurrence with a band reaching below 0.42. Suite **660 OK**.

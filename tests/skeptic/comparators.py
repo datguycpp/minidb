@@ -50,6 +50,32 @@ COMPARATORS = {
     # Identity follows the CAPTURED reading, not the target: if the capture launches at 0.83, the live
     # comparator becomes `gate3:d89f689+:0.83` so the identity keeps naming the load the ceiling actually
     # belongs to, and 0.72 stays as declared intent. Until then this row is `pending` and unusable.
+    # Pre-registered NIGHT-mode row: frozen from tonight's four hours (18:00-21:00, n=2,879, median 0.38)
+    # BEFORE any second evening is observed, so recurrence can be SPENT rather than watched. Its whole
+    # point is that the 0.72 band excludes this mode from below (0.42 floor vs a 0.35 median), so the
+    # harness must derive the trailing band from the row it was launched with -- otherwise the row that
+    # names the night mode refuses the night mode.
+    #
+    # Status: PENDING-RECURRENCE. It becomes live only if a second evening reproduces the mode; until then
+    # it may exist (a declared target costs nothing) but may not schedule a capture as though measured.
+    "gate3:d89f689+:0.38": {
+        "gate": "gate3",
+        "revision": "d89f689+",
+        "base_load": None,
+        "instrument": "baseline_g6_quiet",
+        "instrument_n": 7,
+        "target_load": 0.38,
+        "launch_tolerance": 0.30,
+        "captured_pre_load": None,
+        "ceiling_ms": None,
+        "retired": False,
+        "pending": True,
+        "pending_recurrence": True,
+        "note": ("PRE-REGISTERED NIGHT MODE, pending recurrence: target 0.38 is the median of 11-23's "
+                 "18:00-21:00 (n=2,879, p25 0.30, p75 0.51), frozen before any second evening is seen. "
+                 "Band [0.08, 0.68] reaches below the 0.72 row's floor by construction. One observation "
+                 "exists; a second evening decides whether this row goes live."),
+    },
     "gate3:d89f689+:0.72": {
         "gate": "gate3",
         "revision": "d89f689+",
