@@ -24,6 +24,7 @@ Usage:
     python tools/baseline_attempts.py --simulate 3,3,0 --no-wait      # control flow only, no measurement
 """
 
+import fcntl
 import json
 import os
 import re
@@ -39,6 +40,34 @@ INSTRUMENT = "baseline_g6_quiet"
 INSTRUMENT_D = 30.0          # seconds, approximate: N=7 series of the tiny fixture
 LOG = os.path.expanduser("~/.minidb-baseline-attempts.jsonl")
 AMBIENT = os.path.expanduser("~/.minidb-ambient.jsonl")
+# One pair on the box at a time, enforced where the spend happens. The two rows' bands overlap (night
+# [0.08, 0.68] and afternoon [0.42, 1.02] share [0.42, 0.68], and both observed quiets sit inside it), so
+# two watchers can read `yes` on the same stretch and contaminate each other's loads -- each pair's 30-second
+# legs raising the load the other is measured under. A lock in the watcher alone would leave the manual path
+# open, so it lives here: flock on an open fd, atomic, self-releasing on crash, no daemon, no cleanup file.
+# Acquired non-blocking AFTER the gates pass (never across the pre-launch wait, which would turn one row's
+# wait into the other row's starvation) and held across baseline through subject including the inter-leg gap.
+LOCK_PATH = os.path.expanduser("~/.minidb-pair.lock")
+LOCK_EXIT = 5
+
+
+def acquire_lock(path=LOCK_PATH):
+    handle = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(handle)
+        return None
+    return handle
+
+
+def release_lock(handle):
+    if handle is None:
+        return
+    try:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    finally:
+        os.close(handle)
 BASELINE_DELTA = 1.0         # comparability for sessions judged against a COMPLETED row
 SUBJECT_TOLERANCE = 0.30     # representativeness for the pair's second leg: same load, not merely
                              # same stretch. +-1.0 would admit a baseline at 0.72 and a subject at 1.70 --
@@ -212,6 +241,7 @@ def main(argv=None):
         return 4
 
     attempts, baseline, subject = [], None, None
+    lock_blocked = False
     for number in range(1, MAX_ATTEMPTS + 1):
         if simulate is None:
             load, waited = wait_for_comparable(0 if no_wait else wait_cap, base, tolerance)
@@ -232,6 +262,13 @@ def main(argv=None):
             print("attempt %d: ABORTED — mode is %s at launch (was %s at wait-start); the window is not "
                   "spent on a stretch that stopped being schedulable while the harness waited."
                   % (number, launch_state["state"], state["state"]))
+            break
+
+        lock = acquire_lock() if simulate is None else os.open(os.devnull, os.O_RDONLY)
+        if lock is None:
+            print("attempt %d: SKIPPED — another pair holds the box lock (%s); this window is spent by "
+                  "someone else and no attempt is consumed." % (number, LOCK_PATH))
+            lock_blocked = True
             break
 
         if simulate is not None:
@@ -260,6 +297,8 @@ def main(argv=None):
             baseline = record
             print("attempt %d: ACCEPTED — %s" % (number, record["values"]))
             break
+        release_lock(lock)
+        lock = None
         print("attempt %d: REFUSED (exit %d) — %s" % (number, record["exit"],
                                                       record.get("refusal") or "see trace"))
 
@@ -323,6 +362,7 @@ def main(argv=None):
           "retired 1934.4 or to another mode's verdict without its label."
           % (verdict["status"], verdict["mode_label"]))
 
+    release_lock(locals().get("lock"))
     pair_status = ("none" if baseline is None else
                    "complete" if subject and subject.get("status") == "complete" else "baseline-only")
 
@@ -332,6 +372,10 @@ def main(argv=None):
         print("  attempt %d: exit=%d pre_load=%s stratum=%s phase=%s refusal=%s"
               % (record["attempt"], record["exit"], record.get("pre_load"), record.get("start_stratum"),
                  record.get("start_phase"), record.get("refusal") or "-"))
+    if lock_blocked and baseline is None:
+        print("PAIR SKIPPED — the box lock was held by another pair for the whole window; nothing was "
+              "measured and no attempt was consumed.")
+        return LOCK_EXIT
     if baseline is None:
         print("NO BASELINE OBTAINED; REFUSALS RECORDED — a result about the box, and the input the "
               "re-baseline question would need. Not a verdict that the box cannot be scheduled.")

@@ -4333,3 +4333,44 @@ Nothing above the first entry was edited in the move.
   says `no`. "Both bands read 0%" was true of the instant and false of the night: schedulable windows have
   been passing unspent, which is what the harness exists to catch and what the horizon now bounds.
   Test added (a night stretch reaches `yes` on the night row and never on the afternoon row). Suite **666 OK**.
+
+- **The last mile: an unattended watcher, built and verified in dry-run, NOT yet enabled.** The per-row replay
+  showed **34 schedulable windows already passed unspent** (11 night, 23 afternoon) while every manual
+  invocation ran during a `no` — a complete gate nobody runs is a door that opens only when pushed.
+  `tools/pair_watch.py` polls `trailing_state` for **one named pending row**, and on `yes` invokes the frozen
+  pair harness for that row; it decides nothing itself:
+  * budgets and gates are the harness's (3 baseline attempts, 1 subject, two gates per spend, three-valued
+    pair status, refusal exit codes) — unchanged;
+  * schedulability is the instrument's (`MODE_MIN_SAMPLES`, trailing share) — the watcher only reads it;
+  * rows, ceilings and verdicts are untouched — the harness prints, the verdict carries its mode at birth;
+  * **every poll is logged** (`~/.minidb-pair-watch.jsonl`, `action=wait|would-launch|launch|launched`),
+    because a watcher that logged only its launches could not be told apart from one that was dead — the
+    45-hour hole's lesson applied to a new process.
+  *Verified (dry-run only, no measurement):* live log → `state=no`, `action=wait`, exit 3; a synthetic quiet
+  stretch → `state=yes (share 100.0%)`, `action=would-launch`, exit 0, and **nothing launched**.
+  *Not done, deliberately:* no systemd unit was created or enabled. An autonomous launcher is a new thing for
+  a room whose instrument doctrine is supervised, and it needs the ruling before it runs unattended — the
+  sampler's unit is the precedent, not the permission. Tests: 3 (`tests/test_pair_watch.py`) — live rows
+  refused, busy records a wait, quiet would-launch launches nothing. Suite **669 OK**.
+  *One pair on the box at a time, locked where the spend happens (@qa's overlap catch).* The rows' bands
+  overlap — night `[0.08, 0.68]` and afternoon `[0.42, 1.02]` share `[0.42, 0.68]`, and both observed quiets
+  sit inside it — so two watchers can read `yes` on the same stretch and each pair's 30-second legs would
+  raise the load the other is measured under: two polluted verdicts, labelled and spread-annotated. The lock
+  lives in the **harness**, not the watcher, because a watcher-only lock leaves the manual path open: `flock`
+  on an open fd (`~/.minidb-pair.lock`), atomic and self-releasing on crash, acquired **non-blocking after
+  both gates pass** — never across the pre-launch wait, which would turn one row's wait into the other's
+  starvation — and held across baseline through subject including the inter-leg gap. Contention exits **5**,
+  and the watcher logs `wait reason=lock`, so the poll log distinguishes *no window* / *window taken* /
+  *launched* / *dead*. Test: two acquisitions, second refused, reacquire after release.
+  *Also fixed:* the two bare `open()` calls in `tests/test_pair_watch.py` — the suite's unclosed-file count is
+  back to **0**, which @security caught before the cited-suite push.
+  *Enabled and supervised (§ the room's ruling, @security's argument for autonomy).* Two user units, one per
+  pending row, both `Restart=always` + `RestartSec=10`, `WantedBy=default.target`, **linger on** so they
+  survive logout, and no `setsid`/`&` inside the gateway's cgroup:
+  ```
+  minidb-pair-night.service      → --comparator gate3:d89f689+:0.38 --interval 60   (active, MainPID 3892157)
+  minidb-pair-afternoon.service  → --comparator gate3:d89f689+:0.72 --interval 60   (active, MainPID 3892156)
+  ```
+  First poll lines land in `~/.minidb-pair-watch.jsonl` (`state=no`, `action=wait`), so a live watcher is
+  distinguishable from a dead one from the very first minute. The autonomy introduces a **forwarder, not a
+  decision**: every spending decision is still the frozen harness's, at the frozen gates.
