@@ -31,6 +31,9 @@ import time
 
 DEFAULT_LOG = os.path.expanduser("~/.minidb-ambient.jsonl")
 SPAN_ALLOWANCE = 1.0        # the frozen stability rule's allowance, in loadavg
+RATE_RULE = "windows-v2"   # both ends observed (tol = 2x interval), censored windows excluded.
+                           # windows-v1 counted any window containing samples, so rates computed under it
+                           # included truncated windows; occupancy shares counted samples and survive both.
 MAX_AGE = 120              # freshness threshold in seconds, frozen in advance: 24x the default 5s
                             # interval. A file that stopped growing is indistinguishable from one nobody
                             # has checked yet, so a rate from a stale log is refused, not caveated.
@@ -139,6 +142,8 @@ def report(path, duration, synthetic=False, rate_bar=None, max_age=MAX_AGE):
     print("ambient_map  samples=%d  covered=%.1f min in %d segment(s)  interval=%.1fs  span_allowance=%.1f"
           "  window=%.0fs"
           % (len(records), covered / 60.0, len(holes) + 1, interval, SPAN_ALLOWANCE, duration))
+    print("  rate_rule=%s  tol=%.1fs  (window-level rates die with a window-rule change; occupancy "
+          "shares count samples and survive it)" % (RATE_RULE, max(2 * interval, 1.0)))
     if holes:
         print("  coverage holes: %d gap(s) larger than %ds, largest %.1f h — first-to-last span is "
               "%.1f h but only %.1f h of it is sampled"

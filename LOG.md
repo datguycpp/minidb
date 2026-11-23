@@ -3875,3 +3875,15 @@ Nothing above the first entry was edited in the move.
   *Supervision caveat recorded in the unit:* `WantedBy=default.target` does not survive logout without
   `loginctl enable-linger` (this box: `Linger=yes`); the committed unit now states the requirement, because
   supervision that depends on an unstated user setting is the 45 h gap waiting to recur elsewhere.
+
+- **Supersession, stated explicitly: every episode rate quoted before `d69cd99` is superseded by the
+  censored recomputation, and the artifact now prints which window rule produced it.** The pre-fix
+  figures (`P_hat` 0.167–0.429, `P_upper` 0.377–0.628) counted **20 windows where 18 were observed** —
+  two tail-truncated windows at the 45 h boundary were read as stable off a fragment. Post-fix, band
+  `≤1.20` reads `P_hat 0.278 / P_upper 0.498` over 18 observed of 20. A reader must not quote the two
+  pairs as if they were different runs; they are the same data computed correctly once.
+  **What survives unchanged:** the occupancy shares — 91.4% ≤2.00, 89.2% ≤1.50 — because those count
+  *samples*, not windows, and no window rule touches them.
+  *Generalised into the tool:* every report now prints `rate_rule=windows-v2 tol=…` beside its coverage
+  line, with the sentence that window-level rates die with a window-rule change while occupancy shares
+  survive it — so a future reader can tell which computation produced a number without LOG archaeology.
