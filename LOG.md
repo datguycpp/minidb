@@ -3942,3 +3942,17 @@ Nothing above the first entry was edited in the move.
   *The standard this completes:* the exemption is **claimed at invocation, validated by a guard that can
   refuse, and recorded in the commit's own message** — the governance layer now has the same three-part
   shape as the instruments, and none of it depends on anyone remembering.
+
+- **The validator's boundary is declared in the hook, and the fail-closed corner is verified rather than
+  argued.** @security's concern was that refusing an unresolvable trailer target would break every genuine
+  amend's first push — it doesn't, because the rewritten-away commit survives as a dangling object in the
+  local object store and stays reflog-reachable for 30–90 days, vastly longer than the commit→push
+  interval. The corner that *does* fire is **pushing from a different clone**, where neither the object nor
+  the reflog exists — which is the correct refusal, and now stated in the header as the hook's domain:
+  *the attestation is checkable only in the repository where the amend happened; push from that clone.*
+  *Verified by constructing the corner:* a commit carrying `Amended-from: deadbee` (unresolvable by design)
+  is refused at push time with `… that commit is not resolvable here, so the attestation cannot be checked.
+  Refusing.`
+  *Also recorded:* `core.hooksPath = .githooks` redirects all hooks, so `pre-push` needed no separate
+  install step — `make hooks` covers it, and the Makefile chmod line was extended anyway so a fresh clone
+  gets the bit set by the same command.
