@@ -3904,3 +3904,21 @@ Nothing above the first entry was edited in the move.
   *Shipped where it is reproducible:* the hook is committed in-repo, installed per clone with
   `git config core.hooksPath .githooks` (now `make hooks`), and names the remedy rather than only the
   rule. Its own refusal was tested where it can fail — a stacked commit — not asserted in prose.
+
+- **The hook's exemption for the amend rule is in, with the precedence stated in the hook itself.**
+  @qa found the collision the strict check created: on an unpushed tip, `commit --amend` runs `pre-commit`
+  with `HEAD` already one ahead, so the guard refused exactly the operation the amend rule *requires* — and
+  the likely workaround, `--no-verify`, disables the guard entirely.
+  *Precedence frozen in the file:* `ALLOW_AMEND=1` is honoured **only when the tip is exactly one commit
+  ahead**, where the only unpushed commit is the tip and the exemption cannot reach anything else; at
+  `ahead > 1` it refuses even when set, because amending a non-tip commit rewrites its descendants. The
+  refusal message names the legitimate path, so the exemption is not discovered via `--no-verify`.
+  *Trail without a registry:* `prepare-commit-msg` appends `Amended-from: <pre-amend hash>`, keyed on the
+  same per-invocation variable — no file to keep current, nothing that can go stale.
+  *A bug found by testing rather than by reading:* the first version keyed the trailer on git's `<source>`
+  argument, which is `commit` for an amend **without** `-m` but `message` when `-m` supplies the text — so
+  the common amend path silently got no trailer. It now keys on `ALLOW_AMEND` and reads `HEAD` before the
+  rewrite, which is the hash the trail needs.
+  *All four branches verified in the live repo:* ahead=0 → passes; ahead=1 → refuses with the remedy named;
+  ahead=1 + `ALLOW_AMEND=1` → honoured and the commit carries `Amended-from: c4b3847`; ahead=2 +
+  `ALLOW_AMEND=1` → `REFUSED — amending would rewrite its descendants`.

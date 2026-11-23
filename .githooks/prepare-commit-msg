@@ -1,0 +1,24 @@
+#!/bin/sh
+# Record which hash an exempted amend rewrote, so the rewrite is auditable from history alone.
+#
+# Keyed on the SAME per-invocation exemption pre-commit honoured (ALLOW_AMEND=1), not on git's <source>
+# argument: with `-m`, git reports source=`message` for an amend as well as for a normal commit, so a
+# source-based check silently skips exactly the amend path the shortcut is used for. HEAD at this moment is
+# still the pre-amend commit, which is the hash the trail needs.
+#
+# Nothing here is a registry: the variable exists only for one invocation, and the trailer lands in the
+# resulting commit's own message beside the hook's stderr line.
+#
+# Install (per clone): see .githooks/pre-commit.
+
+message_file="$1"
+
+if [ "${ALLOW_AMEND:-0}" != "1" ]; then
+    exit 0
+fi
+
+if grep -q '^Amended-from:' "$message_file" 2>/dev/null; then
+    exit 0
+fi
+
+printf '\nAmended-from: %s\n' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" >> "$message_file"

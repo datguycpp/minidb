@@ -1,19 +1,33 @@
 #!/bin/sh
-# Refuse to stack a commit on an unpushed tip.
+# Refuse to stack a commit on an unpushed tip — with one narrow, announced exemption for amending it.
 #
-# Why this exists: five tip shifts, two ordering breaches and a doubled pin protocol all came from the
-# same shape — a commit written on a tip whose push was still pending. The rule was a sentence, and the
-# two people who knew it best broke it in consecutive rounds. Machine-readable state beats memory:
-# `rev-list --count @{u}..HEAD` cannot be stale, cannot be forged by fatigue, and needs no registry file
-# to be kept current.
+# Why this exists: five tip shifts, two ordering breaches and a doubled pin protocol all came from the same
+# shape — a commit written on a tip whose push was still pending. The rule was a sentence, and the two
+# people who knew it best broke it in consecutive rounds. Machine-readable state beats memory:
+# `rev-list --count @{u}..HEAD` cannot be stale, cannot be forged by fatigue, and needs no registry file to
+# be kept current.
 #
 # Deliberately stricter than "ahead and unpinned", because pin-ness lives in chat and a pin file would be
 # the third artifact in this repo that looks live while nobody checks it. The workflow it enforces is
 # commit -> push -> commit -> push, which is what an upstream is for.
 #
+# The exemption exists because the strict check would otherwise forbid `git commit --amend` on an unpushed
+# commit — the operation the room's amend rule requires for unpinned work, used repeatedly this cycle. Two
+# frozen rules collided; precedence is stated here so the hook does not win by running first:
+#
+#   ALLOW_AMEND=1 is honoured ONLY when the tip is exactly one commit ahead of upstream. Under the strict
+#   workflow the unpushed count can only be 0 or 1, so at 1 the only unpushed commit IS the tip and the
+#   exemption cannot reach anything else. At ahead > 1 it refuses even when set: amending a non-tip commit
+#   rewrites every descendant, which is the pinned-hash case one layer down.
+#
+# pre-commit runs before the new object exists, so amend-vs-second-commit is indistinguishable from HEAD;
+# auto-detection would mean parsing argv, which is fragile and unauditable. The env var is per-invocation
+# by nature, so it cannot be left on, and every use announces itself on stderr. The Amended-from: trailer
+# is added by .githooks/prepare-commit-msg, so the rewrite is visible from history alone.
+#
 # Install (per clone):
 #   git config core.hooksPath .githooks
-#   chmod +x .githooks/pre-commit
+#   chmod +x .githooks/pre-commit .githooks/prepare-commit-msg
 
 upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
 if [ -z "$upstream" ]; then
@@ -23,10 +37,23 @@ if [ -z "$upstream" ]; then
 fi
 
 ahead=$(git rev-list --count "$upstream"..HEAD 2>/dev/null || echo 0)
-if [ "$ahead" -gt 0 ]; then
-    echo "pre-commit: $ahead commit(s) ahead of $upstream — push before committing." >&2
-    echo "pre-commit: stacking on an unpushed tip is what produced five tip shifts and two ordering" >&2
-    echo "pre-commit: breaches this cycle. The rule is commit -> push -> commit -> push." >&2
+if [ "$ahead" -eq 0 ]; then
+    exit 0
+fi
+
+if [ "${ALLOW_AMEND:-0}" = "1" ]; then
+    if [ "$ahead" -eq 1 ]; then
+        echo "pre-commit: ALLOW_AMEND=1 honoured — amending the tip ($(git rev-parse --short HEAD))," >&2
+        echo "pre-commit: which is the only unpushed commit. An Amended-from: trailer records the rewrite." >&2
+        exit 0
+    fi
+    echo "pre-commit: ALLOW_AMEND=1 REFUSED — $ahead commits are ahead of $upstream, so the tip is not the" >&2
+    echo "pre-commit: only unpushed commit; amending would rewrite its descendants. Push first." >&2
     exit 1
 fi
-exit 0
+
+echo "pre-commit: $ahead commit(s) ahead of $upstream — push before committing." >&2
+echo "pre-commit: stacking on an unpushed tip is what produced five tip shifts and two ordering" >&2
+echo "pre-commit: breaches this cycle. The rule is commit -> push -> commit -> push." >&2
+echo "pre-commit: correcting the single unpushed tip instead? Use ALLOW_AMEND=1 git commit --amend." >&2
+exit 1

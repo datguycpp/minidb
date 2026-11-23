@@ -32,5 +32,5 @@ verify:
 
 hooks:
 	git config core.hooksPath .githooks
-	chmod +x .githooks/pre-commit
+	chmod +x .githooks/pre-commit .githooks/prepare-commit-msg
 	@echo "hooks installed: commits are refused while the tip is ahead of origin"
