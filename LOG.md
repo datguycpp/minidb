@@ -4060,3 +4060,25 @@ Nothing above the first entry was edited in the move.
   most of its time near 0.6, the comparable band's **lower edge is itself unreachable during quiet phases**.
   That is the re-baseline question arriving as a live measurement rather than as an argument, and it is
   recorded here before any attempt is spent.
+
+- **The quiet-floor comparator row exists as a PRE-REGISTERED, PENDING row — declared before measurement,
+  refused until measured, and its live identity follows the capture rather than the target.**
+  `comparators.py` gains `gate3:d89f689+:0.72` with `target_load: 0.72` (the ambient log's median,
+  n≈3,600, frozen before any capture), `captured_pre_load: None`, `base_load: None`, `ceiling_ms: None`,
+  `pending: True`, `launch_tolerance: 0.30`, and a note stating the derivation and the inadmissibility rule.
+  `lookup()` gains a distinct **`pending`** problem kind, and the capture refuses such a row outright:
+  ```
+  baseline: comparator gate3:d89f689+:0.72 is PENDING — its target load 0.72 is pre-registered but no
+  capture has been measured against it, so it has no ceiling to call. Run the capture first; the live
+  identity then follows the captured reading.
+  ```
+  *Identity follows the captured load, not the target:* if the capture launches at 0.83, the live row
+  becomes `gate3:d89f689+:0.83` (and the window centres on 0.83), with 0.72 kept as declared intent — so the
+  identity never stops naming the load its ceiling belongs to, which was @research's gap.
+  *Retirement is now a chain:* `2.00 → 2.33 → 0.72(pending)`. The 2.33 row keeps its `ceiling_ms 1934.4`
+  and its history; only the pointer moved, dated in its note with the reason (baseline at 3.3× the median;
+  `[1.0, 3.0]` excluded the majority state from below).
+  *Tests:* the retired-successor test now **follows the chain** to a live-or-pending terminus rather than
+  demanding an immediately live successor (a declaration is honest before its measurement exists), and
+  three new tests pin the pending branch — refused with its own reason, `base_load`/`ceiling_ms` None, and
+  `target_load`/`captured_pre_load` carried as distinct fields. Suite **643 OK** (640 + 3).

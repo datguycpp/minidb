@@ -103,6 +103,11 @@ def select_comparator(argv):
     entry, problem = lookup(spec)
     if problem is not None:
         kind, detail = problem
+        if kind == "pending":
+            raise SystemExit("baseline: comparator %s is PENDING — its target load %.2f is pre-registered "
+                             "but no capture has been measured against it, so it has no ceiling to call. "
+                             "Run the capture first; the live identity then follows the captured reading."
+                             % (spec, detail))
         if kind == "retired":
             raise SystemExit("baseline: comparator %s is retired — superseded by %s; name the "
                              "successor to call a capture against it" % (spec, detail))
