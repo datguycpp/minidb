@@ -89,6 +89,38 @@ class TrailingStateTest(unittest.TestCase):
         self.assertIn("mode=night", output)
         self.assertIn("CONDITIONAL on the night mode", output)
 
+    def test_a_verdict_carries_both_legs_spreads(self):
+        # The comparison is median-vs-median at N=7, so the spread is the only robustness information the
+        # artifact can hold: a pass at 2% and a pass at 30% are different findings.
+        path = self.log([(self.now - 300 + i * 5, 0.35) for i in range(60)])
+        original = (baseline_attempts.AMBIENT, baseline_attempts.LOG, baseline_attempts.read_load,
+                    baseline_attempts.run_attempt)
+        baseline_attempts.AMBIENT, baseline_attempts.LOG = path, os.devnull
+        baseline_attempts.read_load = lambda: 0.38
+        calls = {"n": 0}
+
+        def fake(number, spec):
+            calls["n"] += 1
+            loop = 1030.0 if calls["n"] == 1 else 900.0
+            spread = 5.8 if calls["n"] == 1 else 3.1
+            return ({"attempt": number, "exit": 0, "seconds": 1.0,
+                     "values": {"loop": loop, "loop_spread": spread}}, "")
+
+        baseline_attempts.run_attempt = fake
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                code = baseline_attempts.main(["--no-wait", "--comparator", "gate3:d89f689+:0.38",
+                                               "--subject-comparator", "gate3:d89f689+:0.38"])
+        finally:
+            (baseline_attempts.AMBIENT, baseline_attempts.LOG, baseline_attempts.read_load,
+             baseline_attempts.run_attempt) = original
+        output = buffer.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("status=miss", output)              # 900 > 1030/2
+        self.assertIn("ceiling=515.0", output)
+        self.assertIn("spreads=5.8%/3.1%", output)
+
     def test_a_stale_log_is_stale(self):
         path = self.log([(self.now - 10 ** 5, 0.55)])
         self.assertEqual(ambient_map.trailing_state(path)["state"], "stale")

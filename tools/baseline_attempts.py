@@ -134,6 +134,7 @@ def wait_for_comparable(cap_seconds, base, tolerance, poll=15):
 def parse_capture(text):
     values = {}
     for name, pattern in (("loop", r"LOOP n=\d+ ms: .*?median=([0-9.]+)"),
+                          ("loop_spread", r"LOOP n=\d+ ms: .*?spread=([0-9.]+)%"),
                           ("parse", r"parse_ms\s+median=([0-9.]+)"),
                           ("reading", r"reading=([0-9.]+)"),
                           ("delta", r"delta=([0-9.]+)")):
@@ -296,14 +297,21 @@ def main(argv=None):
         subject_loop = ((subject or {}).get("values") or {}).get("loop")
         if base_loop and subject_loop:
             ceiling = base_loop / 2.0
+            # The spread is the only robustness information an N=7 gate capture can carry: no interval
+            # without a method frozen for it, and a median pass at 2% spread is a different finding from
+            # one at 30%. Echoed at birth so the first conditional verdict arrives with its uncertainty.
             verdict.update({"ceiling_ms": round(ceiling, 1), "subject_ms": round(subject_loop, 1),
+                            "baseline_spread_pct": (baseline.get("values") or {}).get("loop_spread"),
+                            "subject_spread_pct": ((subject or {}).get("values") or {}).get("loop_spread"),
                             "status": "pass" if subject_loop <= ceiling else "miss"})
         else:
             verdict["status"] = "undecided"
     print("verdict  mode=%s aggregate=%s status=%s  %s"
           % (verdict["mode_label"], AGGREGATE_RULE, verdict["status"],
              "" if verdict["status"] == "undecided" else
-             "ceiling=%.1f subject=%.1f" % (verdict["ceiling_ms"], verdict["subject_ms"])))
+             "ceiling=%.1f subject=%.1f spreads=%s%%/%s%%"
+             % (verdict["ceiling_ms"], verdict["subject_ms"], verdict["baseline_spread_pct"],
+                verdict["subject_spread_pct"])))
     print("verdict label for citation: 'gate 3 %s, CONDITIONAL on the %s mode' — not comparable to the "
           "retired 1934.4 or to another mode's verdict without its label."
           % (verdict["status"], verdict["mode_label"]))

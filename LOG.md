@@ -4294,3 +4294,13 @@ Nothing above the first entry was edited in the move.
   half-median rule), so a verdict never needs the row completed first; the row records what the pair found.
   *Tests:* two added — the rule's value is pinned, and a simulated night pair prints `mode=night` with the
   conditional label. Suite **662 OK**.
+  *The verdict carries both legs' spreads (@security's field, @research's location).* `parse_capture` now
+  reads the `spread=` the capture already prints (`:136–139`) and the verdict echoes
+  `spreads=<baseline>%/<subject>%` beside the medians, because the comparison is median-vs-median at N=7 and
+  the spread is the only robustness information this design can carry — no interval without a method frozen
+  for it. Demonstrated on a synthetic pair:
+  ```
+  verdict  mode=night aggregate=SINGLE_PASS status=miss  ceiling=515.0 subject=900.0 spreads=5.8%/3.1%
+  ```
+  (`ceiling = 1030/2.0` in-pair; the subject at 900 misses it; the spreads arrive with the number rather than
+  being reconstructed from the JSONL later). Suite **663 OK**.
