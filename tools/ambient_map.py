@@ -129,6 +129,40 @@ def segments_of(records, interval, max_age):
     return segments
 
 
+def phase_stretches(records, interval, max_age, delimiter):
+    """Contiguous phase stretches under a frozen delimiter.
+
+    'threshold' splits where the 2.00 phase-mix boundary is crossed; 'episode' splits where the span
+    allowance is exceeded, i.e. on the map's own episode structure. The two assign windows differently --
+    a drift from 1.6 to 2.4 crosses the threshold but may contain no span episode -- which is exactly why
+    the choice is a ruling and not a default.
+    """
+    if not records:
+        return []
+    bounds = max(2 * interval, max_age)
+    stretches = []
+    start = records[0]["t"]
+    previous = records[0]
+    anchor = records[0]["load"]
+    for record in records[1:]:
+        split = False
+        if record["t"] - previous["t"] > bounds:
+            split = True
+        elif delimiter == "threshold":
+            split = (previous["load"] <= 2.00) != (record["load"] <= 2.00)
+        else:                                  # 'episode': a span breach restarts the stretch
+            split = abs(record["load"] - anchor) > SPAN_ALLOWANCE
+        if split:
+            stretches.append((start, previous["t"]))
+            start = record["t"]
+            anchor = record["load"]
+        else:
+            anchor = min(anchor, record["load"]) if record["load"] < anchor else anchor
+        previous = record
+    stretches.append((start, records[-1]["t"]))
+    return [item for item in stretches if item[1] - item[0] > 0]
+
+
 def windows_needed(rate):
     """Windows required for a zero-event band to claim P_upper <= rate (r and floor freeze together)."""
     if rate <= 0.0:
@@ -144,7 +178,7 @@ def percentile(values, fraction):
     return ordered[index]
 
 
-def report(path, duration, synthetic=False, rate_bar=None, max_age=MAX_AGE):
+def report(path, duration, synthetic=False, rate_bar=None, max_age=MAX_AGE, phase_delimiter=None):
     records = load_records(path)
     if len(records) < 2:
         print("ambient_map: need at least two samples to report (have %d)" % len(records))
@@ -324,10 +358,72 @@ def report(path, duration, synthetic=False, rate_bar=None, max_age=MAX_AGE):
             print("    trend (Cochran-Armitage on disjoint strata): z=%.2f  p=%.3f  %s"
                   % (z_value, p_value, "gradient supported" if p_value < 0.05
                      else "no trend detected at this n"))
+            print("    score convention: strata scored at their lower edge; the open top stratum [2.00, inf) "
+                  "is scored 2.0 because its midpoint is unbounded. A different score changes |z|, not the "
+                  "direction at these event rates -- the magnitude is convention-conditioned and every "
+                  "citation must say so.")
         else:
             print("    trend: not computable (zero variance)")
     else:
         print("    trend: not computable yet (needs events and non-events across strata)")
+    # Within-phase attribution: does the ambient gradient survive inside a single phase stretch, or is
+    # ambient a proxy for the box being in a busy phase? The delimiter is DELIBERATELY not defaulted --
+    # two candidate rules already exist on the board (contiguous runs bounded by span-episode structure,
+    # and the fixed 2.00 phase-mix boundary) and they assign windows differently, so choosing after seeing
+    # the result would be a plausibility constant. The block refuses until one is frozen by ruling.
+    if phase_delimiter is None:
+        print("  within-phase attribution: NOT COMPUTED — phase delimiter not frozen. Pass "
+              "--phase-delimiter episode|threshold once the room rules which one governs; the two assign "
+              "windows differently and the gradient may move with the choice.")
+    else:
+        phases = phase_stretches(records, interval, max_age, phase_delimiter)
+        print("  within-phase attribution (delimiter=%s, %d phase stretch(es)):" % (phase_delimiter,
+                                                                                  len(phases)))
+        for number, (phase_start, phase_end) in enumerate(phases, 1):
+            inner = [(index, load) for index, _, load in starts
+                     if phase_start <= records[index]["t"] <= phase_end]
+            chosen, last_t = [], None
+            for index, _ in inner:
+                if last_t is None or records[index]["t"] - last_t >= duration:
+                    chosen.append(index)
+                    last_t = records[index]["t"]
+            counted = unstable = 0
+            low_stratum = high_stratum = low_events = high_events = 0
+            tolerance = max(2 * interval, 1.0)
+            for index in chosen:
+                horizon_end = records[index]["t"] + duration
+                observed = [(item["t"], item["load"]) for item in records[index:] if item["t"] <= horizon_end]
+                if not observed:
+                    continue
+                if observed[0][0] - records[index]["t"] > tolerance:
+                    continue
+                if observed[-1][0] < horizon_end - tolerance:
+                    continue
+                counted += 1
+                event = max(value for _, value in observed) - min(value for _, value in observed) > SPAN_ALLOWANCE
+                unstable += 1 if event else 0
+                if records[index]["load"] <= 1.5:
+                    low_stratum += 1
+                    low_events += 1 if event else 0
+                else:
+                    high_stratum += 1
+                    high_events += 1 if event else 0
+            span_min = (phase_end - phase_start) / 60.0
+            if counted < 6 or low_stratum < 2 or high_stratum < 2:
+                print("    phase %d (%.0f min): insufficient per phase at this N — windows=%d "
+                      "strata(<=1.50:%d, >1.50:%d); more quiet-phase accumulation, not a reinterpretation"
+                      % (number, span_min, counted, low_stratum, high_stratum))
+            else:
+                rate_low = low_events / float(low_stratum)
+                rate_high = high_events / float(high_stratum)
+                print("    phase %d (%.0f min): windows=%d  P(<=1.50)=%.2f (%d/%d)  P(>1.50)=%.2f (%d/%d)  %s"
+                      % (number, span_min, counted, rate_low, low_events, low_stratum, rate_high,
+                         high_events, high_stratum,
+                         "gradient PERSISTS within phase" if rate_high - rate_low >= 0.3
+                         else "gradient vanishes within phase (ambient looks like a phase proxy)"))
+        print("    note: cells are sparse by construction at this N; 'insufficient per phase' is the "
+              "pre-registered most-likely outcome and is not the proxy answer.")
+
     print("  note: the CUMULATIVE rows above are nested samples, so their difference is partly composition;"
           " a gradient claim needs these disjoint strata or the trend line, and both inherit the phase"
           " scope -- phase-scoped until a full cycle is covered.")
@@ -392,6 +488,7 @@ def main(argv=None):
     path, interval, duration = DEFAULT_LOG, 5, 600
     sampling = reporting = synthetic = False
     rate_bar = None
+    phase_delimiter = None
     for index, arg in enumerate(argv):
         if arg == "--sample":
             sampling = True
@@ -401,6 +498,10 @@ def main(argv=None):
             synthetic = True
         elif arg == "--rate-bar" and index + 1 < len(argv):
             rate_bar = float(argv[index + 1])
+        elif arg == "--phase-delimiter" and index + 1 < len(argv):
+            phase_delimiter = argv[index + 1]
+            if phase_delimiter not in ("episode", "threshold"):
+                raise SystemExit("ambient_map: --phase-delimiter takes episode or threshold")
         elif arg == "--instrument" and index + 1 < len(argv):
             duration = INSTRUMENT_D.get(argv[index + 1], duration)
         elif arg == "--log" and index + 1 < len(argv):
@@ -413,7 +514,7 @@ def main(argv=None):
         sample(path, interval)
         return 0
     if reporting:
-        return report(path, duration, synthetic, rate_bar)
+        return report(path, duration, synthetic, rate_bar, MAX_AGE, phase_delimiter)
     print(__doc__)
     return 2
 

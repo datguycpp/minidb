@@ -4004,3 +4004,19 @@ Nothing above the first entry was edited in the move.
   has changed, and it changed because the comparison was made honest rather than because a number moved.
   *Also recorded:* the `DISAGREE` verdict now carries its discrimination limit — non-stationarity or
   phase-sampling, undecidable until cycle coverage — so it cannot harden into a mechanism claim.
+
+- **Within-phase attribution is implemented, and it refuses to run until the delimiter is frozen.** The two
+  candidate delimiters on the board assign windows differently by construction — `threshold` splits where
+  the 2.00 phase-mix boundary is crossed, `episode` splits where a span breach restarts the stretch — so the
+  choice cannot be made after seeing a gradient. Without `--phase-delimiter`, the block prints
+  `NOT COMPUTED — phase delimiter not frozen` and says why.
+  *Both delimiters exercised as mechanism verification only (not as a result):* `threshold` yields **38**
+  stretches, `episode` yields **19**. Every stretch under both reads
+  `insufficient per phase at this N — … more quiet-phase accumulation, not a reinterpretation`.
+  **That is @security's pre-registered most-likely outcome, and it is delimiter-independent** — the
+  sufficiency question does not depend on which rule is chosen, which is the one thing a ruling actually
+  needs to know before it picks. The attribution question (causal vs proxy) is untouched and unresolvable
+  at this N either way.
+  *Score convention recorded beside the trend:* strata are scored at their lower edge and the open top
+  stratum `[2.00, inf)` at **2.0** because its midpoint is unbounded; a different score changes `|z|`, not
+  the direction at these event rates, so every citation of the trend must carry that condition.
