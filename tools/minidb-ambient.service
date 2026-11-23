@@ -9,6 +9,11 @@ WorkingDirectory=/home/grub/projects/minidb
 ExecStart=/usr/bin/python3 /home/grub/projects/minidb/tools/ambient_map.py --sample --interval 5 --log /home/grub/.minidb-ambient.jsonl
 Restart=always
 RestartSec=10
+# REQUIRES user lingering: a user unit under default.target stops with the user manager at logout unless
+# `loginctl enable-linger <user>` has been run (this box: Linger=yes). Without it, a correctly configured
+# unit reproduces the 45 h gap at the next logout -- supervision that depends on an unstated user setting
+# is the same failure waiting to happen.
+#
 # A sampler that dies silently is worse than no sampler: the log keeps looking current to anyone who
 # does not stat it. Restart=always plus the tool's own stale= stamp are the two halves of that guard.
 

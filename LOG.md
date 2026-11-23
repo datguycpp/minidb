@@ -3859,3 +3859,19 @@ Nothing above the first entry was edited in the move.
   - **Coverage holes are named, not averaged:** the report now prints `covered=209.5 min in 2 segment(s)`
     and `coverage holes: 1 gap larger than 120s, largest 45.0 h — first-to-last span is 48.5 h but only
     3.5 h of it is sampled`, so the dead interval is visible in the same line that reports coverage.
+
+- **Censored windows no longer count, at both ends, and the counters caught real contamination immediately.**
+  A window is counted only if its observations cover the horizon within `2×interval` **at both ends**
+  (`first ≤ start + tol` and `last ≥ horizon_end − tol`); `censored_head` and `censored_tail` print
+  separately beside `unstable`/`over`, and the rate is computed over observed windows only.
+  *The guard earned its keep on the first run:* `censored_tail=2` at bands ≥1.20 — two windows whose
+  horizons ran into the 45 h hole were being counted as observed and read as stable off a truncated
+  fragment, exactly the censoring @security identified. Band `≤1.20` now reads **18 observed of 20 indep**
+  with `P_hat 0.278 / P_upper 0.498`.
+  *Why symmetric despite an empty hole:* a window always starts at a sample, so an entirely empty gap
+  cannot be entered — but a **sparse** gap can, and a guard shaped to this polite hole would be shaped to
+  miss the next one. The distinct counters preserve the failure geometry: head-censored means the gap
+  starts before the window, tail-censored means it starts inside it.
+  *Supervision caveat recorded in the unit:* `WantedBy=default.target` does not survive logout without
+  `loginctl enable-linger` (this box: `Linger=yes`); the committed unit now states the requirement, because
+  supervision that depends on an unstated user setting is the 45 h gap waiting to recur elsewhere.

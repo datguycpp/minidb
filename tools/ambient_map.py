@@ -167,26 +167,44 @@ def report(path, duration, synthetic=False, rate_bar=None, max_age=MAX_AGE):
                 last_t = records[index]["t"]
         occupancy = len(eligible) / float(len(records))
         needed_h = (MIN_WINDOWS * duration / 3600.0 / occupancy) if occupancy else float("inf")
-        unstable = over = 0
+        unstable = over = censored_head = censored_tail = 0
+        tolerance = max(2 * interval, 1.0)
         for index in independent:
             horizon_end = records[index]["t"] + duration
-            window = [item["load"] for item in records[index:] if item["t"] <= horizon_end]
-            if not window:
+            observed = [(item["t"], item["load"]) for item in records[index:]
+                        if item["t"] <= horizon_end]
+            if not observed:
+                censored_tail += 1
                 continue
-            if max(window) - min(window) > SPAN_ALLOWANCE:
+            # A window counts only if BOTH ends are observed: a horizon whose tail falls in a gap reads a
+            # small span off a truncated fragment and would be recorded stable while the unsampled bulk is
+            # unknown. Head check matters for partial gaps -- an empty hole cannot be entered, but a sparse
+            # one can, and a guard shaped to a polite hole is a guard shaped to miss the next one.
+            if observed[0][0] - records[index]["t"] > tolerance:
+                censored_head += 1
+                continue
+            if observed[-1][0] < horizon_end - tolerance:
+                censored_tail += 1
+                continue
+            values = [value for _, value in observed]
+            if max(values) - min(values) > SPAN_ALLOWANCE:
                 unstable += 1
-            if max(window) > 3.0:
+            if max(values) > 3.0:
                 over += 1
         count = len(independent)
-        point = unstable / count if count else float("nan")
-        upper = clopper_pearson_upper(unstable, count) if count else float("nan")
+        observed_count = count - censored_head - censored_tail
+        point = unstable / observed_count if observed_count else float("nan")
+        upper = clopper_pearson_upper(unstable, observed_count) if observed_count else float("nan")
         line = ("  %-10.2f %-8d %-6d %-7s %-14s"
                 % (threshold, len(eligible), count,
                    "%.3f" % point if count else "-", "%.3f" % upper if count else "-"))
-        if count < MIN_WINDOWS:
-            line += " insufficient (%d indep < %d; band %.1f%% of log, needs ~%.0f h)" % (
-                count, MIN_WINDOWS, occupancy * 100.0, needed_h)
+        if observed_count < MIN_WINDOWS:
+            line += (" insufficient (%d observed of %d indep < %d; censored_head=%d censored_tail=%d; "
+                     "band %.1f%% of log, needs ~%.0f h)"
+                     % (observed_count, count, MIN_WINDOWS, censored_head, censored_tail,
+                        occupancy * 100.0, needed_h))
         elif rate_bar is not None:
+            line += (" [censored_head=%d censored_tail=%d]" % (censored_head, censored_tail))
             line += (" CLEARS r=%.2f" % rate_bar if upper <= rate_bar
                      else " does not clear r=%.2f (needs ~%d indep)" % (rate_bar,
                                                                        windows_needed(rate_bar)))
