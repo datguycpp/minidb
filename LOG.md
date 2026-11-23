@@ -3978,3 +3978,29 @@ Nothing above the first entry was edited in the move.
   *Also closed:* @security's header-vs-LOG precision — `50f1a08` claimed the boundary was "in its header"
   while the diff touched LOG.md only. The hook's own header now carries the DECLARED BOUNDARY block, so the
   artifact a future editor opens states the domain it is checked against.
+
+- **The cumulative bands were nested, and the disjoint strata reverse the weak-predictor reading.** @qa's
+  point was exact: `start ≤ 1.00` is a subset of `start ≤ 2.33`, so a difference between those rows is
+  partly composition, not gradient. The report now prints **disjoint strata** plus a Cochran–Armitage trend
+  across them (both from the same jsonl, both phase-scoped):
+  ```
+  disjoint bands:
+    0-1.00     indep=18  events=3  P_hat=0.167  P_upper=0.377
+    1.00-1.20  indep= 9  events=8  P_hat=0.889  P_upper=0.994
+    1.20-1.50  indep= 9  events=9  P_hat=1.000
+    1.50-1.80  indep= 9  events=9  P_hat=1.000
+    1.80-2.00  indep= 9  events=9  P_hat=1.000
+    2.00-inf   indep= 7  events=7  P_hat=1.000
+  trend (Cochran-Armitage): z=5.96  p<0.001  gradient supported
+  ```
+  **This reverses the reading the room has carried for several rounds:** on disjoint strata, start ambient
+  is a *strong* predictor and it points the helpful way — a session started at ≤1.00 hits an episode 3 times
+  in 18, while every higher stratum hits one almost always. The "weak predictor" conclusion was an artefact
+  of nesting: the cumulative ≤2.33 set is dominated by the quiet band, which diluted exactly the contrast
+  the strata expose.
+  *What this is not yet:* a schedulable threshold. The strata above 1.00 are 7–9 windows each, the whole log
+  is one phase pair, and ambient may be a **proxy** for "the box is in a busy phase" rather than a cause —
+  the temporal confound the time-of-day table exists to break. But the direction of the running narrative
+  has changed, and it changed because the comparison was made honest rather than because a number moved.
+  *Also recorded:* the `DISAGREE` verdict now carries its discrimination limit — non-stationarity or
+  phase-sampling, undecidable until cycle coverage — so it cannot harden into a mechanism claim.

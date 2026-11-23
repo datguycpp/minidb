@@ -264,8 +264,73 @@ def report(path, duration, synthetic=False, rate_bar=None, max_age=MAX_AGE):
         print("    consistency: %s%s" % (
             "DISAGREE (segment CIs disjoint)" if disjoint else "consistent within the CIs",
             " — the phase mix is non-stationary, so needed_h*'s stationary-mix assumption is "
-            "contradicted by the segments themselves; no single calendar projection follows from this log"
+            "undecidable here: two disjoint segments are two PHASE samples, and a short busy segment gives"
+            " disjoint CIs even under a perfectly stationary mix -- non-stationarity or phase-sampling,"
+            " undecidable until the log spans a cycle"
             if disjoint else ""))
+    # Disjoint bands, because the cumulative table above is NESTED: every window counted at start<=1.00 is
+    # also counted at start<=2.33, so a difference between those rows is partly composition. A gradient can
+    # only be claimed on disjoint strata or a trend statistic.
+    edges = [(0.0, 1.0), (1.0, 1.2), (1.2, 1.5), (1.5, 1.8), (1.8, 2.0), (2.0, float("inf"))]
+    print("  disjoint bands (start ambient strata, not nested):")
+    bins = []
+    for low_edge, high_edge in edges:
+        members = [(index, load) for index, _, load in starts
+                   if low_edge < load <= high_edge or (low_edge == 0.0 and load <= high_edge)]
+        if not members:
+            continue
+        chosen, last_t = [], None
+        for index, _ in members:
+            if last_t is None or records[index]["t"] - last_t >= duration:
+                chosen.append(index)
+                last_t = records[index]["t"]
+        counted = 0
+        unstable = 0
+        tolerance = max(2 * interval, 1.0)
+        for index in chosen:
+            horizon_end = records[index]["t"] + duration
+            observed = [(item["t"], item["load"]) for item in records[index:] if item["t"] <= horizon_end]
+            if not observed:
+                continue
+            if observed[0][0] - records[index]["t"] > tolerance:
+                continue
+            if observed[-1][0] < horizon_end - tolerance:
+                continue
+            counted += 1
+            values = [value for _, value in observed]
+            if max(values) - min(values) > SPAN_ALLOWANCE:
+                unstable += 1
+        label = "%s-%s" % ("0" if low_edge == 0.0 else "%.2f" % low_edge,
+                           "inf" if high_edge == float("inf") else "%.2f" % high_edge)
+        if counted:
+            print("    %-12s indep=%-4d events=%-3d P_hat=%.3f  P_upper=%.3f"
+                  % (label, counted, unstable, unstable / counted,
+                     clopper_pearson_upper(unstable, counted)))
+        else:
+            print("    %-12s indep=0" % label)
+        bins.append((counted, unstable, (low_edge + (2.0 if high_edge == float("inf") else high_edge)) / 2.0))
+    usable = [(n, k, score) for n, k, score in bins if n > 0]
+    total_n = sum(n for n, _, _ in usable)
+    total_k = sum(k for _, k, _ in usable)
+    if total_n > 1 and 0 < total_k < total_n:
+        pbar = total_k / float(total_n)
+        weighted = sum(score * n for n, _, score in usable)
+        numerator = sum(score * (k - n * pbar) for n, k, score in usable)
+        variance = pbar * (1 - pbar) * (sum(n * score * score for n, _, score in usable)
+                                        - weighted * weighted / total_n)
+        if variance > 0:
+            z_value = numerator / math.sqrt(variance)
+            p_value = 2 * (1 - 0.5 * (1 + math.erf(abs(z_value) / math.sqrt(2))))
+            print("    trend (Cochran-Armitage on disjoint strata): z=%.2f  p=%.3f  %s"
+                  % (z_value, p_value, "gradient supported" if p_value < 0.05
+                     else "no trend detected at this n"))
+        else:
+            print("    trend: not computable (zero variance)")
+    else:
+        print("    trend: not computable yet (needs events and non-events across strata)")
+    print("  note: the CUMULATIVE rows above are nested samples, so their difference is partly composition;"
+          " a gradient claim needs these disjoint strata or the trend line, and both inherit the phase"
+          " scope -- phase-scoped until a full cycle is covered.")
     print("  note: P_hat is the point estimate; P_upper(95%) is the exact one-sided Clopper-Pearson "
           "bound. A zero-episode band reads P_hat=0 and P_upper~3/n -- scheduling must use the bound, "
           "because 0 of 30 is still consistent with ~9.5%, and a threshold r below that cap can never "
