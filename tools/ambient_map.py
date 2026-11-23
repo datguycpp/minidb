@@ -50,6 +50,15 @@ MODE_SHARE = 0.50
 # schedulable on noise before the mode has spoken. 60 samples (5 min) is the same 12x-interval logic that
 # set MAX_AGE = 120 at 24x, and the hourly state is three-valued until it is met rather than guessed.
 MODE_MIN_SAMPLES = 60
+
+# The wait is bounded, and the bound is frozen before the event it bounds (@qa's rule: an unbounded wait is
+# the retreating `needed_h` in another costume). If no row reads `yes` through the end of 2026-11-25 -- two
+# full diurnal cycles after the night row was frozen -- the outcome is declared "no schedulable window
+# observed": a result about the BOX, both rows retired unmeasured, 2549.2 staying dated.
+# The liveness clause decides which verdict the horizon earns (@research): a dead sampler inside the horizon
+# makes the outcome "insufficient observation", never a finding about the box. A frozen file must not
+# launder itself into a deadline.
+HORIZON_END = (2026, 11, 25, 23, 59, 59)
                             # interval. A file that stopped growing is indistinguishable from one nobody
                             # has checked yet, so a rate from a stale log is refused, not caveated.
 MIN_WINDOWS = 30            # independent windows, NOT raw starts: at 5s sampling with D=600s, thirty
@@ -523,6 +532,36 @@ def trailing_state(path, target=TARGET_LOAD, band=BAND, share=MODE_SHARE, minimu
     return {"state": state, "n": len(window), "share": fraction, "age": age}
 
 
+def horizon_status(path, now=None, end=None):
+    """Days left to the frozen horizon, plus the liveness the horizon's verdict depends on."""
+    import datetime
+
+    records = load_records(path)
+    now = time.time() if now is None else now
+    end = datetime.datetime(*(end or HORIZON_END)).timestamp()
+    days_left = (end - now) / 86400.0
+    if not records:
+        return {"expired": days_left <= 0, "days_left": days_left, "live": False, "coverage_h": 0.0,
+                "largest_gap_h": None, "outcome": "insufficient observation — no samples"}
+    age = now - records[-1]["t"]
+    gaps = [records[i + 1]["t"] - records[i]["t"] for i in range(len(records) - 1)]
+    largest = max(gaps) / 3600.0 if gaps else 0.0
+    # Coverage is the sum of the intervals that are actually sampled -- NOT span minus sum-of-gaps, which
+    # is identically zero because the consecutive gaps partition the span.
+    tolerance = max(2 * 5, MAX_AGE)
+    covered = sum(gap for gap in gaps if gap <= tolerance) / 3600.0
+    live = age <= MAX_AGE
+    result = {"expired": days_left <= 0, "days_left": days_left, "live": live, "age": age,
+              "coverage_h": covered, "largest_gap_h": largest}
+    if days_left <= 0:
+        result["outcome"] = ("no schedulable window observed — a result about the box; both rows retired "
+                             "unmeasured" if live else
+                             "insufficient observation — the sampler was not live at the horizon")
+    else:
+        result["outcome"] = None
+    return result
+
+
 def modes(path, target=TARGET_LOAD, band=BAND, share=MODE_SHARE, max_age=MAX_AGE):
     """Per-day per-hour p50 and in-gate share, plus the valley line.
 
@@ -546,6 +585,15 @@ def modes(path, target=TARGET_LOAD, band=BAND, share=MODE_SHARE, max_age=MAX_AGE
         print("ambient_modes: REFUSED — log is stale (%.0fs > %ds); no schedule is read from a stale log"
               % (age, max_age))
         return 3
+
+    horizon = horizon_status(path)
+    print("horizon: ends %04d-%02d-%02d %02d:%02d local | days_left=%.2f | sampler=%s | coverage=%.1fh "
+          "largest_gap=%.1fh"
+          % (HORIZON_END[0], HORIZON_END[1], HORIZON_END[2], HORIZON_END[3], HORIZON_END[4],
+             horizon["days_left"], "live" if horizon["live"] else "STALE", horizon["coverage_h"],
+             horizon["largest_gap_h"] or 0.0))
+    if horizon["outcome"]:
+        print("horizon outcome: %s" % horizon["outcome"])
 
     buckets = {}
     for record in records:

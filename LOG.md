@@ -4304,3 +4304,19 @@ Nothing above the first entry was edited in the move.
   ```
   (`ceiling = 1030/2.0` in-pair; the subject at 900 misses it; the spreads arrive with the number rather than
   being reconstructed from the JSONL later). Suite **663 OK**.
+
+- **The wait is bounded, and the bound is frozen before the event it bounds.** `HORIZON_END = 2026-11-25
+  23:59 local` — two full diurnal cycles after the night row's freeze. If no row reads `yes` through it, the
+  outcome is **"no schedulable window observed"**: a result about the box, instrument complete, both rows
+  **retired unmeasured** rather than overwritten, `2549.2` still dated. Declared on a pre-registered date so
+  it can be neither dismissed as giving up nor quietly extended as hoping — an unbounded wait is the
+  retreating `needed_h` in another costume.
+  *Liveness clause (@research):* the horizon earns the box verdict only with a **live** sampler and named
+  coverage; expired + stale reads **"insufficient observation"**, never a finding. A dead sampler cannot
+  launder itself into a deadline — the 45-hour hole wearing a due date.
+  *Live print:* `horizon: ends 2026-11-25 23:59 local | days_left=2.04 | sampler=live | coverage=11.8h
+  largest_gap=45.0h`, emitted by `--modes` and by the harness on every mode refusal.
+  *Bug found while building it:* coverage was computed as `span − Σ gaps`, which is **identically zero**
+  because the consecutive gaps partition the span — a 56-hour log with a 45-hour hole would have reported
+  0.0 h of coverage. It is now the sum of intervals actually sampled inside the tolerance (`11.8 h`, gap
+  `45.0 h`), with a test that a hole separates coverage from span. Suite **665 OK**.

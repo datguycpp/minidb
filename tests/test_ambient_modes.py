@@ -66,6 +66,39 @@ class AmbientModesTest(unittest.TestCase):
         self.assertIn("valley: no hour's median lies between 0.35 and 1.62", output)
         self.assertIn("band split:", output)
 
+    def test_the_horizon_verdict_depends_on_liveness(self):
+        # A dead sampler must never launder itself into a deadline: expired + live is a box finding,
+        # expired + stale is "insufficient observation", and a frozen file cannot earn the first.
+        now = time.time()
+        live = write_log([(now - 600 + i * 5, 0.5) for i in range(120)])
+        stale = write_log([(now - 10 ** 6, 0.5)])
+        past = (2026, 11, 1, 0, 0, 0)
+        try:
+            fresh = ambient_map.horizon_status(live, end=past)
+            self.assertTrue(fresh["expired"])
+            self.assertIn("no schedulable window observed", fresh["outcome"])
+            dead = ambient_map.horizon_status(stale, end=past)
+            self.assertIn("insufficient observation", dead["outcome"])
+            future = ambient_map.horizon_status(live)
+            self.assertFalse(future["expired"])
+            self.assertIsNone(future["outcome"])
+        finally:
+            os.unlink(live)
+            os.unlink(stale)
+
+    def test_coverage_is_sampled_time_not_span_minus_gaps(self):
+        # Consecutive gaps partition the span, so `span - sum(gaps)` is identically zero: a metric that
+        # would have reported a 56-hour log with a 45-hour hole as 0 h of coverage.
+        now = time.time()
+        path = write_log([(now - 7200 + i * 5, 0.5) for i in range(120)]
+                         + [(now - 300 + i * 5, 0.5) for i in range(60)])
+        try:
+            status = ambient_map.horizon_status(path)
+            self.assertGreater(status["coverage_h"], 0.1)
+            self.assertGreater(status["largest_gap_h"], 1.0)
+        finally:
+            os.unlink(path)
+
     def test_mode_share_is_definitional(self):
         # "majority in-gate" is the definition, not a tuned cutoff: exactly half is schedulable.
         self.assertEqual(ambient_map.MODE_SHARE, 0.50)

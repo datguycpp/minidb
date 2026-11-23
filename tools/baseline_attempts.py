@@ -32,6 +32,8 @@ import sys
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import ambient_map  # noqa: E402
 CAPTURE = os.path.join(REPO, "tests", "skeptic", "baseline_g6_quiet.py")
 INSTRUMENT = "baseline_g6_quiet"
 INSTRUMENT_D = 30.0          # seconds, approximate: N=7 series of the tiny fixture
@@ -199,6 +201,11 @@ def main(argv=None):
           % (max(0.0, base - tolerance), base + tolerance, state["state"], 100 * state["share"],
              state["n"]))
     if state["state"] != "yes":
+        horizon = ambient_map.horizon_status(AMBIENT)
+        print("horizon: days_left=%.2f sampler=%s coverage=%.1fh largest_gap=%.1fh%s"
+              % (horizon["days_left"], "live" if horizon["live"] else "STALE", horizon["coverage_h"],
+                 horizon["largest_gap_h"] or 0.0,
+                 "" if not horizon["outcome"] else " -> " + horizon["outcome"]))
         print("baseline_attempts: REFUSED — the box is not in a schedulable mode (%s). The pointwise gate "
               "alone would accept a dip inside an unschedulable stretch, which is exactly the spend the "
               "two-gate rule forbids." % state["state"])
