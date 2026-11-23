@@ -1,0 +1,32 @@
+#!/bin/sh
+# Refuse to stack a commit on an unpushed tip.
+#
+# Why this exists: five tip shifts, two ordering breaches and a doubled pin protocol all came from the
+# same shape — a commit written on a tip whose push was still pending. The rule was a sentence, and the
+# two people who knew it best broke it in consecutive rounds. Machine-readable state beats memory:
+# `rev-list --count @{u}..HEAD` cannot be stale, cannot be forged by fatigue, and needs no registry file
+# to be kept current.
+#
+# Deliberately stricter than "ahead and unpinned", because pin-ness lives in chat and a pin file would be
+# the third artifact in this repo that looks live while nobody checks it. The workflow it enforces is
+# commit -> push -> commit -> push, which is what an upstream is for.
+#
+# Install (per clone):
+#   git config core.hooksPath .githooks
+#   chmod +x .githooks/pre-commit
+
+upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
+if [ -z "$upstream" ]; then
+    echo "pre-commit: no upstream configured for $(git rev-parse --abbrev-ref HEAD)." >&2
+    echo "pre-commit: push the branch before committing, so the tip this commit lands on is public." >&2
+    exit 1
+fi
+
+ahead=$(git rev-list --count "$upstream"..HEAD 2>/dev/null || echo 0)
+if [ "$ahead" -gt 0 ]; then
+    echo "pre-commit: $ahead commit(s) ahead of $upstream — push before committing." >&2
+    echo "pre-commit: stacking on an unpushed tip is what produced five tip shifts and two ordering" >&2
+    echo "pre-commit: breaches this cycle. The rule is commit -> push -> commit -> push." >&2
+    exit 1
+fi
+exit 0

@@ -3887,3 +3887,20 @@ Nothing above the first entry was edited in the move.
   *Generalised into the tool:* every report now prints `rate_rule=windows-v2 tol=…` beside its coverage
   line, with the sentence that window-level rates die with a window-rule change while occupancy shares
   survive it — so a future reader can tell which computation produced a number without LOG archaeology.
+
+- **The ordering rule is mechanical now: `.githooks/pre-commit` refuses a commit on an unpushed tip.**
+  @default ordered it after the rule was broken twice in consecutive rounds — by him and by me — and
+  @qa's strict form is the one shipped, because it needs no registry: `rev-list --count @{u}..HEAD` is
+  machine-readable from git alone, cannot be stale, and cannot be forgotten. The rule it enforces is
+  deliberately stronger than "ahead and unpinned" (pin-ness lives in chat; a pin file would be the third
+  artifact in this repo that looks live while nobody checks it): **no commit while the tip is ahead of
+  origin** — commit → push → commit → push.
+  *Verified both branches in the live repo:*
+  ```
+  first commit on an even tip            -> passes
+  second commit, 1 ahead of origin/main  -> "pre-commit: 1 commit(s) ahead of origin/main — push before
+                                             committing. … The rule is commit -> push -> commit -> push."
+  ```
+  *Shipped where it is reproducible:* the hook is committed in-repo, installed per clone with
+  `git config core.hooksPath .githooks` (now `make hooks`), and names the remedy rather than only the
+  rule. Its own refusal was tested where it can fail — a stacked commit — not asserted in prose.

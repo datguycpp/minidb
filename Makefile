@@ -29,3 +29,8 @@ verify:
 	$(PYTHON) tools/verify.py
 
 .PHONY: all clean verify
+
+hooks:
+	git config core.hooksPath .githooks
+	chmod +x .githooks/pre-commit
+	@echo "hooks installed: commits are refused while the tip is ahead of origin"
