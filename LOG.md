@@ -3811,3 +3811,27 @@ Nothing above the first entry was edited in the move.
   *Verified at the CLI:* `--tolerance 3 --step 1 --starts-per-cycle 2` with three refusals tightens on
   the two ambient ones, skips the dirty tree, and ends `schedulable`; omitting the parameters refuses
   with the reason printed.
+
+- **The band table reports the upper bound, not the point estimate, and the live log already shows why
+  that matters.** `P_hat` sits beside `P_upper(95%)` (exact one-sided Clopper–Pearson, bisection on the
+  binomial CDF); a zero-episode band reads `P_hat=0` with `P_upper ≈ 3/n`, so `0 of 30` is a lower bound
+  wearing certainty's clothes, not a rate. `--rate-bar r` selects on the **bound**: a band clears only
+  when `P_upper ≤ r`, and the row prints how many independent windows `r` would need at all
+  (`r=0.05 → 59`, `r=0.10 → 29`), so the floor and the bar have to be frozen together — a bar below the
+  floor's own cap can never clear, however quiet the phase.
+  *Verified numerically:* `clopper_pearson_upper(0, 30) = 0.0950` (matches the rule-of-three reading),
+  `(3, 30) = 0.2386`; `windows_needed(0.05) = 59`, `(0.10) = 29`.
+  *Live log at this commit (2,500 samples, 3.47 h, p50 0.56 — the quiet phase):*
+  ```
+  threshold  starts  indep  P_hat  P_upper(95%)
+  1.00       2044    18     0.167  0.377   insufficient (18 < 30; band 81.8% of log, needs ~6 h)
+  2.00       2285    21     0.286  0.487   insufficient (21 < 30; band 91.4%, needs ~5 h)
+  2.33       2315    21     0.429  0.628   insufficient (21 < 30; band 92.6%, needs ~5 h)
+  ```
+  **Substantive, and it cuts against the optimistic reading:** even in the quiet phase, roughly a fifth of
+  quiet-start windows contain a >1.0 span episode within ten minutes (`P_hat 0.167` at `≤1.00`), so start
+  ambient is a weak predictor of surviving a session — the very thing the map was built to test. At n=18–21
+  those intervals are wide and none of this is quotable; what it does is make the "no schedulable
+  threshold" outcome live rather than remote.
+  *Phase scoping, printed:* the rates are labelled as measured over the phase(s) the log covers; a
+  quiet-phase rate is not transferred to busy-phase starts.

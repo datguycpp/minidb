@@ -24,6 +24,7 @@ Report mode is pure arithmetic over the log, so any seat can re-derive it from t
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -67,6 +68,42 @@ def load_records(path):
     return records
 
 
+def binomial_cdf(k, n, p):
+    """P(X <= k) for X ~ Binomial(n, p). Used for the exact one-sided upper bound."""
+    if p <= 0.0:
+        return 1.0
+    if p >= 1.0:
+        return 1.0 if k >= n else 0.0
+    return sum(math.comb(n, i) * (p ** i) * ((1.0 - p) ** (n - i)) for i in range(0, k + 1))
+
+
+def clopper_pearson_upper(k, n, confidence=0.95):
+    """Exact one-sided upper bound on a rate: the p where P(X <= k; n, p) = 1 - confidence.
+
+    A band with zero observed episodes reports P=0 as a POINT estimate, which is a lower bound wearing
+    certainty's clothes; 0 of 30 windows is still consistent with a ~9.5% episode rate, so a scheduling
+    decision has to be taken on the bound, not the point.
+    """
+    if n <= 0:
+        return 1.0
+    target = 1.0 - confidence
+    low, high = 0.0, 1.0
+    for _ in range(80):
+        mid = (low + high) / 2.0
+        if binomial_cdf(k, n, mid) > target:
+            low = mid
+        else:
+            high = mid
+    return high
+
+
+def windows_needed(rate):
+    """Windows required for a zero-event band to claim P_upper <= rate (r and floor freeze together)."""
+    if rate <= 0.0:
+        return float("inf")
+    return math.ceil(math.log(0.05) / math.log(1.0 - rate))
+
+
 def percentile(values, fraction):
     if not values:
         return float("nan")
@@ -75,7 +112,7 @@ def percentile(values, fraction):
     return ordered[index]
 
 
-def report(path, duration, synthetic=False):
+def report(path, duration, synthetic=False, rate_bar=None):
     records = load_records(path)
     if len(records) < 2:
         print("ambient_map: need at least two samples to report (have %d)" % len(records))
@@ -93,8 +130,7 @@ def report(path, duration, synthetic=False):
           % (min(loads), percentile(loads, 0.5), percentile(loads, 0.9), max(loads)))
 
     starts = [(index, item["t"], item["load"]) for index, item in enumerate(records)]
-    print("  threshold  starts   indep  P(span>%.1f)      needed_h*"
-          % SPAN_ALLOWANCE)
+    print("  threshold  starts   indep  P_hat   P_upper(95%)   needed_h*")
     for threshold in THRESHOLDS:
         eligible = [(index, load) for index, _, load in starts if load <= threshold]
         if not eligible:
@@ -109,12 +145,6 @@ def report(path, duration, synthetic=False):
                 last_t = records[index]["t"]
         occupancy = len(eligible) / float(len(records))
         needed_h = (MIN_WINDOWS * duration / 3600.0 / occupancy) if occupancy else float("inf")
-        if len(independent) < MIN_WINDOWS:
-            print("  %-10.2f %-8d %-6d insufficient data (%d indep < floor %d; band occupies %.1f%% of "
-                  "the log, needs ~%.0f h)" % (threshold, len(eligible), len(independent),
-                                               len(independent), MIN_WINDOWS, occupancy * 100.0,
-                                               needed_h))
-            continue
         unstable = over = 0
         for index in independent:
             horizon_end = records[index]["t"] + duration
@@ -125,10 +155,26 @@ def report(path, duration, synthetic=False):
                 unstable += 1
             if max(window) > 3.0:
                 over += 1
-        print("  %-10.2f %-8d %-6d %-15s P(max>3.0)=%.3f"
-              % (threshold, len(eligible), len(independent),
-                 "%.3f (%d/%d)" % (unstable / len(independent), unstable, len(independent)),
-                 over / len(independent)))
+        count = len(independent)
+        point = unstable / count if count else float("nan")
+        upper = clopper_pearson_upper(unstable, count) if count else float("nan")
+        line = ("  %-10.2f %-8d %-6d %-7s %-14s"
+                % (threshold, len(eligible), count,
+                   "%.3f" % point if count else "-", "%.3f" % upper if count else "-"))
+        if count < MIN_WINDOWS:
+            line += " insufficient (%d indep < %d; band %.1f%% of log, needs ~%.0f h)" % (
+                count, MIN_WINDOWS, occupancy * 100.0, needed_h)
+        elif rate_bar is not None:
+            line += (" CLEARS r=%.2f" % rate_bar if upper <= rate_bar
+                     else " does not clear r=%.2f (needs ~%d indep)" % (rate_bar,
+                                                                       windows_needed(rate_bar)))
+        print(line)
+    print("  note: P_hat is the point estimate; P_upper(95%) is the exact one-sided Clopper-Pearson "
+          "bound. A zero-episode band reads P_hat=0 and P_upper~3/n -- scheduling must use the bound, "
+          "because 0 of 30 is still consistent with ~9.5%%, and a threshold r below that cap can never "
+          "clear at n=30 (the floor and r freeze together).")
+    print("  phase: these rates are measured over the phase(s) the log covers -- see the "
+          "phase-of-cycle line below; a quiet-phase rate does not transfer to busy-phase starts.")
     print("  note: P(span) is the stability rule the rig actually fails; P(max>3.0) is context only, "
           "because absolute trace values do not gate under the split rule")
     print("  * needed_h divides by OVERALL occupancy, i.e. it assumes the band's share of the clock is "
@@ -183,6 +229,7 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     path, interval, duration = DEFAULT_LOG, 5, 600
     sampling = reporting = synthetic = False
+    rate_bar = None
     for index, arg in enumerate(argv):
         if arg == "--sample":
             sampling = True
@@ -190,6 +237,8 @@ def main(argv=None):
             reporting = True
         elif arg == "--fixture":
             synthetic = True
+        elif arg == "--rate-bar" and index + 1 < len(argv):
+            rate_bar = float(argv[index + 1])
         elif arg == "--instrument" and index + 1 < len(argv):
             duration = INSTRUMENT_D.get(argv[index + 1], duration)
         elif arg == "--log" and index + 1 < len(argv):
@@ -202,7 +251,7 @@ def main(argv=None):
         sample(path, interval)
         return 0
     if reporting:
-        return report(path, duration, synthetic)
+        return report(path, duration, synthetic, rate_bar)
     print(__doc__)
     return 2
 
