@@ -4143,3 +4143,94 @@ Nothing above the first entry was edited in the move.
   `test_every_gate3_row_names_its_instrument_and_n` so a future swap is **visible in the row** rather than
   inferred from a date; and the attempt harness passes `--series LOOP` so a baseline attempt no longer runs
   BLOCK's 100k-row fixture for a number gate 3 never reads. Suite **644 OK**.
+
+- **`--modes`: the mode table is now an instrument, and the two pre-freeze items ride with it.**
+  `tools/ambient_map.py --modes` prints per-day per-hour p50 and **in-gate share** — the share *is* the
+  schedulability metric — plus day medians with their `n`, and a `valley` line that prints only when the
+  day medians differ by more than the band. Live output at n=4,250:
+  ```
+  2026-11-21 15:00  720  0.52   70.0%   yes      2026-11-23 15:00  720  1.62    0.6%   no
+  2026-11-21 16:00  720  0.52   86.0%   yes      2026-11-23 16:00  720  1.65    0.0%   no
+  day medians: 2026-11-21=0.56(n=2500)  2026-11-23=1.62(n=1750)
+  valley: day medians differ by 1.06 (> band 0.30) — two modes, and the pooled centre between them
+          names no state the box occupies; target is a MODE CENTRE
+  ```
+  *Frozen constants, dated before the tool printed anything:* `TARGET_LOAD = 0.72` (**a mode centre, not a
+  distribution centre**), `BAND = 0.30`, `MODE_SHARE = 0.50` — the last **definitional rather than tuned**
+  ("majority in-gate" *is* mode membership) and deliberately **independent of the clock**, so a diurnal miss
+  still gates launch on an observed mode instead of on 15:00 arriving. The table refuses a **stale** log
+  (exit 3) like every other report, and prints nothing it did not count.
+  *The cycle claim corrected on the record (@security's item):* the log's longest gap is **45.0 h**, sitting
+  exactly where continuity is needed, so the log spans quiet → **hole** → busy and **has never observed the
+  quiet mode returning**. The 11-24 afternoon window is therefore the **first test** of the daily
+  hypothesis, not its refutation window; if quiet recurs it is evidence for diurnality, and if it does not the
+  hypothesis weakens — in neither case does the launch rule break, because the rule is trailing share.
+  *Tests:* 3 new (`tests/test_ambient_modes.py`) — quiet hour schedulable / busy hour not, stale log refused
+  with exit 3, and the constants pinned as definitional. Suite **647 OK**.
+  *`MODE_MIN_SAMPLES = 60` added beside the other three constants (@qa's item), because a share computed on
+  a handful of readings is not a share: at 5 s sampling an hour's first minute holds **12 samples**, where a
+  50% threshold carries a binomial CI near **±29 pp** — enough to flag an hour schedulable before the mode
+  has spoken. Below the floor the hourly state prints **`insufficient samples`** (three-valued, like the
+  band floor) instead of a binary; 60 is the same 12×-interval logic that set `MAX_AGE = 120` at 24×.
+  Verified on a 12-sample hour (`insufficient samples`) and on the live log (no hour below the floor).
+  Suite **648 OK**.
+  *The two-gate rule is now enforced by the tool, not only by the ruling (@research's gap).* `ambient_map`
+  gains **`trailing_state()`** — the most recent `MODE_MIN_SAMPLES` samples, share in-gate, returning
+  **`yes` / `no` / `insufficient` / `stale`** — and `baseline_attempts` calls it **before it starts waiting**,
+  refusing with **exit 4** when the stretch is unschedulable. The distinction it encodes: the mode flag says
+  the *stretch* is schedulable, the pointwise gate says the *instant* is admissible, and neither implies the
+  other — a busy hour can hold a single 0.55 dip that the pointwise check waves through, which is precisely
+  the spend the rule forbids. Both flags are printed at launch and recorded per attempt
+  (`mode_state_at_start`, `mode_share_at_start`, `pointwise_in_gate`).
+  *Live demonstration (no measurement taken):* the box's trailing share was **31.7% over 60 samples** →
+  `state=no` → **exit 4**, refusing to spend the pair's window on a dip inside a busy stretch.
+  *Tests:* 6 new (`tests/test_baseline_gate.py`) — yes / no / insufficient / stale, plus the harness refusing
+  with exit 4 in a busy stretch and proceeding in a quiet one. Suite **654 OK**.
+  *The mode gate is evaluated twice, because a gate that is not evaluated where the spend happens is not a
+  gate (@qa's timing catch).* The precondition at wait-start refuses to begin waiting on
+  `no`/`insufficient`/`stale`; **a second `trailing_state()` call immediately before the launch aborts the
+  attempt on any non-`yes`**, because a wait of minutes is long enough for the trailing window to cross a
+  mode flip and the pointwise gate cannot tell a dip from a mode. Both evaluations are recorded —
+  `mode_state_at_start` and `mode_state_at_launch` — so a flip during the wait is visible in the artifact
+  rather than inferred from it. Test: precondition `yes` → launch `no` aborts with **exit 3** and spends
+  nothing (7 gate tests, suite **655 OK**).
+  *Both legs are gated where they spend (@qa's second timing catch, and the ruling's operational form —
+  "every spend is gated where it happens, by every rule that governs it").* The subject leg calls
+  `mode_state()` and reads the pointwise gate **at its own launch**, records
+  `subject_mode_state_at_launch`/`subject_pre_load`, and **aborts without spending** if either fails. The
+  pair now reports a three-valued status — **`complete` / `baseline-only` / `none`** — because an aborted
+  subject leaves a **valid baseline**, not a lost attempt: the ceiling derives from the baseline alone, and
+  the subject follows in the next matched stretch with the gap printed. Budget lines are separate:
+  `MAX_ATTEMPTS = 3` for baseline launches, **`SUBJECT_MAX_ATTEMPTS`** for subject launches, so a
+  baseline-only outcome cannot burn the budget it earned and subject retries cannot run uncapped.
+  *Verified both paths:* subject gated out → `pair=baseline-only` with the baseline obtained (exit 0); quiet
+  stretch → `pair=complete`. Tests 9 in the gate file, suite **657 OK**.
+  *Open ordering problem, flagged rather than papered over:* the subject leg needs a **live comparator
+  identity**, and that identity only exists once the baseline's `captured_pre_load` is known — so the pair
+  cannot be a single automated invocation while rows live only in `comparators.py`. Either the measured row
+  lands as a **sidecar** the registry merges (identity, instrument, N, revision pair, captured load,
+  ceiling), or the pair is two commits apart and "atomic" degrades to "same stretch, minutes apart". That is
+  a ruling, not an implementation detail.
+  *The pre-gate is row-driven, which is what @research's catch required.* `baseline_attempts` now resolves
+  the comparator row and derives the gate from it: a **pending** row gates on `target_load` + its
+  `launch_tolerance` (0.72 / 0.30), a **live** row on its `base_load` + the comparability delta (2.00 / 1.00).
+  The frozen absolute window `[1.0, 3.0]` is **gone from the gate**, because it cannot admit a pending row
+  targeting 0.72 at all — the window is now `[max(0, base − tol), base + tol]`, i.e. the tolerance itself.
+  Hard-coded constants here would have made the new comparator **unlaunchable by its own harness**.
+  *And the subject leg's tolerance is the pair's, not the generic one (@qa):* `SUBJECT_TOLERANCE = 0.30`,
+  gated as `|subject_pre − captured_pre| ≤ 0.30` with the actual gap printed and recorded
+  (`captured_pre`, `gap`). ±1.0 stays where it belongs — future sessions judged against a completed row,
+  where the question is comparability rather than representativeness.
+  *Routing verified on both rows (simulated, no measurement):*
+  ```
+  gate3:d89f689+:0.72 → state=pending base=0.72 tol=0.30 → attempt at 0.72 → pair=complete
+  gate1:d89f689:2.00  → state=live    base=2.00 tol=1.00 → attempt at 2.00
+  ```
+  and a subject started 1.59 away from the captured load aborts as `pair=baseline-only` rather than being
+  called matched. Suite **657 OK**.
+  *Still not implemented, and now precisely named:* @security's "fill the pending row in the same
+  invocation". The gates are fixed, but the capture runs as a **subprocess** reading the registry from
+  source, so a row completed in memory is invisible to it — the subject cannot launch against a row that
+  exists only inside the harness process. Closing that needs one of two things, and it is a ruling:
+  either the capture accepts a **measured row** on stdin/a path (a sidecar after all, but scoped to one
+  row and printed), or the row lands on disk first and the pair is one commit apart by construction.

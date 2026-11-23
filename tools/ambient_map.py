@@ -35,6 +35,21 @@ RATE_RULE = "windows-v2"   # both ends observed (tol = 2x interval), censored wi
                            # windows-v1 counted any window containing samples, so rates computed under it
                            # included truncated windows; occupancy shares counted samples and survive both.
 MAX_AGE = 120              # freshness threshold in seconds, frozen in advance: 24x the default 5s
+
+# Mode table, frozen 2026-11-23 from the ruling before the tool printed anything:
+#   TARGET_LOAD is a MODE CENTRE, not a distribution centre. The box is bimodal by day (one day's hours
+#   mediate 0.52-0.64, another's 1.53-1.72), so the pooled median (~1.04) names a valley the box never
+#   occupies. A comparator is worth measuring where the subject actually runs.
+#   MODE_SHARE is definitional rather than tuned: "majority in-gate" IS what mode membership means, and
+#   it is deliberately independent of the clock so a diurnal miss still gates launch on an observed mode.
+TARGET_LOAD = 0.72
+BAND = 0.30
+MODE_SHARE = 0.50
+# A share computed on a handful of readings is not a share. At 5 s sampling an hour's first minute holds
+# 12 samples, where a 50% threshold carries a binomial CI near +/-29 pp -- enough to flag an hour
+# schedulable on noise before the mode has spoken. 60 samples (5 min) is the same 12x-interval logic that
+# set MAX_AGE = 120 at 24x, and the hourly state is three-valued until it is met rather than guessed.
+MODE_MIN_SAMPLES = 60
                             # interval. A file that stopped growing is indistinguishable from one nobody
                             # has checked yet, so a rate from a stale log is refused, not caveated.
 MIN_WINDOWS = 30            # independent windows, NOT raw starts: at 5s sampling with D=600s, thirty
@@ -483,10 +498,92 @@ def report(path, duration, synthetic=False, rate_bar=None, max_age=MAX_AGE, phas
     return 0
 
 
+def trailing_state(path, target=TARGET_LOAD, band=BAND, share=MODE_SHARE, minimum=MODE_MIN_SAMPLES,
+                   max_age=MAX_AGE):
+    """Trailing window over the most recent samples: is this stretch schedulable?
+
+    The table's per-hour share answers "which hours are usually quiet"; this answers "is the box in the
+    quiet mode *now*". Both are needed because neither implies the other: a busy hour can hold a single
+    in-band dip, and the pointwise reading gate would wave that dip through while the mode is unschedulable.
+    """
+    records = load_records(path)
+    if not records:
+        return {"state": "insufficient", "n": 0, "share": 0.0, "age": None}
+    age = time.time() - records[-1]["t"]
+    if age > max_age:
+        return {"state": "stale", "n": len(records), "share": 0.0, "age": age}
+    window = records[-minimum:]
+    low, high = max(0.0, target - band), target + band
+    inside = sum(1 for record in window if low <= record["load"] <= high)
+    fraction = inside / len(window) if window else 0.0
+    if len(window) < minimum:
+        state = "insufficient"
+    else:
+        state = "yes" if fraction >= share else "no"
+    return {"state": state, "n": len(window), "share": fraction, "age": age}
+
+
+def modes(path, target=TARGET_LOAD, band=BAND, share=MODE_SHARE, max_age=MAX_AGE):
+    """Per-day per-hour p50 and in-gate share, plus the valley line.
+
+    The in-gate share per hour IS the schedulability metric: a launch needs an observed quiet mode, not a
+    clock. Prints nothing it did not count, and refuses a stale log like every other report.
+    """
+    import datetime
+
+    records = load_records(path)
+    if not records:
+        print("ambient_modes: no records in %s" % path)
+        return 3
+    age = time.time() - records[-1]["t"]
+    stale = age > max_age
+    low, high = max(0.0, target - band), target + band
+    print("ambient_modes  n=%d  target=%.2f (MODE CENTRE)  band=[%.2f, %.2f]  "
+          "mode_share>=%.2f  min_samples=%d  stale=%s (%.0fs old)"
+          % (len(records), target, low, high,
+             share, MODE_MIN_SAMPLES, "yes" if stale else "no", age))
+    if stale:
+        print("ambient_modes: REFUSED — log is stale (%.0fs > %ds); no schedule is read from a stale log"
+              % (age, max_age))
+        return 3
+
+    buckets = {}
+    for record in records:
+        stamp = datetime.datetime.fromtimestamp(record["t"])
+        buckets.setdefault((stamp.strftime("%Y-%m-%d"), stamp.hour), []).append(record["load"])
+    days = {}
+    print("day        hour      n   p50   in_gate   schedulable")
+    for (day, hour) in sorted(buckets):
+        loads = buckets[(day, hour)]
+        inside = sum(1 for value in loads if low <= value <= high)
+        fraction = inside / len(loads)
+        days.setdefault(day, []).extend(loads)
+        if len(loads) < MODE_MIN_SAMPLES:
+            state = "insufficient samples"
+        else:
+            state = "yes" if fraction >= share else "no"
+        print("%s  %02d:00  %5d  %5.2f   %5.1f%%    %s"
+              % (day, hour, len(loads), sorted(loads)[len(loads) // 2], 100 * fraction, state))
+    medians = {day: sorted(v)[len(v) // 2] for day, v in days.items()}
+    print("day medians: " + "  ".join("%s=%.2f(n=%d)" % (day, medians[day], len(days[day]))
+                                      for day in sorted(medians)))
+    if len(medians) >= 2:
+        spread = max(medians.values()) - min(medians.values())
+        if spread > band:
+            print("valley: day medians differ by %.2f (> band %.2f) — two modes, and the pooled centre "
+                  "between them names no state the box occupies; target is a MODE CENTRE" % (spread, band))
+        else:
+            print("valley: none — day medians differ by %.2f, inside one band, so the days are one mode"
+                  % spread)
+    else:
+        print("cycle stability: not evaluable — fewer than two day medians in the log")
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     path, interval, duration = DEFAULT_LOG, 5, 600
-    sampling = reporting = synthetic = False
+    sampling = reporting = synthetic = modes_flag = False
     rate_bar = None
     phase_delimiter = None
     for index, arg in enumerate(argv):
@@ -496,6 +593,8 @@ def main(argv=None):
             reporting = True
         elif arg == "--fixture":
             synthetic = True
+        elif arg == "--modes":
+            modes_flag = True
         elif arg == "--rate-bar" and index + 1 < len(argv):
             rate_bar = float(argv[index + 1])
         elif arg == "--phase-delimiter" and index + 1 < len(argv):
@@ -515,6 +614,8 @@ def main(argv=None):
         return 0
     if reporting:
         return report(path, duration, synthetic, rate_bar, MAX_AGE, phase_delimiter)
+    if modes_flag:
+        return modes(path)
     print(__doc__)
     return 2
 

@@ -36,10 +36,16 @@ CAPTURE = os.path.join(REPO, "tests", "skeptic", "baseline_g6_quiet.py")
 INSTRUMENT = "baseline_g6_quiet"
 INSTRUMENT_D = 30.0          # seconds, approximate: N=7 series of the tiny fixture
 LOG = os.path.expanduser("~/.minidb-baseline-attempts.jsonl")
-BASELINE_LOAD = 2.33
-BASELINE_DELTA = 1.0
+AMBIENT = os.path.expanduser("~/.minidb-ambient.jsonl")
+BASELINE_DELTA = 1.0         # comparability for sessions judged against a COMPLETED row
+SUBJECT_TOLERANCE = 0.30     # representativeness for the pair's second leg: same load, not merely
+                             # same stretch. +-1.0 would admit a baseline at 0.72 and a subject at 1.70 --
+                             # the cross-load mix atomicity exists to exclude, behind a gate calling
+                             # itself "matched".
 WINDOW = (1.0, 3.0)
-MAX_ATTEMPTS = 3
+MAX_ATTEMPTS = 3          # baseline launches, frozen by ruling
+SUBJECT_MAX_ATTEMPTS = 1  # subject launches, counted separately: a baseline-only outcome must not burn
+                          # the budget it earned, and subject retries must not be uncapped
 STRATUM_EDGES = (1.0, 1.2, 1.5, 1.8, 2.0)
 
 
@@ -48,8 +54,31 @@ def read_load():
         return float(handle.read().split()[0])
 
 
-def comparable(load):
-    return WINDOW[0] <= load <= WINDOW[1] and abs(load - BASELINE_LOAD) <= BASELINE_DELTA
+def row_gate(spec):
+    """The comparator row decides the pre-gate: a PENDING row gates on its target and launch tolerance,
+    a live row on its own base load and the comparability delta. Hard-coded constants here would make the
+    new comparator unlaunchable by its own harness -- the exact mismatch the row exists to remove."""
+    sys.path.insert(0, os.path.join(REPO, "tests", "skeptic"))
+    from comparators import lookup
+    entry, problem = lookup(spec)
+    if entry is None:
+        raise SystemExit("baseline_attempts: unknown comparator %s" % spec)
+    if problem is not None and problem[0] == "pending":
+        return entry["target_load"], entry["launch_tolerance"], "pending"
+    if problem is not None:
+        raise SystemExit("baseline_attempts: comparator %s is %s -- name a live or pending row"
+                         % (spec, problem[0]))
+    return entry["base_load"], BASELINE_DELTA, "live"
+
+
+def comparable(load, base, tolerance):
+    """The window IS the tolerance around the row's own load: [max(0, base - tol), base + tol].
+
+    A frozen absolute window alongside a row-relative match is how the old comparator became
+    unlaunchable -- [1.0, 3.0] cannot admit a pending row targeting 0.72, so the derived form is the only
+    one that can serve both rows.
+    """
+    return abs(load - base) <= tolerance
 
 
 def stratum_of(load):
@@ -67,12 +96,24 @@ def revision():
         return "unknown"
 
 
-def wait_for_comparable(cap_seconds, poll=15):
+def mode_state():
+    """The mode flag: a precondition for the harness even starting its wait.
+
+    The pointwise gate says the *instant* is admissible; this says the *stretch* is schedulable, and the
+    two-gate rule exists because a busy mode can hold a single in-band dip that the pointwise gate would
+    wave through. Shares one definition with `ambient_map.trailing_state` rather than re-deriving it.
+    """
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import ambient_map
+    return ambient_map.trailing_state(AMBIENT)
+
+
+def wait_for_comparable(cap_seconds, base, tolerance, poll=15):
     """Only start an attempt on a comparable reading -- an incomparable start is not a measurement."""
     waited = 0
     while True:
         load = read_load()
-        if comparable(load):
+        if comparable(load, base, tolerance):
             return load, waited
         if waited >= cap_seconds:
             return None, waited
@@ -115,9 +156,9 @@ def run_attempt(number, comparator):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    simulate, no_wait, comparator = None, False, None
+    simulate, no_wait, comparator, subject_comparator = None, False, None, None
     wait_cap = 3600
-    global LOG
+    global LOG, AMBIENT
     for index, arg in enumerate(argv):
         if arg == "--simulate" and index + 1 < len(argv):
             simulate = [int(part) for part in argv[index + 1].split(",")]
@@ -125,27 +166,52 @@ def main(argv=None):
             no_wait = True
         elif arg == "--wait-cap" and index + 1 < len(argv):
             wait_cap = int(argv[index + 1])
+        elif arg == "--ambient" and index + 1 < len(argv):
+            AMBIENT = os.path.expanduser(argv[index + 1])
         elif arg == "--log" and index + 1 < len(argv):
             LOG = os.path.expanduser(argv[index + 1])
         elif arg == "--comparator" and index + 1 < len(argv):
             comparator = argv[index + 1]
+        elif arg == "--subject-comparator" and index + 1 < len(argv):
+            subject_comparator = argv[index + 1]
     if comparator is None and simulate is None:
         print("baseline_attempts: --comparator is required (e.g. gate3:d89f689+:2.33) — the capture refuses "
               "to measure against a typed number")
         return 2
 
-    attempts, baseline = [], None
+    base, tolerance, row_state = row_gate(comparator) if comparator else (BASELINE_DELTA * 2.33, 1.0, "none")
+    print("row gate: comparator=%s state=%s base=%.2f tolerance=%.2f" % (comparator, row_state, base, tolerance))
+    state = mode_state()
+    print("mode gate: state=%s share=%.1f%% n=%d (need >=50%% over >=60 samples before waiting)"
+          % (state["state"], 100 * state["share"], state["n"]))
+    if state["state"] != "yes":
+        print("baseline_attempts: REFUSED — the box is not in a schedulable mode (%s). The pointwise gate "
+              "alone would accept a dip inside an unschedulable stretch, which is exactly the spend the "
+              "two-gate rule forbids." % state["state"])
+        return 4
+
+    attempts, baseline, subject = [], None, None
     for number in range(1, MAX_ATTEMPTS + 1):
         if simulate is None:
-            load, waited = wait_for_comparable(0 if no_wait else wait_cap)
+            load, waited = wait_for_comparable(0 if no_wait else wait_cap, base, tolerance)
             if load is None:
                 print("baseline_attempts: no comparable pre-event reading within %ds — not starting an "
                       "attempt that could not be a measurement" % wait_cap)
                 break
             print("attempt %d: pre_load=%.2f (comparable, waited %ds)" % (number, load, waited))
         else:
-            load = BASELINE_LOAD
-            print("attempt %d: SIMULATED" % number)
+            load = base
+            print("attempt %d: SIMULATED at base %.2f" % (number, base))
+
+        # The mode gate is evaluated AGAIN here, at the instant the window is spent. A `yes` at wait-start
+        # can flip during a wait of minutes, and the pointwise gate cannot tell a dip from a mode: a gate
+        # that is not evaluated where the spend happens is not a gate.
+        launch_state = mode_state()
+        if launch_state["state"] != "yes":
+            print("attempt %d: ABORTED — mode is %s at launch (was %s at wait-start); the window is not "
+                  "spent on a stretch that stopped being schedulable while the harness waited."
+                  % (number, launch_state["state"], state["state"]))
+            break
 
         if simulate is not None:
             code = simulate[min(number - 1, len(simulate) - 1)]
@@ -157,6 +223,10 @@ def main(argv=None):
             record, text = run_attempt(number, comparator)
 
         record["pre_load"] = round(load, 2)
+        record["mode_state_at_start"] = state["state"]
+        record["mode_state_at_launch"] = launch_state["state"]
+        record["mode_share_at_start"] = round(state["share"], 4)
+        record["pointwise_in_gate"] = bool(comparable(load, base, tolerance))
         record["start_stratum"] = stratum_of(load)
         record["start_phase"] = "quiet" if load <= 2.00 else "busy"
         record["survival_bound"] = ("unknown at D=%.0fs — the map's 0/34 bound is over 600s windows and does "
@@ -172,8 +242,46 @@ def main(argv=None):
         print("attempt %d: REFUSED (exit %d) — %s" % (number, record["exit"],
                                                       record.get("refusal") or "see trace"))
 
-    print("baseline_attempts  instrument=%s  D~%.0fs  attempts=%d  cap=%d  log=%s"
-          % (INSTRUMENT, INSTRUMENT_D, len(attempts), MAX_ATTEMPTS, LOG))
+    # Second leg: its own gates, at its own instant. The pair is two spends, and gating only the first
+    # makes a "complete" pair whose halves were launched under different rules.
+    if baseline is not None and subject_comparator:
+        gate = mode_state()
+        captured = (baseline.get("values") or {}).get("reading", base) or base
+        load = captured if simulate is not None else read_load()
+        gap = abs(load - captured)
+        pointwise = gap <= SUBJECT_TOLERANCE
+        print("subject row gate: captured_pre=%.2f reading=%.2f gap=%.2f tolerance=%.2f"
+              % (captured, load, gap, SUBJECT_TOLERANCE))
+        print("subject leg: mode=%s pointwise=%s pre_load=%.2f" % (gate["state"], "in" if pointwise else "out", load))
+        if gate["state"] != "yes" or not pointwise:
+            print("subject leg: ABORTED — not launched; the baseline stands (a baseline-only half-pair, "
+                  "not a failed attempt). The subject follows in the next matched stretch with the gap "
+                  "printed.")
+            subject = {"status": "aborted", "mode": gate["state"], "pre_load": round(load, 2),
+                       "captured_pre": round(captured, 2), "gap": round(gap, 2),
+                       "pointwise_in_gate": pointwise}
+        else:
+            for attempt in range(1, SUBJECT_MAX_ATTEMPTS + 1):
+                if simulate is not None:
+                    record = {"attempt": "subject", "exit": 0, "values": {}, "simulated": True,
+                              "instrument": INSTRUMENT, "instrument_n": 7, "revision": revision()}
+                else:
+                    record, text = run_attempt("subject", subject_comparator)
+                subject = {"status": "complete" if record["exit"] == 0 else "refused",
+                           "attempts": attempt, "mode": gate["state"],
+                           "pre_load": round(load, 2), "captured_pre": round(captured, 2),
+                           "gap": round(gap, 2), "pointwise_in_gate": True,
+                           "exit": record["exit"], "values": record["values"]}
+                print("subject leg (attempt %d/%d): %s — %s"
+                      % (attempt, SUBJECT_MAX_ATTEMPTS,
+                         "ACCEPTED" if record["exit"] == 0 else "REFUSED", record["values"]))
+                if record["exit"] == 0:
+                    break
+    pair_status = ("none" if baseline is None else
+                   "complete" if subject and subject.get("status") == "complete" else "baseline-only")
+
+    print("baseline_attempts  instrument=%s  D~%.0fs  attempts=%d  cap=%d  pair=%s  log=%s"
+          % (INSTRUMENT, INSTRUMENT_D, len(attempts), MAX_ATTEMPTS, pair_status, LOG))
     for record in attempts:
         print("  attempt %d: exit=%d pre_load=%s stratum=%s phase=%s refusal=%s"
               % (record["attempt"], record["exit"], record.get("pre_load"), record.get("start_stratum"),
@@ -182,10 +290,11 @@ def main(argv=None):
         print("NO BASELINE OBTAINED; REFUSALS RECORDED — a result about the box, and the input the "
               "re-baseline question would need. Not a verdict that the box cannot be scheduled.")
         return 3
-    print("BASELINE OBTAINED under %d attempt(s) of the %s capture (D~%.0fs), comparator baseline 2.33: %s"
-          % (len(attempts), INSTRUMENT, INSTRUMENT_D, baseline["values"]))
-    print("citation label: 'obtained under %d attempts of the %s capture (D~%.0fs), comparator baseline 2.33'"
-          " — no causal claim about ambient attaches." % (len(attempts), INSTRUMENT, INSTRUMENT_D))
+    print("BASELINE OBTAINED under %d attempt(s) of the %s capture (D~%.0fs), comparator row %s "
+          "(base %.2f): %s" % (len(attempts), INSTRUMENT, INSTRUMENT_D, comparator, base,
+                               baseline["values"]))
+    print("citation label: 'obtained under %d attempts of the %s capture (D~%.0fs), comparator row %s' — "
+          "no causal claim about ambient attaches." % (len(attempts), INSTRUMENT, INSTRUMENT_D, comparator))
     return 0
 
 
