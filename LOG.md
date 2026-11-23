@@ -4420,3 +4420,12 @@ Nothing above the first entry was edited in the move.
   ```
   and on a clean tree it is silent. Tests: 3 (`tests/test_hooks.py`) — dirty warns and exits 0, clean is
   silent, and the single `core.hooksPath` redirect still covers every hook. Suite **675 OK**.
+- **The post-commit hook's dependency is now stated where it is read, not only in chat.** The header carries:
+  *this hook is quiet in this repo only because the pre-commit stacking rule keeps the tree clean between
+  commits — that rule supplies the invariant, this hook detects its violation; loosen the rule and a detector
+  becomes noise without anyone editing this file.* A guard whose correctness depends on another rule has to
+  name that rule at the guard — the same placement rule that put the linger requirement in the sampler's unit
+  and the retirement reason in the comparator row.
+  *Successor, not an amend:* `8b6da13` was pinned before this line existed, so the header change lands as a
+  successor commit — amending a pinned tip would orphan the pin it had just earned, which is the rewrite the
+  successor rule exists to prevent.

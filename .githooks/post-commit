@@ -9,6 +9,12 @@
 # It warns rather than refuses because a clean tree is not required between commits -- the next change is
 # often already in progress -- and a hook that blocked legitimate work would be turned off with --no-verify,
 # taking the other guards with it.
+#
+# DEPENDENCY (state it here, because it is not visible from this file): this hook is quiet in this repo
+# only because the pre-commit stacking rule keeps the tree clean between commits -- commit, push, commit.
+# That rule supplies the invariant; this hook detects its violation. In a repository where work routinely
+# sits dirty across commits, the same hook fires constantly and becomes background noise, and a maintainer
+# who loosens the stacking rule converts a detector into noise without ever touching this file.
 
 dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
 if [ "${dirty:-0}" -gt 0 ]; then
