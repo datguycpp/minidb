@@ -3922,3 +3922,23 @@ Nothing above the first entry was edited in the move.
   *All four branches verified in the live repo:* ahead=0 → passes; ahead=1 → refuses with the remedy named;
   ahead=1 + `ALLOW_AMEND=1` → honoured and the commit carries `Amended-from: c4b3847`; ahead=2 +
   `ALLOW_AMEND=1` → `REFUSED — amending would rewrite its descendants`.
+
+- **The exemption's attestation is now validated where history exists, because the env var could not enforce
+  its own meaning.** @qa's hole was exact: `ALLOW_AMEND=1 git commit -m x` *without* `--amend` passes
+  `pre-commit` (ahead == 1 permits it), creates a **second commit** — the stack the guard forbids — and
+  `prepare-commit-msg` stamps it `Amended-from: <tip>`. At commit time amend and stack are genuinely
+  indistinguishable, so the label cannot be checked there.
+  *Checked at `.githooks/pre-push` instead, by parent arithmetic:* a genuine amend's carrier has the
+  **target's parent** (it stands in the target's place); a mis-attested stack has the **target itself** as
+  parent. The hook walks the **whole outgoing range**, not just the tip, so a bad commit below a genuine
+  one is caught and history cannot be pushed in pieces; it refuses (exit 1) rather than warns, naming the
+  carrier, the claimed target and both parents.
+  *Both branches verified in the live repo:*
+  ```
+  genuine amend      52d81bd parent=e9c5163, trailer Amended-from: 6aa41b9  -> push allowed
+  false attestation  6681950 parent=52d81bd, trailer Amended-from: 52d81bd -> REFUSED
+                     "a genuine amend replaces the target (same parent); this commit is stacked on it."
+  ```
+  *The standard this completes:* the exemption is **claimed at invocation, validated by a guard that can
+  refuse, and recorded in the commit's own message** — the governance layer now has the same three-part
+  shape as the instruments, and none of it depends on anyone remembering.

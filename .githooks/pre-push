@@ -1,0 +1,56 @@
+#!/bin/sh
+# Refuse to publish a commit whose `Amended-from:` trailer is a false attestation.
+#
+# Why this exists: the commit-time exemption (ALLOW_AMEND=1, honoured only at ahead == 1) cannot force an
+# amend -- it only permits one. `ALLOW_AMEND=1 git commit -m x` with no --amend passes pre-commit, creates a
+# SECOND commit, and prepare-commit-msg stamps it `Amended-from: <tip>`: the stack the guard forbids,
+# wearing the label of the correction it sanctions. The env var cannot enforce its own meaning at commit
+# time, because amend and stack are indistinguishable before the new object exists.
+#
+# History can tell them apart, so the attestation is checked where history exists -- here:
+#
+#   genuine amend:  carrier's parent == trailer target's parent   (the carrier stands in the target's place)
+#   mis-attested:   carrier's parent == trailer target itself      (the carrier is stacked on it)
+#
+# The check walks the WHOLE outgoing range, not just the tip, so a mis-attested commit below a genuine one
+# is caught too, and a bad history cannot be pushed in pieces. It refuses rather than warns: a trailer that
+# looks like evidence but isn't is the same class as a log that looks live but isn't.
+#
+# Install (per clone):
+#   git config core.hooksPath .githooks
+#   chmod +x .githooks/pre-push
+
+fail=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$local_sha" in
+        0000000000000000000000000000000000000000) continue ;;   # deletion: nothing to attest
+    esac
+    case "$remote_sha" in
+        ""|0000000000000000000000000000000000000000) range="$local_sha" ;;  # new branch: walk all
+        *) range="$remote_sha..$local_sha" ;;
+    esac
+
+    for commit in $(git rev-list "$range" 2>/dev/null); do
+        target=$(git log -1 --format='%(trailers:key=Amended-from,valueonly)' "$commit" 2>/dev/null | tr -d '[:space:]')
+        [ -z "$target" ] && continue
+
+        carrier_parent=$(git rev-parse --short "${commit}^" 2>/dev/null)
+        if ! target_parent=$(git rev-parse --short "${target}^" 2>/dev/null); then
+            echo "pre-push: $(git rev-parse --short "$commit") carries Amended-from: $target but that" >&2
+            echo "pre-push: commit is not resolvable here, so the attestation cannot be checked. Refusing." >&2
+            fail=1
+            continue
+        fi
+
+        if [ "$carrier_parent" != "$target_parent" ]; then
+            echo "pre-push: REFUSED — $(git rev-parse --short "$commit") claims Amended-from: $target," >&2
+            echo "pre-push: but its parent is $carrier_parent while $target's parent is $target_parent." >&2
+            echo "pre-push: a genuine amend replaces the target (same parent); this commit is stacked on it." >&2
+            echo "pre-push: strip the trailer and push it as an honest stack, or redo it as --amend." >&2
+            fail=1
+        fi
+    done
+done
+
+[ "$fail" -eq 0 ] || exit 1
+exit 0
