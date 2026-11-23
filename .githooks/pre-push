@@ -16,6 +16,11 @@
 # is caught too, and a bad history cannot be pushed in pieces. It refuses rather than warns: a trailer that
 # looks like evidence but isn't is the same class as a log that looks live but isn't.
 #
+# DECLARED BOUNDARY: the attestation is checkable only in the repository where the amend happened. The
+# rewritten-away target is a dangling object kept alive by that clone's object store and reflog (30-90 days
+# by default), not by pushed history -- so pushing a trailer-carrier from a different clone has nothing to
+# resolve against and is REFUSED for that reason. Push from the clone where the amend was made.
+#
 # Install (per clone):
 #   git config core.hooksPath .githooks
 #   chmod +x .githooks/pre-push

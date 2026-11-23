@@ -103,6 +103,32 @@ def clopper_pearson_upper(k, n, confidence=0.95):
     return high
 
 
+def wilson_ci(k, n, z=1.96):
+    """Binomial CI for a share, so a phase-mix figure arrives with its precision."""
+    if n == 0:
+        return (float("nan"), float("nan"))
+    phat = k / float(n)
+    denom = 1.0 + z * z / n
+    centre = (phat + z * z / (2 * n)) / denom
+    half = z * math.sqrt(phat * (1 - phat) / n + z * z / (4 * n * n)) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def segments_of(records, interval, max_age):
+    """Contiguous runs of the series, split at holes -- the unit the phase-mix check compares."""
+    segments, current = [], []
+    previous = None
+    for record in records:
+        if previous is not None and record["t"] - previous > max(2 * interval, max_age):
+            segments.append(current)
+            current = []
+        current.append(record)
+        previous = record["t"]
+    if current:
+        segments.append(current)
+    return segments
+
+
 def windows_needed(rate):
     """Windows required for a zero-event band to claim P_upper <= rate (r and floor freeze together)."""
     if rate <= 0.0:
@@ -214,9 +240,35 @@ def report(path, duration, synthetic=False, rate_bar=None, max_age=MAX_AGE):
                      else " does not clear r=%.2f (needs ~%d indep)" % (rate_bar,
                                                                        windows_needed(rate_bar)))
         print(line)
+    # f = the share of samples inside the band: the phase mix that needed_h divides by. Reported with its
+    # binomial CI and per segment, because a projection from a partial log is dominated by whichever phase
+    # the sample caught -- so whether f is stationary is a question the report should answer, not assume.
+    mix_threshold = 2.00
+    in_band = sum(1 for value in loads if value <= mix_threshold)
+    low_f, high_f = wilson_ci(in_band, len(loads))
+    print("  phase mix  f = share of samples <= %.2f:" % mix_threshold)
+    print("    pooled  f=%.1f%%  CI[%.1f, %.1f]  n=%d" % (100.0 * in_band / len(loads), 100.0 * low_f,
+                                                       100.0 * high_f, len(loads)))
+    pieces = segments_of(records, interval, max_age)
+    spans = []
+    for number, piece in enumerate(pieces, 1):
+        hits = sum(1 for item in piece if item["load"] <= mix_threshold)
+        low_piece, high_piece = wilson_ci(hits, len(piece))
+        spans.append((low_piece, high_piece))
+        print("    seg %d   f=%.1f%%  CI[%.1f, %.1f]  n=%d  (%.1f min)"
+              % (number, 100.0 * hits / len(piece), 100.0 * low_piece, 100.0 * high_piece,
+                 len(piece), (piece[-1]["t"] - piece[0]["t"]) / 60.0))
+    if len(spans) > 1:
+        disjoint = any(spans[i][1] < spans[j][0] or spans[j][1] < spans[i][0]
+                       for i in range(len(spans)) for j in range(i + 1, len(spans)))
+        print("    consistency: %s%s" % (
+            "DISAGREE (segment CIs disjoint)" if disjoint else "consistent within the CIs",
+            " — the phase mix is non-stationary, so needed_h*'s stationary-mix assumption is "
+            "contradicted by the segments themselves; no single calendar projection follows from this log"
+            if disjoint else ""))
     print("  note: P_hat is the point estimate; P_upper(95%) is the exact one-sided Clopper-Pearson "
           "bound. A zero-episode band reads P_hat=0 and P_upper~3/n -- scheduling must use the bound, "
-          "because 0 of 30 is still consistent with ~9.5%%, and a threshold r below that cap can never "
+          "because 0 of 30 is still consistent with ~9.5%, and a threshold r below that cap can never "
           "clear at n=30 (the floor and r freeze together).")
     print("  phase: these rates are measured over the phase(s) the log covers -- see the "
           "phase-of-cycle line below; a quiet-phase rate does not transfer to busy-phase starts.")

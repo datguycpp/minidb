@@ -3956,3 +3956,25 @@ Nothing above the first entry was edited in the move.
   *Also recorded:* `core.hooksPath = .githooks` redirects all hooks, so `pre-push` needed no separate
   install step — `make hooks` covers it, and the Makefile chmod line was extended anyway so a fresh clone
   gets the bit set by the same command.
+
+- **The phase mix is reported with its binomial CI and per segment, and the segments currently disagree —
+  which makes `needed_h*` meaningless rather than merely imprecise.** @qa's correction was decisive:
+  within-quiet-phase occupancy is 100% by definition, so stratifying by the outcome cannot fix a retreating
+  projection; what retreats is **f**, the share of samples in band, so f is what the report must test for
+  stationarity.
+  ```
+  phase mix  f = share of samples <= 2.00:
+    pooled  f=88.8%  CI[87.7, 89.9]  n=3108
+    seg 1   f=91.4%  CI[90.2, 92.4]  n=2500  (208.3 min)
+    seg 2   f=78.3%  CI[74.8, 81.4]  n=608   (50.6 min)
+    consistency: DISAGREE (segment CIs disjoint) — the phase mix is non-stationary, so needed_h*'s
+    stationary-mix assumption is contradicted by the segments themselves
+  ```
+  **The finding:** no single calendar projection follows from this log. `needed_h*` assumes a stationary
+  phase mix, and the two segments contradict that at 95% — the dead-then-restarted series is not one
+  population. This is the third time an occupancy-derived wait moved toward more waiting, and the
+  explanation is now measured rather than suspected: the mix shifts between phases, so a projection from a
+  partial log is biased by whichever phase it caught.
+  *Also closed:* @security's header-vs-LOG precision — `50f1a08` claimed the boundary was "in its header"
+  while the diff touched LOG.md only. The hook's own header now carries the DECLARED BOUNDARY block, so the
+  artifact a future editor opens states the domain it is checked against.
