@@ -71,8 +71,15 @@ ATTEMPT_LOG = os.path.expanduser("~/.minidb-baseline-attempts.jsonl")
 
 
 def forward_counts(watch_log=WATCH_LOG, attempt_log=ATTEMPT_LOG):
-    """Forwards per row and how many of them produced a series."""
-    forwards, measured = {}, 0
+    """Forwards per row and how many of them produced a series.
+
+    ONE INVOCATION WRITES TWO LINES: `launch` when the harness is invoked, `launched`/`measured` when it
+    returns. Summing both double-counts every forward -- 2,390/775 instead of the true 1,195/388. The unit
+    of accounting is the INVOCATION, so only `launch` is counted here; `launched` minus `launch` is reported
+    separately as `in_flight`, because a launch with no return line is an invocation still running when the
+    watcher was stopped, and the record should name it rather than make a reader reconcile a vanished event.
+    """
+    forwards, returned, measured = {}, 0, 0
     if os.path.exists(watch_log):
         with open(watch_log) as handle:
             for line in handle:
@@ -83,8 +90,12 @@ def forward_counts(watch_log=WATCH_LOG, attempt_log=ATTEMPT_LOG):
                     entry = json.loads(line)
                 except ValueError:
                     continue
-                if entry.get("action") in ("launch", "invoked", "launched"):
-                    forwards[entry.get("row", "?")] = forwards.get(entry.get("row", "?"), 0) + 1
+                action = entry.get("action")
+                row = entry.get("row", "?")
+                if action == "launch":
+                    forwards[row] = forwards.get(row, 0) + 1
+                elif action in ("launched", "measured", "invoked"):
+                    returned += 1
     if os.path.exists(attempt_log):
         with open(attempt_log) as handle:
             for line in handle:
@@ -97,7 +108,7 @@ def forward_counts(watch_log=WATCH_LOG, attempt_log=ATTEMPT_LOG):
                     continue
                 if entry.get("values"):
                     measured += 1
-    return forwards, measured
+    return forwards, measured, returned
                             # interval. A file that stopped growing is indistinguishable from one nobody
                             # has checked yet, so a rate from a stale log is refused, not caveated.
 MIN_WINDOWS = 30            # independent windows, NOT raw starts: at 5s sampling with D=600s, thirty
@@ -649,7 +660,7 @@ def horizon_status(path, now=None, end=None, watch_log=WATCH_LOG, attempt_log=AT
         if not live:
             result["outcome"] = ("insufficient observation — the sampler was not live at the horizon")
         else:
-            forwards, measured = forward_counts(watch_log, attempt_log)
+            forwards, measured, returned = forward_counts(watch_log, attempt_log)
             yes_windows = {row["label"]: row["yes_runs"] for row in result["rows"]}
             if forwards and measured == 0:
                 result["outcome"] = (
@@ -659,6 +670,10 @@ def horizon_status(path, now=None, end=None, watch_log=WATCH_LOG, attempt_log=AT
                        " ".join("%s:%d" % (k, v) for k, v in sorted(yes_windows.items())),
                        " ".join("%s:%d" % (k.split(':')[-1], v) for k, v in sorted(forwards.items())),
                        measured))
+                in_flight = sum(forwards.values()) - returned
+                if in_flight:
+                    result["outcome"] += " in_flight=%d (a launch with no return line: the invocation in " \
+                                          "flight when the watcher stopped)" % in_flight
             else:
                 result["outcome"] = ("no schedulable window observed — a result about the box; both rows "
                                      "retired unmeasured")

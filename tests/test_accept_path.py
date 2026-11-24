@@ -73,5 +73,64 @@ class WatcherStopTest(unittest.TestCase):
         self.assertIn("stop", actions)
 
 
+class UnexpectedExitTest(unittest.TestCase):
+    """Fail-closed: an exit the watcher does not recognise is a new state or a crash, never a window."""
+
+    def run_with_exit(self, code, once=False):
+        directory = tempfile.mkdtemp()
+        ambient = os.path.join(directory, "amb.jsonl")
+        with open(ambient, "w") as handle:
+            for index in range(60):
+                handle.write(json.dumps({"t": time.time() - 300 + index * 5, "load": 0.35}) + "\n")
+        fake = os.path.join(directory, "fake_harness.py")
+        with open(fake, "w") as handle:
+            handle.write("import sys\nsys.exit(%d)\n" % code)
+        watch = os.path.join(directory, "watch.jsonl")
+        snippet = (
+            "import sys\nsys.path.insert(0, %r)\nimport pair_watch as pw\n"
+            "pw.AMBIENT = %r\npw.HARNESS = %r\n"
+            "sys.exit(pw.main(['--comparator', 'gate3:d89f689+:0.38', '--interval', '1', '--log', %r%s]))\n"
+            % (os.path.join(ROOT, "tools"), ambient, fake, watch, ", '--once'" if once else "")
+        )
+        result = subprocess.run([sys.executable, "-c", snippet], capture_output=True, text=True,
+                                timeout=30, env=dict(os.environ, PYTHONPATH=os.path.join(ROOT, "tools")))
+        with open(watch) as handle:
+            actions = [json.loads(line)["action"] for line in handle if line.strip()]
+        return result, actions
+
+    def test_a_crash_exit_stops_instead_of_looping(self):
+        result, actions = self.run_with_exit(2)
+        self.assertEqual(result.returncode, 0)                 # clean stop; on-failure will not restart
+        self.assertEqual(actions.count("launch"), 1)
+        self.assertIn("stop", actions)
+
+    def test_known_retryable_exits_still_wait(self):
+        for code in (1, 3, 4):
+            result, actions = self.run_with_exit(code, once=True)
+            self.assertEqual(actions, ["launch", "invoked"])   # no stop: the box may change
+            self.assertEqual(result.returncode, 3)
+
+
+class ForwardCountTest(unittest.TestCase):
+    def test_one_invocation_is_counted_once_and_an_unanswered_launch_is_named(self):
+        # `launch` and `launched` are two lines for ONE invocation; summing them doubled the count to
+        # 2,390/775 when the true figure was 1,195/388.
+        directory = tempfile.mkdtemp()
+        watch = os.path.join(directory, "watch.jsonl")
+        attempts = os.path.join(directory, "attempts.jsonl")
+        with open(watch, "w") as handle:
+            handle.write(json.dumps({"row": "gate3:d89f689+:0.38", "action": "launch"}) + "\n")
+            handle.write(json.dumps({"row": "gate3:d89f689+:0.38", "action": "invoked", "exit": 1}) + "\n")
+            handle.write(json.dumps({"row": "gate3:d89f689+:0.38", "action": "launch"}) + "\n")
+        open(attempts, "w").close()
+        import sys as _sys
+        _sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import ambient_map
+        forwards, measured, returned = ambient_map.forward_counts(watch, attempts)
+        self.assertEqual(forwards, {"gate3:d89f689+:0.38": 2})   # two invocations, not three lines
+        self.assertEqual(measured, 0)
+        self.assertEqual(returned, 1)                            # one launch has no return line: in flight
+
+
 if __name__ == "__main__":
     unittest.main()

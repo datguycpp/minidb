@@ -4485,3 +4485,17 @@ Nothing above the first entry was edited in the move.
   It is mutually exclusive with "no schedulable window observed" (which now requires **zero forwards**) and
   with "insufficient observation" (sampler not live at the horizon). A forward that produced a series makes
   the outcome false, so the wording cannot be borrowed by a working chain.
+
+- **Two counting holes in the frozen outcome, both fixed before the horizon could print either.** @qa found
+  the first: `forwards=0.38:2390 0.72:775` summed the `launch` and `launched` lines, but **one invocation
+  writes both** — the true invocation counts are **1,195 night / 388 afternoon (1,583 total)**. `forward_counts`
+  now counts `launch` only (the unit of accounting is the invocation) and reports the remainder as
+  `in_flight`, naming the invocation still running when the watchers were stopped rather than leaving a reader
+  to reconcile a vanished event. The outcome now prints:
+  `forwards=0.38:1195 0.72:388 measured=0 in_flight=1`.
+  @security found the second, by accident and then by method: a fake-harness **exit 2** looped — the watcher's
+  stop set named only 6, so *every other* non-zero exit was treated as a window. **Fixed fail-closed:** only
+  `{0, 1, 3, 4}` are retryable (measured / admissibility / gate refusals); `5` is a lock wait; `6` and
+  **anything unrecognised** stop with `reason=unexpected-exit-N`, because an unclassified exit is either a new
+  instrument state or a crash, and retrying cannot classify it. Reproduced: exit 2 → `['launch','stop']`,
+  watcher exits 0; exits 1/3/4 → `['launch','invoked']`, still waiting. Suite **682 OK**.

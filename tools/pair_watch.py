@@ -141,6 +141,18 @@ def poll(spec, base, tolerance, dry_run=False, watch_log=WATCH_LOG):
         record(watch_log, dict(entry, action="wait", reason="lock", t_end=time.time()))
         print("pair_watch: window present but the box lock was held — waiting, nothing spent")
         return "wait"
+    # FAIL-CLOSED, not enumerated. Only these exits are known to mean "the box may change": 0 measured,
+    # 1 admissibility (a reading out of band), 3/4 gate refusals. Anything else -- an import error (2), a
+    # moved script, a version mismatch -- is either a new instrument state needing a human to classify or
+    # a crash needing a human to fix, and neither changes by retrying. A close() set that named only 6 is
+    # the constant list this room already retired: @security reproduced an exit-2 crash looping at poll
+    # rate, the 1,583 pattern wearing a third exit code.
+    if result.returncode not in (0, 1, 3, 4):
+        record(watch_log, dict(entry, action="stop", reason="unexpected-exit-%d" % result.returncode,
+                               exit=result.returncode, t_end=time.time()))
+        print("pair_watch: STOPPING — unrecognised harness exit %d. An unclassified exit is not a window; "
+              "it is a new state or a crash, and retrying cannot classify it." % result.returncode)
+        return "stop"
     # A launch is only "measured" when the instrument accepted and produced a series; otherwise it is an
     # invocation. Splitting the label is what stops a broken path from looking busy.
     measured = result.returncode == 0
