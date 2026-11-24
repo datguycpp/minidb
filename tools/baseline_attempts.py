@@ -188,12 +188,32 @@ def parse_capture(text):
     return values
 
 
-def run_attempt(number, comparator):
+def sidecar_path(spec):
+    return os.path.expanduser("~/.minidb-sidecar-%s.json" % spec.replace(":", "_").replace("+", "p"))
+
+
+def write_sidecar(spec, base, gate="gate3"):
+    """SIDECAR FOR THE RUN, COMMIT FOR THE RECORD.
+
+    A pending row cannot be handed to the capture as a registry identity -- the capture refuses `pending`
+    by design, and it is right to. The sidecar carries the measured-run parameters so the capture can
+    measure, while the registry stays the single source of truth about the row's status: nothing here makes
+    a row live, only a landing commit does.
+    """
+    path = sidecar_path(spec)
+    with open(path, "w") as handle:
+        json.dump({"identity": spec, "base_load": base, "gate": gate, "revision": revision()}, handle)
+    return path
+
+
+def run_attempt(number, comparator, sidecar=None):
     started = time.time()
     # --series LOOP: the gate-3 baseline is the LOOP median at N=7. Without it the capture also runs
     # BLOCK, whose 100k-row fixture is a gate-1 input and costs minutes for a number gate 3 never reads.
-    result = subprocess.run([sys.executable, CAPTURE, "--comparator", comparator, "--series", "LOOP"],
-                            cwd=REPO,
+    argv = [sys.executable, CAPTURE, "--comparator", comparator, "--series", "LOOP"]
+    if sidecar:
+        argv += ["--measured-row", sidecar]
+    result = subprocess.run(argv, cwd=REPO,
                             capture_output=True, text=True)
     text = result.stdout + result.stderr
     record = {"attempt": number, "instrument": INSTRUMENT, "instrument_n": 7,
@@ -233,6 +253,11 @@ def main(argv=None):
 
     base, tolerance, row_state = row_gate(comparator) if comparator else (BASELINE_DELTA * 2.33, 1.0, "none")
     row_label = "night" if base < 0.5 else "afternoon"
+    # A pending row is measured through a sidecar, never promoted here: the registry stays the single source
+    # of truth about a row's status, and only a landing commit makes a capture live.
+    sidecar = write_sidecar(comparator, base) if (comparator and row_state == "pending") else None
+    if sidecar:
+        print("sidecar: %s (measured-row for the run; the row stays pending)" % sidecar)
     print("row gate: comparator=%s state=%s base=%.2f tolerance=%.2f" % (comparator, row_state, base, tolerance))
     state = mode_state(base, tolerance)
     print("mode gate: row-band=[%.2f, %.2f] state=%s share=%.1f%% n=%d (need >=50%% over >=60 samples "
@@ -288,8 +313,15 @@ def main(argv=None):
                       "revision": revision(), "exit": code, "seconds": 0.0, "simulated": True,
                       "values": {}, "refusal": "SIMULATED refusal" if code else ""}
         else:
-            record, text = run_attempt(number, comparator)
+            record, text = run_attempt(number, comparator,
+                                       sidecar if row_state == "pending" else None)
 
+        if record["exit"] == 6:
+            print("attempt %d: INSTRUMENT REFUSED (exit 6) — the capture cannot run this row at all. This is "
+                  "a defect, not a window: retrying cannot change it, so the run stops and no attempt is "
+                  "consumed." % number)
+            release_lock(lock)
+            return 6
         record["pre_load"] = round(load, 2)
         record["mode_state_at_start"] = state["state"]
         record["mode_state_at_launch"] = launch_state["state"]

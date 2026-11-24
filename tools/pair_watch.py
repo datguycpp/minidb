@@ -124,6 +124,14 @@ def poll(spec, base, tolerance, dry_run=False, watch_log=WATCH_LOG):
                              "--subject-comparator", spec])
     # Exit 5 is the harness's "another pair holds the box lock": a window that existed and was being spent
     # by someone else. It is a WAIT, not a launch failure -- the distinction the poll log exists to keep.
+    # Exit 6: the instrument cannot run this row at all (pending row without a measured sidecar, drift, an
+    # unknown identity). Deterministic, so a watcher that retries turns a one-second defect into thousands of
+    # empty records -- it must STOP, and exit 0 so the supervisor does not restart it into the same wall.
+    if result.returncode == 6:
+        record(watch_log, dict(entry, action="stop", reason="instrument-refused", t_end=time.time()))
+        print("pair_watch: STOPPING — the instrument refused this row (exit 6). A defect is not a window; "
+              "a human must fix the path and restart the unit.")
+        return False
     if result.returncode == 5:
         record(watch_log, dict(entry, action="wait", reason="lock", t_end=time.time()))
         print("pair_watch: window present but the box lock was held — waiting, nothing spent")

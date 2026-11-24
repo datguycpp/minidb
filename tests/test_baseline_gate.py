@@ -106,7 +106,7 @@ class TrailingStateTest(unittest.TestCase):
         baseline_attempts.read_load = lambda: 0.38
         calls = {"n": 0}
 
-        def fake(number, spec):
+        def fake(number, spec, *extra, **kwargs):
             calls["n"] += 1
             loop = 1030.0 if calls["n"] == 1 else 900.0
             spread = 5.8 if calls["n"] == 1 else 3.1

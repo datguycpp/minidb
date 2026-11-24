@@ -81,6 +81,17 @@ def select_series(argv):
     return wanted
 
 
+INSTRUMENT_REFUSAL = 6   # distinct from 3/4 (gate refusals): the instrument cannot run at all, so retrying
+                         # is a loop, not a wait. A watcher that cannot tell these apart turns a one-second
+                         # defect into 4,497 empty attempt records.
+
+
+def refuse(message):
+    import sys as _sys
+    _sys.stderr.write(message + "\n")
+    raise SystemExit(INSTRUMENT_REFUSAL)
+
+
 def select_comparator(argv):
     """The gate's own load comparator, verified against the frozen table rather than trusted.
 
@@ -92,31 +103,54 @@ def select_comparator(argv):
     """
     from comparators import COMPARATORS, lookup
 
-    spec = None
+    spec, sidecar = None, None
     for index, arg in enumerate(argv):
         if arg == "--comparator" and index + 1 < len(argv):
             spec = argv[index + 1]
         elif arg.startswith("--comparator="):
             spec = arg.split("=", 1)[1]
+        elif arg == "--measured-row" and index + 1 < len(argv):
+            sidecar = argv[index + 1]
+        elif arg.startswith("--measured-row="):
+            sidecar = arg.split("=", 1)[1]
     if spec is None:
         return None
+    if sidecar:
+        # SIDECAR FOR THE RUN, COMMIT FOR THE RECORD: a pending row may be MEASURED, but this file does not
+        # become live until a landing commit rewrites the registry. Without this path the harness can only
+        # ever hand the capture an identity that resolves to `pending` -- which the branch below refuses,
+        # correctly -- so every launch refuses in under a second and measures nothing. That defect ran
+        # unattended for 19 hours and produced 4,497 empty attempt records.
+        import json as _json
+        with open(sidecar) as handle:
+            sidecar_row = _json.load(handle)
+        row = {"identity": sidecar_row.get("identity", spec),
+               "base_load": sidecar_row["base_load"],
+               "gate": sidecar_row.get("gate", "gate3"),
+               "revision": sidecar_row.get("revision", "sidecar"),
+               "ceiling_ms": sidecar_row.get("ceiling_ms"),
+               "note": "measured row from sidecar %s (not yet committed)" % sidecar}
+        print("baseline: measured-row sidecar=%s identity=%s base=%.2f — the row stays pending until a "
+              "landing commit records this capture" % (sidecar, row["identity"], row["base_load"]),
+              flush=True)
+        return row
     entry, problem = lookup(spec)
     if problem is not None:
         kind, detail = problem
         if kind == "pending":
-            raise SystemExit("baseline: comparator %s is PENDING — its target load %.2f is pre-registered "
-                             "but no capture has been measured against it, so it has no ceiling to call. "
-                             "Run the capture first; the live identity then follows the captured reading."
-                             % (spec, detail))
+            refuse("baseline: comparator %s is PENDING — its target load %.2f is pre-registered "
+                   "but no capture has been measured against it, so it has no ceiling to call. "
+                   "Run the capture first; the live identity then follows the captured reading."
+                   % (spec, detail))
         if kind == "retired":
-            raise SystemExit("baseline: comparator %s is retired — superseded by %s; name the "
-                             "successor to call a capture against it" % (spec, detail))
+            refuse("baseline: comparator %s is retired — superseded by %s; name the "
+                   "successor to call a capture against it" % (spec, detail))
         if kind == "drift":
-            raise SystemExit("baseline: COMPARATOR DRIFT — supplied %s, frozen identity is %s "
-                             "(load %.2f); refusing to measure against a typed number"
-                             % (spec, detail, COMPARATORS[detail]["base_load"]))
-        raise SystemExit("baseline: unknown comparator %s — known identities: %s"
-                         % (spec, ", ".join(sorted(COMPARATORS))))
+            refuse("baseline: COMPARATOR DRIFT — supplied %s, frozen identity is %s "
+                   "(load %.2f); refusing to measure against a typed number"
+                   % (spec, detail, COMPARATORS[detail]["base_load"]))
+        refuse("baseline: unknown comparator %s — known identities: %s"
+               % (spec, ", ".join(sorted(COMPARATORS))))
     entry = dict(entry)
     entry["identity"] = spec
     return entry

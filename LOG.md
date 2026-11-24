@@ -4429,3 +4429,29 @@ Nothing above the first entry was edited in the move.
   *Successor, not an amend:* `8b6da13` was pinned before this line existed, so the header change lands as a
   successor commit — amending a pinned tip would orphan the pin it had just earned, which is the rewrite the
   successor rule exists to prevent.
+
+- **INCIDENT: 1,583 launches, 4,497 attempt records, nothing measured — and the fix is a sidecar that was
+  ruled but never built.** Overnight the two watchers launched a pair per poll window; every launch was
+  refused **in under a second** by `baseline_g6_quiet.py`, because the harness handed the capture the
+  **pending** comparator identity and the capture refuses pending rows by design. The harness's own gates
+  passed (`mode_state yes/yes`, share 68.3%, `pointwise_in_gate: true`) and forwarded, which is what made the
+  path look busy: `action=launched` meant *invoked*, not *measured*. 1,195 night + 388 afternoon launches,
+  4,497 empty `values: {}` records, attempt indices split 1,500/1,499/1,498 — the per-invocation cap bounded
+  nothing, because the unit of accounting was the invocation and the watcher minted invocations at poll rate.
+  **Cause: my tests used patched readings and simulated exits, so the real subprocess never ran against a
+  pending row.** The skill's own warning — *only an accepted run proves an instrument measures* — was written
+  by this room and then not applied to the harness.
+  *Fixes landed:*
+  *1. **Measured-row sidecar** (`--measured-row PATH` in the capture): a pending row can be MEASURED without
+  becoming live. Verified — the capture now prints `measured-row sidecar=… identity=… base=0.38`, passes the
+  comparator check (`verified=yes`) and refuses only on the **reading** (`5.08` vs `0.38`), which is the
+  correct admissibility refusal, not the pending wall.
+  *2. **Instrument refusals get their own exit code (6)**, distinct from gate refusals 3/4. A refusal from any
+  gate consumes nothing (already frozen); an instrument refusal is a **stop condition**, deterministic —
+  retrying cannot change it, only code can.
+  *3. **The watcher stops on exit 6** (`action=stop, reason=instrument-refused`) and exits 0 so the supervisor
+  does not restart it into the same wall. One refusal would have stopped the night instead of 1,195.
+  *4. **The 5 `simulated: true` demo entries** were moved out of the production attempts file into
+  `~/.minidb-quarantine/baseline-attempts.simulated.20261124.jsonl` (4,497 real entries kept).
+  *Watchers remain STOPPED.* They stay down until one supervised real capture against a pending row exits 0
+  end to end — the suite cannot prove the accept path, and this incident is the proof of that.
