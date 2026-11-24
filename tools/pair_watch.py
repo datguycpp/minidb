@@ -101,22 +101,27 @@ def record(path, payload):
 
 
 def poll(spec, base, tolerance, dry_run=False, watch_log=WATCH_LOG):
+    """Returns "wait", "spent" or "stop".
+
+    Three values, not a boolean: `stop` and `wait` both meant False, so main's loop polled again straight
+    after logging "STOPPING" — the 1,583-launch pattern with a log line claiming otherwise.
+    """
     if verdict_exists(spec):
         record(watch_log, {"t": time.time(), "rev": revision(), "row": spec, "action": "wait",
                            "reason": "verdict-exists"})
-        return False
+        return "wait"
     state = ambient_map.trailing_state(AMBIENT, target=base, band=tolerance)
     entry = {"t": time.time(), "rev": revision(), "row": spec,
              "band": [round(max(0.0, base - tolerance), 2), round(base + tolerance, 2)],
              "state": state["state"], "share": round(state["share"], 4), "n": state["n"]}
     if state["state"] != "yes":
         record(watch_log, dict(entry, action="wait"))
-        return False
+        return "wait"
     if dry_run:
         record(watch_log, dict(entry, action="would-launch"))
         print("pair_watch: DRY RUN — %s reads yes (share %.1f%%); would launch the pair harness"
               % (spec, 100 * state["share"]))
-        return True
+        return "spent"
     record(watch_log, dict(entry, action="launch"))
     print("pair_watch: %s reads yes (share %.1f%%) — launching the pair harness"
           % (spec, 100 * state["share"]), flush=True)
@@ -131,13 +136,17 @@ def poll(spec, base, tolerance, dry_run=False, watch_log=WATCH_LOG):
         record(watch_log, dict(entry, action="stop", reason="instrument-refused", t_end=time.time()))
         print("pair_watch: STOPPING — the instrument refused this row (exit 6). A defect is not a window; "
               "a human must fix the path and restart the unit.")
-        return False
+        return "stop"
     if result.returncode == 5:
         record(watch_log, dict(entry, action="wait", reason="lock", t_end=time.time()))
         print("pair_watch: window present but the box lock was held — waiting, nothing spent")
-        return False
-    record(watch_log, dict(entry, action="launched", exit=result.returncode, t_end=time.time()))
-    return result.returncode == 0
+        return "wait"
+    # A launch is only "measured" when the instrument accepted and produced a series; otherwise it is an
+    # invocation. Splitting the label is what stops a broken path from looking busy.
+    measured = result.returncode == 0
+    record(watch_log, dict(entry, action="measured" if measured else "invoked",
+                           exit=result.returncode, t_end=time.time()))
+    return "spent" if measured else "wait"
 
 
 def main(argv=None):
@@ -155,11 +164,17 @@ def main(argv=None):
           % (revision(), args.comparator, max(0.0, base - tolerance), base + tolerance, args.interval,
              args.dry_run, args.log), flush=True)
     if args.once or args.dry_run:
-        return 0 if poll(args.comparator, base, tolerance, args.dry_run, args.log) else 3
+        outcome = poll(args.comparator, base, tolerance, args.dry_run, args.log)
+        return 0 if outcome == "spent" else (2 if outcome == "stop" else 3)
     while True:
-        if poll(args.comparator, base, tolerance, False, args.log):
+        outcome = poll(args.comparator, base, tolerance, False, args.log)
+        if outcome == "spent":
             print("pair_watch: a pair ran; stopping this watcher (one spend per launch by design)")
             return 0
+        if outcome == "stop":
+            print("pair_watch: halted on a deterministic instrument refusal — exiting cleanly so the "
+                  "supervisor does NOT restart this row")
+            return 0                       # clean exit: with Restart=on-failure, this is a real stop
         time.sleep(args.interval)
 
 

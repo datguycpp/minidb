@@ -74,10 +74,11 @@ class AmbientModesTest(unittest.TestCase):
         stale = write_log([(now - 10 ** 6, 0.5)])
         past = (2026, 11, 1, 0, 0, 0)
         try:
-            fresh = ambient_map.horizon_status(live, end=past)
+            empty = write_log([])
+            fresh = ambient_map.horizon_status(live, end=past, watch_log=empty, attempt_log=empty)
             self.assertTrue(fresh["expired"])
             self.assertIn("no schedulable window observed", fresh["outcome"])
-            dead = ambient_map.horizon_status(stale, end=past)
+            dead = ambient_map.horizon_status(stale, end=past, watch_log=empty, attempt_log=empty)
             self.assertIn("insufficient observation", dead["outcome"])
             future = ambient_map.horizon_status(live)
             self.assertFalse(future["expired"])
@@ -85,6 +86,7 @@ class AmbientModesTest(unittest.TestCase):
         finally:
             os.unlink(live)
             os.unlink(stale)
+            os.unlink(empty)
 
     def test_coverage_is_sampled_time_not_span_minus_gaps(self):
         # Consecutive gaps partition the span, so `span - sum(gaps)` is identically zero: a metric that
@@ -114,6 +116,29 @@ class AmbientModesTest(unittest.TestCase):
             self.assertEqual(labels["afternoon"]["yes_runs"], 0)   # busy hour: never reached yes
         finally:
             os.unlink(path)
+
+    def test_the_third_outcome_needs_forwards_and_no_measurement(self):
+        # "windows-observed-instrument-unable" is quotable only with its counts: yes-windows per row,
+        # forwards per row, and measured == 0. A forward with a measurement is a different story.
+        now = time.time()
+        # 1,440 samples at 5 s = two hours, ending now: fresh (a stale log earns "insufficient
+        # observation", which would mask the outcome under test).
+        ambient = write_log([(now - 7195 + i * 5, 0.30) for i in range(1440)])
+        watch = write_log([])
+        attempts = write_log([])
+        past = (2026, 11, 1, 0, 0, 0)
+        try:
+            clean = ambient_map.horizon_status(ambient, end=past, watch_log=watch, attempt_log=attempts)
+            self.assertIn("no schedulable window observed", clean["outcome"])
+            with open(watch, "w") as handle:
+                handle.write(json.dumps({"row": "gate3:d89f689+:0.38", "action": "launch"}) + "\n")
+            unable = ambient_map.horizon_status(ambient, end=past, watch_log=watch, attempt_log=attempts)
+            self.assertIn("windows-observed-instrument-unable", unable["outcome"])
+            self.assertIn("yes_windows=", unable["outcome"])
+            self.assertIn("measured=0", unable["outcome"])
+        finally:
+            for path in (ambient, watch, attempts):
+                os.unlink(path)
 
     def test_mode_share_is_definitional(self):
         # "majority in-gate" is the definition, not a tuned cutoff: exactly half is schedulable.

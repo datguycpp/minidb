@@ -91,8 +91,8 @@ class PairWatchTest(unittest.TestCase):
         pair_watch.AMBIENT = quiet
         try:
             base, tol = pair_watch.row_band("gate3:d89f689+:0.38")
-            self.assertFalse(pair_watch.poll("gate3:d89f689+:0.38", base, tol, dry_run=True,
-                                             watch_log=log))
+            self.assertEqual(pair_watch.poll("gate3:d89f689+:0.38", base, tol, dry_run=True,
+                                             watch_log=log), "wait")
         finally:
             pair_watch.AMBIENT = original
         with open(log) as handle:
@@ -112,8 +112,8 @@ class PairWatchTest(unittest.TestCase):
         pair_watch.AMBIENT = path
         try:
             base, tol = pair_watch.row_band("gate3:d89f689+:0.38")
-            self.assertTrue(pair_watch.poll("gate3:d89f689+:0.38", base, tol, dry_run=True,
-                                            watch_log=log))
+            self.assertEqual(pair_watch.poll("gate3:d89f689+:0.38", base, tol, dry_run=True,
+                                             watch_log=log), "spent")
         finally:
             pair_watch.AMBIENT = original
         with open(log) as handle:

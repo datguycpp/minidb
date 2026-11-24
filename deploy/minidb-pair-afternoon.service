@@ -1,0 +1,19 @@
+# Supervision for the afternoon-row watcher. Committed here so the policy that decides whether a clean exit
+# means "stop" lives in the repo it governs, not only in a running system.
+#
+# Restart=on-failure, NOT always: a watcher that halts on a deterministic instrument refusal exits 0, and
+# Restart=always would restart it into the same wall -- the 1,583-launch pattern one layer down. A crash
+# (non-zero) still restarts.
+[Unit]
+Description=minidb pair watcher (afternoon row, load 0.72) - launches the frozen pair harness on a trailing yes
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/grub/projects/minidb
+ExecStart=/usr/bin/python3 /home/grub/projects/minidb/tools/pair_watch.py --comparator gate3:d89f689+:0.72 --interval 60
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

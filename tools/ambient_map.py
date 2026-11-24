@@ -59,6 +59,45 @@ MODE_MIN_SAMPLES = 60
 # makes the outcome "insufficient observation", never a finding about the box. A frozen file must not
 # launder itself into a deadline.
 HORIZON_END = (2026, 11, 25, 23, 59, 59)
+
+# The horizon's third outcome, frozen before it can fire (@research's wording). It asserts that the box
+# OFFERED schedulable windows and the frozen chain could not spend them -- distinct from "none observed"
+# (no window existed) and from "insufficient observation" (the sampler did not cover it). It is quotable
+# only with its three counts attached: yes-windows per row, forwards per row, and measured series (which
+# must be zero for this outcome to be the true one).
+OUTCOME_INSTRUMENT_UNABLE = "windows-observed-instrument-unable"
+WATCH_LOG = os.path.expanduser("~/.minidb-pair-watch.jsonl")
+ATTEMPT_LOG = os.path.expanduser("~/.minidb-baseline-attempts.jsonl")
+
+
+def forward_counts(watch_log=WATCH_LOG, attempt_log=ATTEMPT_LOG):
+    """Forwards per row and how many of them produced a series."""
+    forwards, measured = {}, 0
+    if os.path.exists(watch_log):
+        with open(watch_log) as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if entry.get("action") in ("launch", "invoked", "launched"):
+                    forwards[entry.get("row", "?")] = forwards.get(entry.get("row", "?"), 0) + 1
+    if os.path.exists(attempt_log):
+        with open(attempt_log) as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if entry.get("values"):
+                    measured += 1
+    return forwards, measured
                             # interval. A file that stopped growing is indistinguishable from one nobody
                             # has checked yet, so a rate from a stale log is refused, not caveated.
 MIN_WINDOWS = 30            # independent windows, NOT raw starts: at 5s sampling with D=600s, thirty
@@ -578,7 +617,7 @@ def row_outcomes(path, minimum=MODE_MIN_SAMPLES, share=MODE_SHARE):
     return rows
 
 
-def horizon_status(path, now=None, end=None):
+def horizon_status(path, now=None, end=None, watch_log=WATCH_LOG, attempt_log=ATTEMPT_LOG):
     """Days left to the frozen horizon, plus the liveness the horizon's verdict depends on."""
     import datetime
 
@@ -607,9 +646,22 @@ def horizon_status(path, now=None, end=None):
                                          "%d candidate window(s), last %.1fh ago"
                                          % (row["yes_runs"], row["last_yes_age_h"] or -1))
                              for row in result["rows"]]
-        result["outcome"] = ("no schedulable window observed — a result about the box; both rows retired "
-                             "unmeasured" if live else
-                             "insufficient observation — the sampler was not live at the horizon")
+        if not live:
+            result["outcome"] = ("insufficient observation — the sampler was not live at the horizon")
+        else:
+            forwards, measured = forward_counts(watch_log, attempt_log)
+            yes_windows = {row["label"]: row["yes_runs"] for row in result["rows"]}
+            if forwards and measured == 0:
+                result["outcome"] = (
+                    "%s — the box offered schedulable windows the frozen chain could not spend; "
+                    "yes_windows=%s forwards=%s measured=%d"
+                    % (OUTCOME_INSTRUMENT_UNABLE,
+                       " ".join("%s:%d" % (k, v) for k, v in sorted(yes_windows.items())),
+                       " ".join("%s:%d" % (k.split(':')[-1], v) for k, v in sorted(forwards.items())),
+                       measured))
+            else:
+                result["outcome"] = ("no schedulable window observed — a result about the box; both rows "
+                                     "retired unmeasured")
     else:
         result["outcome"] = None
     return result

@@ -4455,3 +4455,33 @@ Nothing above the first entry was edited in the move.
   `~/.minidb-quarantine/baseline-attempts.simulated.20261124.jsonl` (4,497 real entries kept).
   *Watchers remain STOPPED.* They stay down until one supervised real capture against a pending row exits 0
   end to end — the suite cannot prove the accept path, and this incident is the proof of that.
+
+- **The stop didn't stop, and the supervisor would have restarted it anyway — two layers of the same
+  defect.** @default reproduced it: `poll()` returned `False` for both `wait` and `stop`, so `main()`'s loop
+  polled again immediately after logging "STOPPING" — five polls, five launches, five stop lines. **Fixed:**
+  `poll()` is **three-valued** (`wait` / `spent` / `stop`), `main()` exits 0 on `stop`, and `action=launched`
+  is split into **`invoked`** and **`measured`** so a broken path cannot look busy.
+  *Reproduced the fix with the same method — a fake harness that always exits 6:*
+  ```
+  pair_watch: STOPPING — the instrument refused this row (exit 6) …
+  pair_watch: halted on a deterministic instrument refusal — exiting cleanly …
+  uploads: 2 actions: ['launch', 'stop'] exit: 0
+  ```
+  One launch, one stop, clean exit — where the old code produced five launches in the same test.
+  *And the supervision itself moved into the repo:* `deploy/minidb-pair-{night,afternoon}.service`, with
+  **`Restart=on-failure` rather than `always`** — a clean exit means "stop", and `Restart=always` would have
+  restarted the watcher into the wall it had just refused. The unit files had never existed in-tree, so the
+  policy deciding whether "exit 0 means stop" lived only in a running system. `make pair-units` installs them.
+  *The incident's permanent test exists now:* `tests/test_accept_path.py` runs the **real capture subprocess**
+  against a **pending row** — asserting exit 6 without a sidecar, and *not* 6 with one (it may still refuse on
+  the box's load, which is admissibility, not the pending wall) — plus a subprocess test that a fake
+  exit-6 harness yields exactly one launch and a clean stop. Suite **678 OK**.
+  *The horizon's third outcome is frozen and implemented:* **`windows-observed-instrument-unable`**, quotable
+  only with its three counts. Computed from the live files rather than asserted:
+  ```
+  windows-observed-instrument-unable — the box offered schedulable windows the frozen chain could not spend;
+  yes_windows=afternoon:106 night:35 forwards=0.38:2390 0.72:775 measured=0
+  ```
+  It is mutually exclusive with "no schedulable window observed" (which now requires **zero forwards**) and
+  with "insufficient observation" (sampler not live at the horizon). A forward that produced a series makes
+  the outcome false, so the wording cannot be borrowed by a working chain.
